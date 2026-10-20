@@ -72,12 +72,12 @@ bool handles_fluid(ItemKind kind);
 
 class Building {
 private:
-    std::optional<ItemKind> kind;
+    std::optional<ItemKind> placed_by;
     Direction dir;
     GridSize size;
 
 public:
-    // `kind` is nullopt for buildings that never came from the inventory
+    // `placed_by` is nullopt for buildings that never came from the inventory
     // (the bridge).
     Building(std::optional<ItemKind> k, Direction facing, GridSize s);
     virtual ~Building() = default;
@@ -86,9 +86,9 @@ public:
 
     GridSize footprint() const { return size; }
     // The item that placed this building, refunded when it is removed.
-    std::optional<ItemKind> item_kind() const { return kind; }
+    std::optional<ItemKind> item_kind() const { return placed_by; }
     Direction facing() const { return dir; }
-    bool rotatable() const { return kind && is_rotatable(*kind); }
+    bool rotatable() const { return placed_by && is_rotatable(*placed_by); }
     virtual bool removable() const { return true; }
     // One simulation step.
     virtual void tick() {}
@@ -159,7 +159,7 @@ struct CollectorSpec {
     Tick interval = 0;
     int capacity = 0;  // items, or fluid units
     std::array<int, kChunkKindCount> chunk_weights{};
-    std::optional<FluidKind> fluid;
+    std::optional<FluidKind> fluid{};
     int fluid_amount = 0;
 };
 

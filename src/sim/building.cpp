@@ -170,7 +170,7 @@ int machine_crafting_speed(ItemKind kind) {
 }
 
 Building::Building(std::optional<ItemKind> k, Direction facing, GridSize s)
-    : kind(k), dir(facing), size(s) {}
+    : placed_by(k), dir(facing), size(s) {}
 
 Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize, kBridgeSize}) {}
 

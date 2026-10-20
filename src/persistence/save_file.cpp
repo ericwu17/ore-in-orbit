@@ -409,7 +409,10 @@ struct SaveAccess {
 namespace {
 
 SaveHeader load_header(const Json& j) {
-    if (!j.is_object() || j.value("format", "") != kFormat)
+    if (!j.is_object())
+        throw LoadError("not an Ore in Orbit save");
+    const auto format = j.find("format");
+    if (format == j.end() || *format != kFormat)
         throw LoadError("not an Ore in Orbit save");
     const Json& version = j.at("version");
     if (version != kSaveVersion)

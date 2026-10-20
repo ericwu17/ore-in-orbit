@@ -125,9 +125,9 @@ void test_round_trip() {
     const Ship& ship = world.get_ship();
     // Everything is mid-flight.
     assert(ship.get_bridge().craft_queue().size() == 2);
-    assert(dynamic_cast<const Machine*>(ship.building_at({x0, c}))->crafting());
-    assert(dynamic_cast<const Machine*>(ship.building_at({x0 + 5, c + 2}))->crafting());
-    assert(dynamic_cast<const CargoHold*>(ship.building_at({x0 + 5, c - 6}))->get_stored().total() > 0);
+    assert(dynamic_cast<const Machine&>(*ship.building_at({x0, c})).crafting());
+    assert(dynamic_cast<const Machine&>(*ship.building_at({x0 + 5, c + 2})).crafting());
+    assert(dynamic_cast<const CargoHold&>(*ship.building_at({x0 + 5, c - 6})).get_stored().total() > 0);
 
     const std::string text = save_text(world);
     std::string error;
