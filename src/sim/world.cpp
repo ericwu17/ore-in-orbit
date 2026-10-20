@@ -3,4 +3,5 @@
 
 void World::advance_tick() {
     ++current_tick;
+    ship.tick();
 }

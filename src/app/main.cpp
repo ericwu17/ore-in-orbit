@@ -184,7 +184,7 @@ int main(int, char**)
         switch (screen)
         {
         case Screen::MainMenu: DrawMainMenu(screen); break;
-        case Screen::Playing:  DrawPlaying(screen); break;
+        case Screen::Playing:  DrawPlaying(screen, world); break;
         case Screen::Credits:  DrawCredits(screen); break;
         }
         DrawDevWindows();

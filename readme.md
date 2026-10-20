@@ -2,9 +2,12 @@
 
 A new game, in early development. A fixed-timestep simulation driven from
 an SDL2 + Dear ImGui (docking) + ImPlot frame loop, with a themed UI. So far
-there is a main menu (Play, Credits); Play starts the simulation in
-`src/sim/world.*`, which is still empty (it only counts ticks) and draws
-nothing.
+there is a main menu (Play, Credits); Play starts a new game (held in
+memory only): a ship built on a square grid. Hull tiles go down first, and
+every building (hydrogen and asteroid collectors, pipes, transport
+belts) needs a hull tile under it. Everything placed comes out of the
+bridge's inventory, and removing it gives it back. The buildings don't do
+anything yet.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot. Runs on macOS, Linux and Windows.
 
@@ -45,6 +48,10 @@ mingw32-make && ./ore-in-orbit.exe
 ## Controls
 
 - **Escape**: back to the main menu (from the game or the credits).
+- **Left click / drag**: build the selected item on the grid.
+- **Right click / drag**: remove buildings and refund them; a second press
+  removes the bare hull underneath.
+- **1–5**: pick the item to build. **R**: rotate the transport belt.
 - **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
 
 ## Layout
@@ -54,13 +61,21 @@ One directory per layer under `src/`; includes name their layer
 
 - `src/sim/` — pure simulation, no SDL/imgui/OpenGL, so the tests can link
   it headless.
-  - `game_types.h` — `Tick` and the tick rate (60 per real second).
-  - `world.h/.cpp` — `World`: owns all state, `advance_tick()` steps it.
+  - `game_types.h` — `Tick` and the tick rate (60 per real second),
+    `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory holds).
+  - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
+    `Collector` → hydrogen / asteroid, `Pipe`, `TransportBelt`),
+    each class's footprint (`kSize`, e.g. 2x2 collectors), the
+    `make_building` factory and the bridge's `Inventory`.
+  - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
+    their top-left cell), placement / removal rules and the starting ship.
+  - `world.h/.cpp` — `World`: owns all state (the ship), `advance_tick()`
+    steps it.
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
-  - `ui.cpp` — the main menu, credits and (empty) game screens, and the
-    F1 / F2 demo windows.
+  - `ui.cpp` — the main menu, credits and game screens (the build grid and
+    palette), and the F1 / F2 demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,

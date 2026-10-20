@@ -4,6 +4,8 @@
 // knows nothing about them.
 #pragma once
 
+class World;
+
 // Which screen the app is showing. main.cpp owns it; the screens switch it.
 enum class Screen {
     MainMenu,
@@ -17,8 +19,9 @@ void DrawMainMenu(Screen& screen);
 // The credits page (empty for now). Back or Escape returns to the menu.
 void DrawCredits(Screen& screen);
 
-// The game itself (nothing drawn yet). Escape returns to the menu.
-void DrawPlaying(Screen& screen);
+// The game itself: the ship build grid and the build palette. Escape returns
+// to the menu.
+void DrawPlaying(Screen& screen, World& world);
 
 // The ImGui / ImPlot demo windows, toggled with F1 / F2 on any screen. Kept
 // handy as a widget reference while developing.

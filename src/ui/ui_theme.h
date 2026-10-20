@@ -49,6 +49,16 @@ constexpr ImVec4 kWarnText   = Rgb(160, 110, 18);   // kWarn darkened enough to 
 constexpr ImVec4 kTeal       = Rgb(52, 128, 140);
 constexpr ImVec4 kPlum       = Rgb(120, 72, 110);
 
+// Ship build grid (the game screen).
+constexpr ImVec4 kGridLine          = kPaper3;     // empty cells
+constexpr ImVec4 kTileHull          = kPaper4;
+constexpr ImVec4 kTileBridge        = kRed;
+constexpr ImVec4 kTileH2Collector   = kTeal;
+constexpr ImVec4 kTileRockCollector = kPlum;
+constexpr ImVec4 kTilePipe          = kNavy;
+constexpr ImVec4 kTileBelt          = kInkDim;
+constexpr ImVec4 kTileGlyph         = kPaperLight; // letters and arrows on tiles
+
 // Unscaled font sizes, as passed to ImGui::PushFont(nullptr, size); the DPI
 // scale is applied on top by style.FontScaleDpi.
 constexpr float kFontSmall = 12.5f;
