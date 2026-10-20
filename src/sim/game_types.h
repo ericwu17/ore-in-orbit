@@ -41,6 +41,17 @@ constexpr Direction rotated_cw(Direction d) {
     return static_cast<Direction>((static_cast<int>(d) + 1) % 4);
 }
 
+// The cell next to `p` in direction `d`.
+constexpr GridPos neighbor(GridPos p, Direction d) {
+    switch (d) {
+    case Direction::North: return {p.x, p.y - 1};
+    case Direction::East:  return {p.x + 1, p.y};
+    case Direction::South: return {p.x, p.y + 1};
+    case Direction::West:  return {p.x - 1, p.y};
+    }
+    return p;
+}
+
 // Everything the bridge inventory (or a belt) can hold. The placeable kinds
 // come first: hull tiles plus one entry per building (the bridge itself is not
 // an item: it is placed once, at the start of a game). After them come the

@@ -1,6 +1,7 @@
 // ship.cpp — placement rules and the starting ship (see ship.h).
 #include "sim/ship.h"
 
+#include <algorithm>
 #include <cassert>
 
 namespace {
@@ -121,6 +122,12 @@ void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
             cell = p;
         }
     at(buildings, p) = std::move(building);
+    placed.push_back(p);
+}
+
+Building* Ship::building_at_mut(GridPos p) {
+    const std::optional<GridPos> a = anchor_of(p);
+    return a ? at(buildings, *a).get() : nullptr;
 }
 
 BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing) const {
@@ -191,6 +198,7 @@ BuildResult Ship::remove_building(GridPos p) {
         for (int x = a->x; x < a->x + size.w; ++x)
             at(anchor, {x, y}).reset();
     building.reset();
+    placed.erase(std::find(placed.begin(), placed.end(), *a));
     return BuildResult::Ok;
 }
 
@@ -207,9 +215,85 @@ BuildResult Ship::remove_hull(GridPos p) {
     return BuildResult::Ok;
 }
 
+bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {
+    Building* target = building_at_mut(to);
+    if (!target)
+        return false;
+    auto* belt = dynamic_cast<Conveyor*>(target);
+    if (!belt) {
+        if (!target->accepts(kind))
+            return false;
+        target->receive(kind);
+        return true;
+    }
+    const Direction facing = belt->facing();
+    if (from == neighbor(to, facing))
+        return false;  // the cell it feeds
+    int pos = 0;
+    if (from != neighbor(to, rotated_cw(rotated_cw(facing)))) {
+        // From the side: halfway along, unless nothing feeds it from behind.
+        const auto* behind = dynamic_cast<const Conveyor*>(building_at(neighbor(to, rotated_cw(rotated_cw(facing)))));
+        if (behind && behind->moves_items() && behind->facing() == facing)
+            pos = kBeltLength / 2;
+    }
+    if (!belt->has_room_at(pos))
+        return false;
+    belt->insert(kind, pos);
+    return true;
+}
+
+bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
+    auto* machine = dynamic_cast<Machine*>(building_at_mut(p));
+    if (!machine || (recipe && !machine->can_run(*recipe)))
+        return false;
+    inventory().add(machine->set_recipe(recipe));
+    return true;
+}
+
+void Ship::push_output(GridPos p, Building& b) {
+    Inventory* out = b.output_buffer();
+    if (!out || out->total() == 0)
+        return;
+    // The cells around the footprint, clockwise from the top-left one, each
+    // with the footprint cell it touches.
+    struct Side {
+        GridPos to;
+        GridPos from;
+    };
+    const GridSize size = b.footprint();
+    std::vector<Side> sides;
+    for (int x = 0; x < size.w; ++x)
+        sides.push_back({{p.x + x, p.y - 1}, {p.x + x, p.y}});
+    for (int y = 0; y < size.h; ++y)
+        sides.push_back({{p.x + size.w, p.y + y}, {p.x + size.w - 1, p.y + y}});
+    for (int x = size.w - 1; x >= 0; --x)
+        sides.push_back({{p.x + x, p.y + size.h}, {p.x + x, p.y + size.h - 1}});
+    for (int y = size.h - 1; y >= 0; --y)
+        sides.push_back({{p.x - 1, p.y + y}, {p.x, p.y + y}});
+
+    const std::vector<ItemStack> held = out->stacks();
+    for (std::size_t k = 0; k < sides.size(); ++k) {
+        const std::size_t i = (b.next_output_side + k) % sides.size();
+        for (const ItemStack& s : held)
+            if (insert_item(sides[i].to, sides[i].from, s.kind)) {
+                out->take(s.kind);
+                b.next_output_side = i + 1;
+                return;
+            }
+    }
+}
+
 void Ship::tick() {
-    for (const auto& row : buildings)
-        for (const auto& building : row)
-            if (building)
-                building->tick();
+    for (const GridPos p : placed)
+        at(buildings, p)->tick();
+    for (const GridPos p : placed) {
+        auto* belt = dynamic_cast<Conveyor*>(at(buildings, p).get());
+        if (!belt)
+            continue;
+        if (const std::optional<ItemKind> item = belt->item_at_front())
+            if (insert_item(neighbor(p, belt->facing()), p, *item))
+                belt->pop_front();
+    }
+    for (const GridPos p : placed)
+        push_output(p, *at(buildings, p));
 }

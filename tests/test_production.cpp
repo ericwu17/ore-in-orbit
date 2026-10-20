@@ -12,8 +12,9 @@
 namespace {
 
 constexpr GridPos kCenter{kShipGridSize / 2, kShipGridSize / 2};
-// On the starting hull, with room for a 2x2 building east of the bridge.
-constexpr GridPos kOnHull{kCenter.x + 1, kCenter.y};
+// On the starting hull, with room for a 2x2 building, diagonal from the
+// bridge (not beside it: it would hand its output to the bridge).
+constexpr GridPos kOnHull{kCenter.x + 1, kCenter.y + 1};
 
 std::unique_ptr<Collector> make_collector(ItemKind kind) {
     std::unique_ptr<Building> b = make_building(kind, Direction::North);
@@ -97,8 +98,8 @@ void test_hydrogen() {
     assert(c->contents().empty());  // fluid isn't refunded as items
 }
 
-// Placed on the ship, collectors run with the world; removing one refunds
-// what it caught along with the building.
+// Placed on the ship, collectors run with the world; with no neighbor to
+// take its catch, removing one refunds it along with the building.
 void test_on_ship() {
     World world;
     Ship& ship = world.get_ship();

@@ -59,8 +59,21 @@ struct BuildUiState {
     bool erase_hull = false;              // this right-drag removes hull, not buildings
     std::string message;                  // why the last click did nothing
     double message_time = -1.0e9;         // ImGui::GetTime() when it was set
+    // The building shown in the inspector (clicked on the grid): its
+    // top-left cell, and the building itself, to notice it went away.
+    std::optional<GridPos> inspected;
+    const Building* inspected_building = nullptr;
 };
 BuildUiState g_build;
+
+// The building in the inspector, or null (forgetting it if it was removed).
+const Building* InspectedBuilding(const Ship& ship) {
+    if (g_build.inspected && ship.building_anchored_at(*g_build.inspected) == g_build.inspected_building)
+        return g_build.inspected_building;
+    g_build.inspected.reset();
+    g_build.inspected_building = nullptr;
+    return nullptr;
+}
 
 constexpr double kMessageSeconds = 3.0;
 
@@ -274,6 +287,77 @@ void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float
                             theme::U32(f >= 1.0f ? theme::kWarn : theme::kTileGlyph));
 }
 
+// The color an item is drawn in, by material family.
+ImVec4 ItemColor(ItemKind kind) {
+    switch (kind) {
+    case ItemKind::MetallicChunk:
+    case ItemKind::IronOre:
+    case ItemKind::IronPlate:
+    case ItemKind::Steel:           return theme::kItemIron;
+    case ItemKind::CopperOre:
+    case ItemKind::CopperPlate:
+    case ItemKind::CopperWire:      return theme::kItemCopper;
+    case ItemKind::NickelOre:
+    case ItemKind::NickelPlate:     return theme::kItemNickel;
+    case ItemKind::SilicateChunk:
+    case ItemKind::Silica:
+    case ItemKind::Glass:
+    case ItemKind::Silicon:         return theme::kItemSilica;
+    case ItemKind::CarbonaceousChunk:
+    case ItemKind::Carbon:          return theme::kItemCarbon;
+    case ItemKind::IceChunk:
+    case ItemKind::WaterIce:        return theme::kItemIce;
+    case ItemKind::ExoticChunk:
+    case ItemKind::IridiumOre:
+    case ItemKind::IridiumPlate:    return theme::kItemExotic;
+    case ItemKind::Plastic:
+    case ItemKind::Battery:
+    case ItemKind::PropellantCell:  return theme::kItemChemical;
+    default:
+        return item_category(kind) == ItemCategory::Placeable ? theme::kItemPlaceable : theme::kItemComponent;
+    }
+}
+
+// One item, centered on `c`, `r` across: chunks and raw resources as round
+// lumps, everything made from them as squares.
+void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
+    const ImU32 fill = theme::U32(ItemColor(kind));
+    const ImU32 outline = theme::U32(theme::kItemOutline, 0.7f);
+    const ItemCategory category = item_category(kind);
+    if (category == ItemCategory::AsteroidChunk || category == ItemCategory::RawResource) {
+        draw->AddCircleFilled(c, r, fill);
+        draw->AddCircle(c, r, outline);
+    } else {
+        draw->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fill);
+        draw->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), outline);
+    }
+}
+
+// The items riding a belt whose cell's top-left corner is `min`: position 0
+// is its back edge, kBeltLength its front edge.
+void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell) {
+    const ImVec2 d = DirectionVector(belt.facing());
+    const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
+    for (const BeltItem& item : belt.get_items()) {
+        const float t = cell * static_cast<float>(item.pos) / static_cast<float>(kBeltLength);
+        DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
+    }
+}
+
+// A machine's recipe (its main product, in the top-right corner) and its
+// craft progress (a gauge along the bottom).
+void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImVec2 max, float cell) {
+    const Recipe* recipe = machine.get_recipe();
+    if (!recipe || cell < 8.0f)
+        return;
+    if (!recipe->outputs.empty()) {
+        const float r = cell * 0.16f;
+        DrawItem(draw, ImVec2(max.x - cell * 0.32f, min.y + cell * 0.32f), r, recipe->outputs.front().kind);
+    }
+    if (machine.crafting())
+        DrawBufferGauge(draw, min, max, cell, machine.craft_progress());
+}
+
 // The placeable items in the build list: those in the inventory, plus the
 // selected one. The first nine get the number keys.
 std::vector<ItemKind> BuildList(const Ship& ship) {
@@ -352,7 +436,8 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::Spacing();
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextColored(theme::kInkDim,
-                       "Left click / drag: build\nRight click / drag: remove a building;\n"
+                       "Left click / drag: build\nLeft click a building: inspect it\n"
+                       "(pick a machine's recipe)\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag / Space + drag: pan\n"
                        "1-9: pick item   R: rotate\nEsc: main menu\n\n"
@@ -410,8 +495,126 @@ void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
     }
 }
 
-// The right panel: hand-crafting at the bridge, its queue, and the recipe
-// book for everything else.
+// What a building is and what it's doing: for the grid's hover tooltip and
+// the inspector.
+void BuildingDetails(const Building& b) {
+    const std::optional<ItemKind> kind = b.item_kind();
+    ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
+    const float bar_w = ImGui::GetFrameHeight() * 8.0f;
+    if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
+        std::string crafts;
+        for (int c = 0; c < kCraftCategoryCount; ++c)
+            if (machine->crafts(static_cast<CraftCategory>(c)))
+                crafts += std::string(crafts.empty() ? "" : ", ") + craft_category_name(static_cast<CraftCategory>(c));
+        ImGui::TextColored(theme::kInkDim, "%s, speed x%d", crafts.c_str(), machine->crafting_speed());
+        const Recipe* recipe = machine->get_recipe();
+        if (!recipe) {
+            ImGui::TextColored(theme::kWarnText, "No recipe: click it to pick one");
+        } else {
+            ImGui::Text("Recipe: %s  (%.1f / min)", recipe_name(*recipe), machine->crafts_per_minute());
+            ImGui::ProgressBar(machine->craft_progress(), ImVec2(bar_w, 0.0f), machine->crafting() ? "" : "Waiting");
+            ImGui::TextColored(theme::kInkDim, "Ingredients (per craft)");
+            for (const ItemStack& s : recipe->inputs) {
+                const int have = machine->get_input().count(s.kind);
+                ImGui::TextColored(have >= s.count ? theme::kInk : theme::kInkDim, "  %d / %d  %s", have, s.count,
+                                   item_name(s.kind));
+            }
+            for (const FluidStack& f : recipe->fluid_inputs)
+                ImGui::TextColored(theme::kInkDim, "  %d / %d  %s (no pipe flow yet)", machine->fluid_input(f.kind),
+                                   f.amount, fluid_name(f.kind));
+            ImGui::TextColored(theme::kInkDim, "Waiting to go out");
+            bool any = false;
+            for (const ItemStack& s : machine->get_output().stacks()) {
+                ImGui::TextColored(theme::kGood, "  %d x %s", s.count, item_name(s.kind));
+                any = true;
+            }
+            for (const FluidStack& f : recipe->fluid_outputs)
+                if (const int amount = machine->fluid_output(f.kind); amount > 0) {
+                    ImGui::TextColored(theme::kGood, "  %d %s", amount, fluid_name(f.kind));
+                    any = true;
+                }
+            if (!any)
+                ImGui::TextColored(theme::kInkDim, "  -");
+        }
+    }
+    if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
+        const CollectorSpec& spec = collector->get_spec();
+        const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
+        if (spec.fluid)
+            ImGui::TextColored(theme::kInkDim, "%d %s every %.1f s  (%.0f / s)", spec.fluid_amount,
+                               fluid_name(*spec.fluid), seconds, collector->rate_per_second());
+        else
+            ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
+                               collector->rate_per_second() * 60.0);
+        const bool full = collector->full();
+        ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
+        ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
+        for (const ItemStack& s : collector->items().stacks())
+            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+    }
+    if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
+        if (!belt->moves_items()) {
+            ImGui::TextColored(theme::kInkDim, "Doesn't move items yet");
+        } else {
+            ImGui::TextColored(theme::kInkDim, "%.0f cells / s",
+                               static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
+            Inventory carried;
+            for (const BeltItem& item : belt->get_items())
+                carried.add(item.kind);
+            for (const ItemStack& s : carried.stacks())
+                ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+        }
+    }
+    if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
+        ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
+        for (const ItemStack& s : hold->get_stored().stacks())
+            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+    }
+    if (!kind)
+        ImGui::TextColored(theme::kInkDim, "Belts deliver into its inventory");
+    if (b.rotatable())
+        ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
+}
+
+// The inspected building (clicked on the grid): its details, and for a
+// machine, the recipe picker.
+void DrawInspector(Ship& ship) {
+    const Building* b = InspectedBuilding(ship);
+    if (!b)
+        return;
+    theme::SectionHeading("Inspect");
+    BuildingDetails(*b);
+    if (const auto* machine = dynamic_cast<const Machine*>(b)) {
+        const Recipe* current = machine->get_recipe();
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::BeginCombo("##recipe", current ? recipe_name(*current) : "Pick a recipe",
+                              ImGuiComboFlags_HeightLargest)) {
+            if (ImGui::Selectable("None", current == nullptr))
+                ship.set_recipe(*g_build.inspected, nullptr);
+            const std::vector<const Recipe*> recipes = machine_recipes(*machine->item_kind());
+            for (std::size_t i = 0; i < recipes.size(); ++i) {
+                const Recipe* r = recipes[i];
+                ImGui::PushID(static_cast<int>(i));
+                if (ImGui::Selectable(recipe_name(*r), r == current) && r != current)
+                    ship.set_recipe(*g_build.inspected, r);
+                ImGui::PopID();
+                if (ImGui::BeginItemTooltip()) {
+                    RecipeDetails(*r, nullptr);
+                    ImGui::EndTooltip();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextColored(theme::kInkDim, "Changing it returns held ingredients to the bridge.");
+    }
+    if (ImGui::Button("Close##inspector", ImVec2(-1.0f, 0.0f))) {
+        g_build.inspected.reset();
+        g_build.inspected_building = nullptr;
+    }
+}
+
+// The right panel: the inspector, hand-crafting at the bridge, its queue,
+// and the recipe book for everything else.
 void DrawCraftPanel(Ship& ship, float width) {
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
@@ -420,6 +623,9 @@ void DrawCraftPanel(Ship& ship, float width) {
 
     ImGui::BeginChild("##craft_panel", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     Bridge& bridge = ship.get_bridge();
+    ImGui::PushTextWrapPos(0.0f);
+    DrawInspector(ship);
+    ImGui::PopTextWrapPos();
 
     theme::SectionHeading("Craft queue");
     const std::deque<CraftJob>& queue = bridge.craft_queue();
@@ -458,7 +664,7 @@ void DrawCraftPanel(Ship& ship, float width) {
 
     theme::SectionHeading("Recipe book");
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextColored(theme::kInkDim, "Made in machines; machines don't run yet.");
+    ImGui::TextColored(theme::kInkDim, "Made in machines: click one on the grid to pick its recipe.");
     ImGui::PopTextWrapPos();
     const std::vector<Recipe>& recipes = all_recipes();
     for (int c = 0; c < kCraftCategoryCount; ++c) {
@@ -478,37 +684,6 @@ void DrawCraftPanel(Ship& ship, float width) {
         ImGui::TreePop();
     }
     ImGui::EndChild();
-}
-
-// What a building is, for the grid's hover tooltip.
-void BuildingTooltip(const Building& b) {
-    const std::optional<ItemKind> kind = b.item_kind();
-    ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
-    if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
-        std::string crafts;
-        for (int c = 0; c < kCraftCategoryCount; ++c)
-            if (machine->crafts(static_cast<CraftCategory>(c)))
-                crafts += std::string(crafts.empty() ? "" : ", ") + craft_category_name(static_cast<CraftCategory>(c));
-        ImGui::TextColored(theme::kInkDim, "%s, speed x%d", crafts.c_str(), machine->crafting_speed());
-    }
-    if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
-        const CollectorSpec& spec = collector->get_spec();
-        const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
-        if (spec.fluid)
-            ImGui::TextColored(theme::kInkDim, "%d %s every %.1f s  (%.0f / s)", spec.fluid_amount,
-                               fluid_name(*spec.fluid), seconds, collector->rate_per_second());
-        else
-            ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
-                               collector->rate_per_second() * 60.0);
-        const bool full = collector->full();
-        ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(ImGui::GetFrameHeight() * 8.0f, 0.0f),
-                           full ? "Buffer full" : "");
-        ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
-        for (const ItemStack& s : collector->items().stacks())
-            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
-    }
-    if (b.rotatable())
-        ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
 }
 
 // Pans and zooms the camera from this frame's input on the canvas (the
@@ -590,8 +765,15 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     if (hover_cell && ImGui::IsItemActive()) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             const BuildResult r = ship.place(g_build.selected, *hover_cell, g_build.facing);
-            if (r != BuildResult::Ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                SetBuildMessage(r);
+            if (r != BuildResult::Ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                // Clicking a building (rather than building on it) inspects it.
+                if (const Building* b = ship.building_at(*hover_cell)) {
+                    g_build.inspected = ship.anchor_of(*hover_cell);
+                    g_build.inspected_building = b;
+                } else {
+                    SetBuildMessage(r);
+                }
+            }
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
             // One layer per press, picked where it starts: on a building it
             // only removes buildings, so a second press takes the hull.
@@ -653,11 +835,21 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
             if (const Building* b = ship.building_anchored_at({x, y})) {
                 const ImVec2 min = CellMin(origin, cell, {x, y});
                 DrawBuilding(draw, ship, {x, y}, min, cell, b->footprint(), b->item_kind(), b->facing(), 1.0f);
+                const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 if (const auto* collector = dynamic_cast<const Collector*>(b))
-                    DrawBufferGauge(draw, min, FootprintMax(min, cell, b->footprint()), cell,
+                    DrawBufferGauge(draw, min, max, cell,
                                     static_cast<float>(collector->stored()) /
                                         static_cast<float>(collector->capacity()));
+                if (const auto* machine = dynamic_cast<const Machine*>(b))
+                    DrawMachineStatus(draw, *machine, min, max, cell);
+                if (b == InspectedBuilding(ship))
+                    draw->AddRect(min, max, theme::U32(theme::kRed), 0.0f, 0, 2.0f);
             }
+    // Items on belts, over every building (they cross onto the next cell).
+    for (int y = lo.y; y <= hi.y; ++y)
+        for (int x = lo.x; x <= hi.x; ++x)
+            if (const auto* belt = dynamic_cast<const Conveyor*>(ship.building_anchored_at({x, y})))
+                DrawBeltItems(draw, *belt, CellMin(origin, cell, {x, y}), cell);
 
     // Hover preview: a ghost of what would be built (its footprint starting
     // at the hovered cell), outlined in good / bad. Clipped to the grid.
@@ -681,7 +873,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
             if (const Building* b = ship.building_at(*hover_cell)) {
                 ImGui::BeginTooltip();
-                BuildingTooltip(*b);
+                BuildingDetails(*b);
                 ImGui::EndTooltip();
             }
     }
@@ -732,6 +924,8 @@ void DrawPlaying(Screen& screen, World& world) {
     if (ShortcutPressed(ImGuiKey_Escape)) {
         screen = Screen::MainMenu;
         g_camera = {};  // the next game starts centred on its bridge
+        g_build.inspected.reset();
+        g_build.inspected_building = nullptr;
     }
 
     Ship& ship = world.get_ship();

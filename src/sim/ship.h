@@ -12,7 +12,12 @@
 //
 // Storage: grids indexed [y][x]. A building lives in `buildings` at the
 // top-left cell of its footprint (that index is its position); every cell
-// it covers records that top-left cell in `anchor`.
+// it covers records that top-left cell in `anchor`, and `placed` lists the
+// positions of all of them, oldest first.
+//
+// Item flow (Ship::tick): belts carry items to whatever they point at, and
+// buildings hand their output to the neighbors that will take it, belts
+// included (see insert_item).
 #pragma once
 
 #include "sim/building.h"
@@ -51,7 +56,13 @@ private:
     Grid<std::optional<ItemKind>> hull;          // Hull or ReinforcedHull, per cell
     Grid<std::unique_ptr<Building>> buildings;  // at each footprint's top-left cell, else null
     Grid<std::optional<GridPos>> anchor;         // per cell: top-left of the building covering it
+    std::vector<GridPos> placed;                 // every building's top-left cell, oldest first
     Bridge* bridge = nullptr;                    // owned by `buildings`
+
+    Building* building_at_mut(GridPos p);
+    // Offers one item from `b`'s output buffer to its neighbors, round
+    // robin; moves it to the first that takes it.
+    void push_output(GridPos p, Building& b);
 
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
@@ -96,6 +107,20 @@ public:
     // once no building covers it.
     BuildResult remove_hull(GridPos p);
 
-    // One simulation step for every building.
+    // Hands one item to the building covering `to`, coming from the next
+    // cell over, `from`; false (and no change) if it won't take it. A belt
+    // takes items from behind or from the side, never from the cell it
+    // points at: from behind they start at its back edge, from the side
+    // halfway along, unless no belt feeds it from behind (a corner), which
+    // counts as behind.
+    bool insert_item(GridPos to, GridPos from, ItemKind kind);
+    // Sets the recipe of the machine covering `p` (null: none), refunding
+    // the ingredients it held to the inventory; false if there's no machine
+    // there or it can't run `recipe`.
+    bool set_recipe(GridPos p, const Recipe* recipe);
+
+    // One simulation step: every building ticks (gathering, crafting, belts
+    // moving), then each belt's front item goes to what it points at, then
+    // each building puts one item of output out to a neighbor.
     void tick();
 };

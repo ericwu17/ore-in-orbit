@@ -6,7 +6,8 @@
 //   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array,
 //   │                hydrogen collector
-//   ├── Conveyor     moves items along: belts, belt tunnel, splitter, filter sorter
+//   ├── Conveyor     moves items along: belts (belt tunnel, splitter and filter
+//   │                sorter don't work yet)
 //   ├── CargoHold    item storage
 //   ├── FluidPart    pipe, pump, fluid tank
 //   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
@@ -17,12 +18,14 @@
 // One class per family, not per building: each building's footprint and
 // whether it rotates is data (footprint_of, is_rotatable), looked up by item
 // kind before one exists. A building doesn't know where it is: the Ship
-// stores it at its footprint's top-left cell. Only the bridge does anything
-// per tick: the bridge (hand-crafting) and the collectors (gathering).
+// stores it at its footprint's top-left cell.
 //
-// There are no inserters: as in Mindustry, belts and pipes feed straight
-// into the building they point at, and buildings put their output straight
-// onto the belts and pipes next to them.
+// There are no inserters: as in Mindustry, belts feed straight into the
+// building they point at, and buildings put their output straight onto the
+// belts (or into the buildings) next to them. A building takes items in
+// through accepts() / receive() and offers what it makes from its
+// output_buffer(); the Ship moves them between neighbors each tick (see
+// Ship::tick). Pipes will do the same for fluids; they don't carry any yet.
 #pragma once
 
 #include "sim/game_types.h"
@@ -91,6 +94,17 @@ public:
     // The items held inside it (buffers), refunded to the bridge when it is
     // removed.
     virtual std::vector<ItemStack> contents() const { return {}; }
+
+    // Item input: whether it takes one `kind` from a neighbor now, and
+    // taking it (only after accepts() said yes). Belts are the exception:
+    // where an item comes from matters to them (see Ship::insert_item).
+    virtual bool accepts(ItemKind) const { return false; }
+    virtual void receive(ItemKind) {}
+    // Item output: what it has made, waiting to go to its neighbors (any
+    // kind in it, one item per tick); null if it makes nothing.
+    virtual Inventory* output_buffer() { return nullptr; }
+    // Which neighbor gets offered output next (round robin, kept by the Ship).
+    std::size_t next_output_side = 0;
 };
 
 // A recipe the bridge is hand-crafting. Its inputs left the inventory when
@@ -112,6 +126,9 @@ public:
     // Advances the front craft job; a finished one puts its outputs in the
     // inventory.
     void tick() override;
+    // The ship's core: belts deliver anything into the inventory.
+    bool accepts(ItemKind) const override { return true; }
+    void receive(ItemKind kind) override { inventory.add(kind); }
 
     Inventory& get_inventory() { return inventory; }
     const Inventory& get_inventory() const { return inventory; }
@@ -159,6 +176,7 @@ public:
     // Gathers, unless the buffer is full.
     void tick() override;
     std::vector<ItemStack> contents() const override { return caught.stacks(); }
+    Inventory* output_buffer() override { return spec->fluid ? nullptr : &caught; }
 
     const Inventory& items() const { return caught; }
     Inventory& items() { return caught; }
@@ -173,14 +191,58 @@ public:
     float catch_progress() const;
 };
 
-class Conveyor : public Building {
-public:
-    Conveyor(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
+// Positions along a belt run from 0 (its back edge) to kBeltLength (its
+// front edge); items on it keep at least kBeltSpacing apart, so a full belt
+// holds kBeltLength / kBeltSpacing + 1 of them.
+constexpr int kBeltLength = 60;
+constexpr int kBeltSpacing = 20;
+
+// Belt speed in positions per tick (a cell is kBeltLength): 0 for the
+// conveyors that don't move items yet (tunnel, splitter, filter sorter).
+int belt_speed(ItemKind kind);
+
+struct BeltItem {
+    ItemKind kind;
+    int pos = 0;
 };
 
+class Conveyor : public Building {
+private:
+    std::vector<BeltItem> items;  // front (highest pos) first
+
+public:
+    Conveyor(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
+
+    int speed() const { return belt_speed(*item_kind()); }
+    bool moves_items() const { return speed() > 0; }
+    // Moves every item forward, up to the front edge or the item ahead.
+    void tick() override;
+    std::vector<ItemStack> contents() const override;
+
+    const std::vector<BeltItem>& get_items() const { return items; }
+    // Whether an item fits at `pos` (kBeltSpacing clear on both sides).
+    bool has_room_at(int pos) const;
+    // Puts an item at `pos`; has_room_at(pos) must hold.
+    void insert(ItemKind kind, int pos);
+    // The front item, once it has reached the front edge.
+    std::optional<ItemKind> item_at_front() const;
+    void pop_front();
+};
+
+// Storage: takes any item until it holds kCargoCapacity.
+constexpr int kCargoCapacity = 100;
+
 class CargoHold : public Building {
+private:
+    Inventory stored;
+
 public:
     CargoHold() : Building(ItemKind::CargoHold, Direction::North, footprint_of(ItemKind::CargoHold)) {}
+
+    const Inventory& get_stored() const { return stored; }
+    std::vector<ItemStack> contents() const override { return stored.stacks(); }
+    bool accepts(ItemKind) const override { return stored.total() < kCargoCapacity; }
+    void receive(ItemKind kind) override { stored.add(kind); }
 };
 
 class FluidPart : public Building {
@@ -188,16 +250,61 @@ public:
     FluidPart(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 };
 
-// Runs recipes of the categories it handles, at its crafting speed.
+// A machine's buffers, in crafts of its recipe: it takes ingredients until
+// it holds kInputCrafts crafts' worth, and stops crafting while a product
+// has kOutputCrafts crafts' worth waiting to leave.
+constexpr int kInputCrafts = 2;
+constexpr int kOutputCrafts = 4;
+
+// Runs the recipe the player picked (one of the categories it handles), at
+// its crafting speed: ingredients come in from belts and neighbors, a craft
+// starts once all of them (and its fluids) are there and there's room for
+// the products, which then wait in the output buffer to go out.
 class Machine : public Building {
+private:
+    const Recipe* recipe = nullptr;
+    Inventory input;
+    Inventory output;
+    std::array<int, kFluidKindCount> fluid_in{};
+    std::array<int, kFluidKindCount> fluid_out{};
+    std::optional<Tick> work;  // while crafting: progress, in ticks at speed 1
+
+    bool can_start() const;
+
 public:
     explicit Machine(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 
     bool crafts(CraftCategory category) const;
-    bool can_run(const Recipe& recipe) const { return crafts(recipe.category); }
+    bool can_run(const Recipe& r) const { return crafts(r.category); }
     // Recipe time multiplier: 2 runs a recipe in half its ticks.
     int crafting_speed() const;
+
+    const Recipe* get_recipe() const { return recipe; }
+    // Switches to `r` (null: none), which it must be able to run. Returns
+    // the ingredients it was holding (delivered, and those of a craft in
+    // progress, which is dropped), for the caller to refund. Products
+    // already made stay in the output buffer.
+    std::vector<ItemStack> set_recipe(const Recipe* r);
+
+    void tick() override;
+    std::vector<ItemStack> contents() const override;
+    bool accepts(ItemKind kind) const override;
+    void receive(ItemKind kind) override { input.add(kind); }
+    Inventory* output_buffer() override { return &output; }
+
+    const Inventory& get_input() const { return input; }
+    const Inventory& get_output() const { return output; }
+    int fluid_input(FluidKind f) const { return fluid_in[static_cast<std::size_t>(f)]; }
+    int fluid_output(FluidKind f) const { return fluid_out[static_cast<std::size_t>(f)]; }
+    bool crafting() const { return work.has_value(); }
+    // How far along the current craft is, 0 to 1 (0 when idle).
+    float craft_progress() const;
+    // Crafts per minute while kept supplied (0 without a recipe).
+    double crafts_per_minute() const;
 };
+
+// The recipes a machine of this kind can run, in all_recipes() order.
+std::vector<const Recipe*> machine_recipes(ItemKind kind);
 
 class PowerPlant : public Building {
 public:

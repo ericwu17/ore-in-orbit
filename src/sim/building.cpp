@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <utility>
 
 void Inventory::add(ItemKind kind, int n) {
@@ -258,12 +259,146 @@ float Collector::catch_progress() const {
     return static_cast<float>(progress) / static_cast<float>(spec->interval);
 }
 
+int belt_speed(ItemKind kind) {
+    switch (kind) {
+    case ItemKind::TransportBelt: return 2;  // 2 cells per second
+    case ItemKind::ExpressBelt:   return 4;
+    default:                      return 0;
+    }
+}
+
+void Conveyor::tick() {
+    int limit = kBeltLength;
+    for (BeltItem& item : items) {
+        item.pos = std::max(item.pos, std::min(item.pos + speed(), limit));
+        limit = item.pos - kBeltSpacing;
+    }
+}
+
+std::vector<ItemStack> Conveyor::contents() const {
+    Inventory held;
+    for (const BeltItem& item : items)
+        held.add(item.kind);
+    return held.stacks();
+}
+
+bool Conveyor::has_room_at(int pos) const {
+    if (!moves_items())
+        return false;
+    for (const BeltItem& item : items)
+        if (std::abs(item.pos - pos) < kBeltSpacing)
+            return false;
+    return true;
+}
+
+void Conveyor::insert(ItemKind kind, int pos) {
+    assert(has_room_at(pos));
+    auto it = items.begin();
+    while (it != items.end() && it->pos > pos)
+        ++it;
+    items.insert(it, BeltItem{kind, pos});
+}
+
+std::optional<ItemKind> Conveyor::item_at_front() const {
+    if (items.empty() || items.front().pos < kBeltLength)
+        return std::nullopt;
+    return items.front().kind;
+}
+
+void Conveyor::pop_front() {
+    assert(!items.empty());
+    items.erase(items.begin());
+}
+
 bool Machine::crafts(CraftCategory category) const {
     return machine_crafts(*item_kind(), category);
 }
 
 int Machine::crafting_speed() const {
     return machine_crafting_speed(*item_kind());
+}
+
+std::vector<ItemStack> Machine::set_recipe(const Recipe* r) {
+    assert(!r || can_run(*r));
+    std::vector<ItemStack> refund = input.stacks();
+    if (work)
+        refund.insert(refund.end(), recipe->inputs.begin(), recipe->inputs.end());
+    input = Inventory{};
+    fluid_in = {};
+    work.reset();
+    recipe = r;
+    return refund;
+}
+
+bool Machine::can_start() const {
+    if (!recipe || !input.has(recipe->inputs))
+        return false;
+    for (const FluidStack& f : recipe->fluid_inputs)
+        if (fluid_input(f.kind) < f.amount)
+            return false;
+    for (const ItemStack& s : recipe->outputs)
+        if (output.count(s.kind) + s.count > s.count * kOutputCrafts)
+            return false;
+    for (const FluidStack& f : recipe->fluid_outputs)
+        if (fluid_output(f.kind) + f.amount > f.amount * kOutputCrafts)
+            return false;
+    return true;
+}
+
+void Machine::tick() {
+    if (!work) {
+        if (!can_start())
+            return;
+        const bool taken = input.take(recipe->inputs);
+        assert(taken);
+        (void)taken;
+        for (const FluidStack& f : recipe->fluid_inputs)
+            fluid_in[static_cast<std::size_t>(f.kind)] -= f.amount;
+        work = 0;
+    }
+    *work += static_cast<Tick>(crafting_speed());
+    if (*work < recipe->ticks)
+        return;
+    output.add(recipe->outputs);
+    for (const FluidStack& f : recipe->fluid_outputs)
+        fluid_out[static_cast<std::size_t>(f.kind)] += f.amount;
+    work.reset();
+}
+
+std::vector<ItemStack> Machine::contents() const {
+    std::vector<ItemStack> held = input.stacks();
+    const std::vector<ItemStack> made = output.stacks();
+    held.insert(held.end(), made.begin(), made.end());
+    if (work)
+        held.insert(held.end(), recipe->inputs.begin(), recipe->inputs.end());
+    return held;
+}
+
+bool Machine::accepts(ItemKind kind) const {
+    if (!recipe)
+        return false;
+    for (const ItemStack& s : recipe->inputs)
+        if (s.kind == kind)
+            return input.count(kind) < s.count * kInputCrafts;
+    return false;
+}
+
+float Machine::craft_progress() const {
+    return work ? static_cast<float>(*work) / static_cast<float>(recipe->ticks) : 0.0f;
+}
+
+double Machine::crafts_per_minute() const {
+    if (!recipe)
+        return 0.0;
+    return 60.0 * static_cast<double>(kTicksPerSecond) * crafting_speed() / static_cast<double>(recipe->ticks);
+}
+
+std::vector<const Recipe*> machine_recipes(ItemKind kind) {
+    std::vector<const Recipe*> list;
+    for (const Recipe& r : all_recipes())
+        if (machine_crafts(kind, r.category))
+            list.push_back(&r);
+    return list;
 }
 
 std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {

@@ -9,7 +9,11 @@ every building (hydrogen and asteroid collectors, pipes, transport
 belts) needs a hull tile under it. Everything placed comes out of the
 bridge's inventory, and removing it gives it back (with anything stored
 inside it). Collectors gather at a set rate into an internal buffer (asteroid
-chunks, or hydrogen) and stall when it is full.
+chunks, or hydrogen) and stall when it is full. As in Mindustry there are no
+inserters: buildings put their output straight onto neighboring belts (or
+into neighboring buildings that take it), and belts carry items into
+whatever they point at, the bridge included. Machines craft the recipe the
+player picks for them (click one on the grid). Pipes don't carry fluid yet.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot. Runs on macOS, Linux and Windows.
 
@@ -51,6 +55,7 @@ mingw32-make && ./ore-in-orbit.exe
 
 - **Escape**: back to the main menu (from the game or the credits).
 - **Left click / drag**: build the selected item on the grid.
+- **Left click a building**: inspect it; for a machine, pick its recipe.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).
@@ -70,17 +75,20 @@ One directory per layer under `src/`; includes name their layer
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
     `Collector` → hydrogen / asteroid, `Pipe`, `TransportBelt`),
     each kind's footprint (`footprint_of`, e.g. 2x2 collectors), the
-    collectors' rates and buffers (`CollectorSpec`), the `make_building`
-    factory and `Inventory` (the bridge's, and building buffers).
+    collectors' rates and buffers (`CollectorSpec`), belts (`Conveyor`),
+    machines and their recipes, the `make_building` factory and
+    `Inventory` (the bridge's, and building buffers).
   - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
-    their top-left cell), placement / removal rules and the starting ship.
+    their top-left cell), placement / removal rules, the starting ship, and
+    moving items between neighboring buildings each tick.
   - `world.h/.cpp` — `World`: owns all state (the ship), `advance_tick()`
     steps it.
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
   - `ui.cpp` — the main menu, credits and game screens (the build grid and
-    palette, with its zoom / pan camera), and the F1 / F2 demo windows.
+    palette, with its zoom / pan camera, and the inspector), and the F1 / F2
+    demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
