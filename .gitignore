@@ -1,0 +1,19 @@
+.DS_Store
+
+# build artifacts (one build dir per platform makefile)
+build/
+build-linux/
+build-windows/
+/sim-template
+/sim-template.exe
+*.o
+*.d
+
+.cache
+
+# imgui runtime window-layout state
+imgui.ini
+
+# machine-specific IDE index (regenerate if Makefile flags change)
+compile_commands.json
+.vscode

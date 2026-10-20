@@ -1,0 +1,25 @@
+# Sim Template — SDL2 + OpenGL3 + Dear ImGui (macOS)
+#
+# Included by the top-level Makefile on macOS; bare `make` just works.
+# Requires SDL2:  brew install sdl2
+# Build & run:    make && ./sim-template
+#
+# Only the macOS-specific settings live here (platform_macos.mm, the OpenGL
+# framework, GL deprecation silencing); every rule is in Makefile.common.
+
+EXE       = sim-template
+BUILD_DIR = build
+
+CXX ?= clang++
+
+# OpenGL is deprecated on macOS (but fully functional) — silence the warnings
+# so our -Werror build of main.cpp stays clean.
+PLATFORM_CXXFLAGS = -DGL_SILENCE_DEPRECATION
+
+# platform_macos.mm holds the macOS-only startup tweaks (see src/app/platform_macos.h).
+PLATFORM_SOURCES = src/app/platform_macos.mm
+
+LIBS  = -framework OpenGL
+LIBS += $(shell sdl2-config --libs)
+
+include Makefile.common

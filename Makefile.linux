@@ -1,0 +1,29 @@
+# Sim Template — SDL2 + OpenGL3 + Dear ImGui (Linux)
+#
+# Requires SDL2 dev files and a GL implementation:
+#   Debian/Ubuntu:  sudo apt install build-essential libsdl2-dev libgl-dev
+#   Fedora:         sudo dnf install gcc-c++ make SDL2-devel mesa-libGL-devel
+#   Arch:           sudo pacman -S base-devel sdl2 mesa
+#
+# Included by the top-level Makefile on Linux, so bare `make` just works
+# (equivalent: make -f Makefile.linux).
+# Build & run:    make && ./sim-template
+#
+# Only the Linux-specific settings live here; every rule is in
+# Makefile.common. The macOS-only platform_macos.mm is NOT built here.
+
+EXE       = sim-template
+# Separate build dir per platform so artifacts never collide across makefiles.
+BUILD_DIR = build-linux
+
+# Hard-set, not `?=`: make predefines CXX=c++, and we want g++ explicitly
+# (override on the command line with `make CXX=clang++ ...` if preferred).
+CXX = g++
+
+# -lGL for the direct glViewport/glClear calls in main.cpp, -ldl because the
+# imgui OpenGL3 loader dlopen()s the system GL library at runtime (only needed
+# on glibc < 2.34, harmless elsewhere).
+LIBS  = -lGL -ldl
+LIBS += $(shell sdl2-config --libs)
+
+include Makefile.common

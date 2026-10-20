@@ -1,0 +1,31 @@
+# Sim Template — SDL2 + OpenGL3 + Dear ImGui (Windows, MinGW-w64 / MSYS2)
+#
+# Setup (from https://www.msys2.org):
+#   1. Install MSYS2, then from the "MSYS2 MinGW 64-bit" shell:
+#        pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-SDL2 mingw-w64-x86_64-make
+#   2. Build & run (from the repo root, same shell):
+#        mingw32-make && ./sim-template.exe
+#      (the top-level Makefile detects Windows and includes this file;
+#      equivalent: mingw32-make -f Makefile.windows)
+#
+# Build from the MSYS2 MinGW64 shell (not plain cmd): make needs the POSIX
+# sh from MSYS2 for the mkdir/test rules, and sdl2-config on the PATH.
+#
+# Only the Windows-specific settings live here; every rule is in
+# Makefile.common. The macOS-only platform_macos.mm is NOT built here.
+
+EXE       = sim-template.exe
+# Separate build dir per platform so artifacts never collide across makefiles.
+BUILD_DIR = build-windows
+
+# Hard-set, not `?=`: make predefines CXX=c++, and on MSYS2 we want the
+# mingw-w64 g++ explicitly.
+CXX = g++
+
+# -lmingw32 must precede -lSDL2main -lSDL2 (from sdl2-config) for the
+# SDL main() entry-point shims to link; -lopengl32 for the direct
+# glViewport/glClear calls in main.cpp; gdi32/imm32 are standard GUI
+# dependencies (mirrors imgui/examples/example_sdl2_opengl3).
+LIBS  = -lmingw32 $(shell sdl2-config --libs) -lgdi32 -lopengl32 -limm32
+
+include Makefile.common
