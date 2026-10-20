@@ -41,6 +41,11 @@ constexpr Direction rotated_cw(Direction d) {
     return static_cast<Direction>((static_cast<int>(d) + 1) % 4);
 }
 
+// The next direction counterclockwise (North -> West -> South -> East).
+constexpr Direction rotated_ccw(Direction d) {
+    return static_cast<Direction>((static_cast<int>(d) + 3) % 4);
+}
+
 // The cell next to `p` in direction `d`.
 constexpr GridPos neighbor(GridPos p, Direction d) {
     switch (d) {
@@ -50,6 +55,17 @@ constexpr GridPos neighbor(GridPos p, Direction d) {
     case Direction::West:  return {p.x - 1, p.y};
     }
     return p;
+}
+
+// The direction of the step from `from` to `to`, which must be next to it.
+constexpr Direction direction_to(GridPos from, GridPos to) {
+    if (to.y < from.y)
+        return Direction::North;
+    if (to.x > from.x)
+        return Direction::East;
+    if (to.y > from.y)
+        return Direction::South;
+    return Direction::West;
 }
 
 // Everything the bridge inventory (or a belt) can hold. The placeable kinds

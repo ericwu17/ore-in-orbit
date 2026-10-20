@@ -65,7 +65,6 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     GridSize size{1, 1};
     switch (kind) {
     case ItemKind::Splitter:
-    case ItemKind::FilterSorter:
         size = {2, 1};
         break;
     case ItemKind::CargoHold:
@@ -108,7 +107,6 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
     case ItemKind::Splitter:
-    case ItemKind::FilterSorter:
     case ItemKind::Pump:
         return true;
     default:
@@ -411,8 +409,9 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
     case ItemKind::Splitter:
-    case ItemKind::FilterSorter:
         return std::make_unique<Conveyor>(kind, facing);
+    case ItemKind::FilterSorter:
+        return std::make_unique<Sorter>();
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
     case ItemKind::Pipe:

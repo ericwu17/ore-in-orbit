@@ -1,7 +1,8 @@
 // test_logistics.cpp — headless tests for moving items between buildings:
 // belts (travel time, spacing and jams, which sides they take items from),
 // buildings feeding their neighbors directly, machines crafting the recipe
-// they were set to, and a whole collector -> crusher -> belt -> bridge chain.
+// they were set to, filter sorters, and a whole collector -> crusher -> belt
+// -> bridge chain.
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -256,6 +257,155 @@ void test_cargo_hold() {
     assert(ship.inventory().count(ItemKind::Steel) == steel + kCargoCapacity);
 }
 
+// A sorter one cell north-east of the bridge, with its west side as the
+// way in and a belt leading away from each of the other three.
+struct SorterRig {
+    static constexpr GridPos sorter{c + 1, c - 1};
+    static constexpr GridPos west{c, c - 1};
+    static constexpr GridPos east{c + 2, c - 1};
+    static constexpr GridPos north{c + 1, c - 2};
+    static constexpr GridPos south{c + 1, c};
+
+    explicit SorterRig(Ship& ship) {
+        ship.inventory().add(ItemKind::FilterSorter, 1);
+        assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, east, Direction::East) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, north, Direction::North) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, south, Direction::South) == BuildResult::Ok);
+    }
+};
+
+// What the filter matches carries straight on; the rest turns.
+void test_sorter_straight() {
+    World world;
+    Ship& ship = world.get_ship();
+    const SorterRig rig(ship);
+    const Building& sorter = *ship.building_at(rig.sorter);
+    assert(sorter.footprint() == (GridSize{1, 1}) && !sorter.rotatable());
+    assert(ship.set_sort_filter(rig.sorter, ItemKind::IronPlate));
+
+    assert(ship.insert_item(rig.sorter, rig.west, ItemKind::IronPlate));
+    assert(belt_at(ship, rig.east).get_items().size() == 1);
+    assert(belt_at(ship, rig.east).get_items().front().pos == 0);
+    assert(ship.insert_item(rig.sorter, rig.west, ItemKind::Gear));
+    assert(belt_at(ship, rig.east).get_items().size() == 1);
+    assert(belt_at(ship, rig.north).get_items().size() + belt_at(ship, rig.south).get_items().size() == 1);
+    // It holds nothing.
+    assert(sorter.contents().empty());
+}
+
+// With no filter, everything turns, taking turns between the sides; a side
+// that won't take an item leaves it all to the other, and with neither the
+// item is refused.
+void test_sorter_alternates() {
+    World world;
+    Ship& ship = world.get_ship();
+    const SorterRig rig(ship);
+    const Tick per_cell = belt_cell_ticks();
+    for (int i = 0; i < 4; ++i) {
+        assert(ship.insert_item(rig.sorter, rig.west, ItemKind::Gear));
+        run(world, per_cell);
+    }
+    assert(belt_at(ship, rig.north).get_items().size() == 2);
+    assert(belt_at(ship, rig.south).get_items().size() == 2);
+    assert(belt_at(ship, rig.east).get_items().empty());
+
+    // No north belt: all of it goes south, until that belt jams.
+    assert(ship.remove_building(rig.north) == BuildResult::Ok);
+    int accepted = 0;
+    for (int t = 0; t < 300; ++t) {
+        if (ship.insert_item(rig.sorter, rig.west, ItemKind::Gear))
+            ++accepted;
+        world.advance_tick();
+    }
+    const int full = kBeltLength / kBeltSpacing + 1;
+    assert(accepted == full - 2);
+    assert(static_cast<int>(belt_at(ship, rig.south).get_items().size()) == full);
+    assert(!ship.insert_item(rig.sorter, rig.west, ItemKind::Gear));
+}
+
+void test_sorter_filter() {
+    World world;
+    Ship& ship = world.get_ship();
+    const SorterRig rig(ship);
+    const auto& sorter = dynamic_cast<const Sorter&>(*ship.building_at(rig.sorter));
+    assert(!sorter.get_filter());
+    assert(!ship.set_sort_filter(rig.east, ItemKind::Gear));          // a belt
+    assert(!ship.set_sort_filter({c - 1, c - 1}, ItemKind::Gear));    // nothing
+    assert(ship.set_sort_filter(rig.sorter, ItemKind::Gear));
+    assert(sorter.get_filter() == ItemKind::Gear);
+    assert(ship.set_sort_filter(rig.sorter, std::nullopt));
+    assert(!sorter.get_filter());
+
+    const int total = ship.inventory().total();
+    const int sorters = ship.inventory().count(ItemKind::FilterSorter);
+    assert(ship.remove_building(rig.sorter) == BuildResult::Ok);
+    assert(ship.inventory().total() == total + 1);
+    assert(ship.inventory().count(ItemKind::FilterSorter) == sorters + 1);
+}
+
+// Two sorters in a row pass an item on, but not into a third; a ring of
+// them refuses it rather than passing it round forever.
+void test_sorter_chain() {
+    {
+        World world;
+        Ship& ship = world.get_ship();
+        ship.inventory().add(ItemKind::FilterSorter, 3);
+        for (int x = c + 3; x <= c + 4; ++x)
+            assert(ship.place(ItemKind::Hull, {x, c - 1}) == BuildResult::Ok);
+        for (int x = c + 1; x <= c + 3; ++x) {
+            assert(ship.place(ItemKind::FilterSorter, {x, c - 1}) == BuildResult::Ok);
+            assert(ship.set_sort_filter({x, c - 1}, ItemKind::IronPlate));
+        }
+        assert(ship.place(ItemKind::TransportBelt, {c + 4, c - 1}, Direction::East) == BuildResult::Ok);
+        assert(!ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::IronPlate));
+        assert(ship.remove_building({c + 3, c - 1}) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, {c + 3, c - 1}, Direction::East) == BuildResult::Ok);
+        assert(ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::IronPlate));
+        assert(belt_at(ship, {c + 3, c - 1}).get_items().size() == 1);
+    }
+    {
+        World world;
+        Ship& ship = world.get_ship();
+        ship.inventory().add(ItemKind::FilterSorter, 4);
+        for (int y = c - 2; y <= c - 1; ++y)
+            for (int x = c + 1; x <= c + 2; ++x)
+                assert(ship.place(ItemKind::FilterSorter, {x, y}) == BuildResult::Ok);
+        assert(!ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::Gear));
+    }
+}
+
+// A collector's chunks ride a belt into a sorter beside the bridge: the
+// metallic ones carry straight on into the bridge, the rest turn into a
+// cargo hold.
+void test_sorter_feeds() {
+    World world;
+    Ship& ship = world.get_ship();
+    for (int y = c - 1; y <= c; ++y)
+        for (int x = c + 3; x <= c + 4; ++x)
+            assert(ship.place(ItemKind::Hull, {x, y}) == BuildResult::Ok);
+    ship.inventory().add(ItemKind::FilterSorter, 1);
+    const GridPos sorter{c + 1, c};
+    const GridPos hold_pos{c + 1, c + 1};  // the sorter's south side
+    assert(ship.place(ItemKind::AsteroidCollector, {c + 3, c - 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, {c + 2, c}, Direction::West) == BuildResult::Ok);
+    assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, hold_pos) == BuildResult::Ok);
+    assert(ship.set_sort_filter(sorter, ItemKind::MetallicChunk));
+
+    const Inventory before = ship.inventory();
+    run(world, 120 * kTicksPerSecond);
+    const auto& hold = dynamic_cast<const CargoHold&>(*ship.building_at(hold_pos));
+    assert(ship.inventory().count(ItemKind::MetallicChunk) > before.count(ItemKind::MetallicChunk));
+    assert(hold.get_stored().count(ItemKind::MetallicChunk) == 0);
+    assert(hold.get_stored().total() > 0);
+    for (int k = 0; k < kChunkKindCount; ++k) {
+        const ItemKind chunk = static_cast<ItemKind>(static_cast<int>(ItemKind::MetallicChunk) + k);
+        if (chunk != ItemKind::MetallicChunk)
+            assert(ship.inventory().count(chunk) == before.count(chunk));
+    }
+}
+
 void test_machine_recipes() {
     for (const Recipe* r : machine_recipes(ItemKind::FabricatorMk1))
         assert(r->category == CraftCategory::Assembly);
@@ -274,6 +424,11 @@ int main() {
     test_machine_output_full();
     test_chain();
     test_cargo_hold();
+    test_sorter_straight();
+    test_sorter_alternates();
+    test_sorter_filter();
+    test_sorter_chain();
+    test_sorter_feeds();
     test_machine_recipes();
     std::puts("test_logistics: all passed");
     return 0;

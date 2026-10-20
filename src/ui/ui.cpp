@@ -263,7 +263,9 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
         break;
     }
     case ItemKind::FilterSorter:
-        conveyor(theme::kTileBelt);
+        // No arrow: it doesn't face a way. Its filter is drawn over it (see
+        // DrawSorterFilter).
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
         draw->AddRect(a, b, theme::U32(theme::kWarn, alpha), rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
         break;
     default:
@@ -359,6 +361,12 @@ void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImV
         DrawBufferGauge(draw, min, max, cell, machine.craft_progress());
 }
 
+// A sorter's filter item, in the middle of its tile.
+void DrawSorterFilter(ImDrawList* draw, const Sorter& sorter, ImVec2 min, float cell) {
+    if (const std::optional<ItemKind> filter = sorter.get_filter())
+        DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.2f), *filter);
+}
+
 // The placeable items in the build list: those in the inventory, plus the
 // selected one. The first nine get the number keys.
 std::vector<ItemKind> BuildList(const Ship& ship) {
@@ -438,7 +446,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextColored(theme::kInkDim,
                        "Left click / drag: build\nLeft click a building: inspect it\n"
-                       "(pick a machine's recipe)\nRight click / drag: remove a building;\n"
+                       "(pick a machine's recipe or a sorter's filter)\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
                        "1-9: pick item   R: rotate\nEsc: main menu\n\n"
@@ -566,6 +574,11 @@ void BuildingDetails(const Building& b) {
                 ImGui::Text("  %d x %s", s.count, item_name(s.kind));
         }
     }
+    if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
+        const std::optional<ItemKind> filter = sorter->get_filter();
+        ImGui::Text("Filter: %s", filter ? item_name(*filter) : "none");
+        ImGui::TextColored(theme::kInkDim, "Matching items go straight through;\nothers turn left or right");
+    }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
         for (const ItemStack& s : hold->get_stored().stacks())
@@ -578,7 +591,7 @@ void BuildingDetails(const Building& b) {
 }
 
 // The inspected building (clicked on the grid): its details, and for a
-// machine, the recipe picker.
+// machine, the recipe picker; for a sorter, the filter picker.
 void DrawInspector(Ship& ship) {
     const Building* b = InspectedBuilding(ship);
     if (!b)
@@ -607,6 +620,23 @@ void DrawInspector(Ship& ship) {
             ImGui::EndCombo();
         }
         ImGui::TextColored(theme::kInkDim, "Changing it returns held ingredients to the bridge.");
+    }
+    if (const auto* sorter = dynamic_cast<const Sorter*>(b)) {
+        const std::optional<ItemKind> current = sorter->get_filter();
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::BeginCombo("##filter", current ? item_name(*current) : "Pick a filter",
+                              ImGuiComboFlags_HeightLargest)) {
+            if (ImGui::Selectable("None", !current))
+                ship.set_sort_filter(*g_build.inspected, std::nullopt);
+            for (int i = 0; i < kItemKindCount; ++i) {
+                const ItemKind kind = static_cast<ItemKind>(i);
+                ImGui::PushID(i);
+                if (ImGui::Selectable(item_name(kind), current == kind))
+                    ship.set_sort_filter(*g_build.inspected, kind);
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
     }
     if (ImGui::Button("Close##inspector", ImVec2(-1.0f, 0.0f))) {
         g_build.inspected.reset();
@@ -850,6 +880,8 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                                         static_cast<float>(collector->capacity()));
                 if (const auto* machine = dynamic_cast<const Machine*>(b))
                     DrawMachineStatus(draw, *machine, min, max, cell);
+                if (const auto* sorter = dynamic_cast<const Sorter*>(b))
+                    DrawSorterFilter(draw, *sorter, min, cell);
                 if (b == InspectedBuilding(ship))
                     draw->AddRect(min, max, theme::U32(theme::kRed), 0.0f, 0, 2.0f);
             }

@@ -13,7 +13,9 @@ chunks, or hydrogen) and stall when it is full. As in Mindustry there are no
 inserters: buildings put their output straight onto neighboring belts (or
 into neighboring buildings that take it), and belts carry items into
 whatever they point at, the bridge included. Machines craft the recipe the
-player picks for them (click one on the grid). Pipes don't carry fluid yet.
+player picks for them (click one on the grid). Filter sorters route items
+by kind, as in Mindustry: the one picked for it goes straight through, the
+rest turn left or right. Pipes don't carry fluid yet.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot. Runs on macOS, Linux and Windows.
 
@@ -55,7 +57,8 @@ mingw32-make && ./ore-in-orbit.exe
 
 - **Escape**: back to the main menu (from the game or the credits).
 - **Left click / drag**: build the selected item on the grid.
-- **Left click a building**: inspect it; for a machine, pick its recipe.
+- **Left click a building**: inspect it; pick a machine's recipe or a
+  filter sorter's item.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).

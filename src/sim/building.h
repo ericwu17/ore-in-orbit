@@ -6,8 +6,9 @@
 //   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array,
 //   │                hydrogen collector
-//   ├── Conveyor     moves items along: belts (belt tunnel, splitter and filter
-//   │                sorter don't work yet)
+//   ├── Conveyor     moves items along: belts (belt tunnel and splitter don't
+//   │                work yet)
+//   ├── Sorter       routes items by kind (the filter sorter)
 //   ├── CargoHold    item storage
 //   ├── FluidPart    pipe, pump, fluid tank
 //   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
@@ -198,7 +199,7 @@ constexpr int kBeltLength = 60;
 constexpr int kBeltSpacing = 20;
 
 // Belt speed in positions per tick (a cell is kBeltLength): 0 for the
-// conveyors that don't move items yet (tunnel, splitter, filter sorter).
+// conveyors that don't move items yet (tunnel, splitter).
 int belt_speed(ItemKind kind);
 
 struct BeltItem {
@@ -227,6 +228,25 @@ public:
     // The front item, once it has reached the front edge.
     std::optional<ItemKind> item_at_front() const;
     void pop_front();
+};
+
+// The filter sorter, as in Mindustry: an item matching its filter carries
+// straight on through, out the side opposite the one it came in by; any
+// other item turns left or right, alternating when both sides would take it.
+// It holds nothing: it takes an item only if where it would go takes it at
+// once (see Ship::insert_item). With no filter, every item turns.
+class Sorter : public Building {
+private:
+    std::optional<ItemKind> filter;
+
+public:
+    Sorter() : Building(ItemKind::FilterSorter, Direction::North, footprint_of(ItemKind::FilterSorter)) {}
+
+    std::optional<ItemKind> get_filter() const { return filter; }
+    void set_filter(std::optional<ItemKind> item) { filter = item; }
+    // Which side an item that turns tries first: right of its travel
+    // direction, or left. Kept by the Ship, which flips it after each turn.
+    bool next_right = false;
 };
 
 // Storage: takes any item until it holds kCargoCapacity.

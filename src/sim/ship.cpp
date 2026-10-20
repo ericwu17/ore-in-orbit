@@ -10,19 +10,41 @@ namespace {
 // with the bridge at its center.
 constexpr int kStartHullSide = 5;
 
-// What the bridge inventory starts with: a bootstrap kit (design: one
-// collector, crusher and furnace, belts and hull), plus starter cargo so
+// What the bridge inventory starts with: some of every building (design: a
+// bootstrap kit of belts, sorters, hull, a collector, crusher and furnace,
+// plus one of each later building to try out), and starter cargo so
 // hand-crafting has something to work with.
 constexpr ItemStack kStartInventory[] = {
     {ItemKind::Hull, 150},
+    // Enough for a few of the large buildings that need it.
+    {ItemKind::ReinforcedHull, 60},
     {ItemKind::TransportBelt, 60},
-    {ItemKind::Pipe, 30},
+    {ItemKind::ExpressBelt, 20},
+    {ItemKind::BeltTunnel, 4},
+    {ItemKind::Splitter, 2},
+    {ItemKind::FilterSorter, 4},
     {ItemKind::CargoHold, 2},
+    {ItemKind::Pipe, 30},
+    {ItemKind::Pump, 1},
+    {ItemKind::FluidTank, 1},
     {ItemKind::AsteroidCollector, 1},
+    {ItemKind::TractorArray, 1},
     {ItemKind::HydrogenCollector, 1},
     {ItemKind::AsteroidCrusher, 1},
     {ItemKind::SolarFurnace, 1},
+    {ItemKind::ArcFurnace, 1},
+    {ItemKind::IceMelter, 1},
+    {ItemKind::Electrolyzer, 1},
+    {ItemKind::ChemicalPlant, 1},
+    {ItemKind::FabricatorMk1, 1},
+    {ItemKind::FabricatorMk2, 1},
+    {ItemKind::FabricatorMk3, 1},
     {ItemKind::SolarPanel, 2},
+    {ItemKind::SolarArray, 1},
+    {ItemKind::FuelCellGenerator, 1},
+    {ItemKind::BatteryBank, 1},
+    {ItemKind::SurveyScanner, 1},
+    {ItemKind::IonThruster, 1},
     {ItemKind::IronOre, 20},
     {ItemKind::Silica, 20},
     {ItemKind::IronPlate, 200},
@@ -219,6 +241,8 @@ bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {
     Building* target = building_at_mut(to);
     if (!target)
         return false;
+    if (auto* sorter = dynamic_cast<Sorter*>(target))
+        return sort_item(to, from, *sorter, kind);
     auto* belt = dynamic_cast<Conveyor*>(target);
     if (!belt) {
         if (!target->accepts(kind))
@@ -247,6 +271,42 @@ bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
     if (!machine || (recipe && !machine->can_run(*recipe)))
         return false;
     inventory().add(machine->set_recipe(recipe));
+    return true;
+}
+
+bool Ship::sort_item(GridPos at, GridPos from, Sorter& sorter, ItemKind kind) {
+    // Sorter to sorter to anything is as far as an item goes in one step
+    // (Mindustry's rule): a third would let a ring of them pass it round
+    // forever.
+    const bool from_sorter = dynamic_cast<const Sorter*>(building_at(from)) != nullptr;
+    auto pass = [&](Direction out) {
+        const GridPos to = neighbor(at, out);
+        if (from_sorter && dynamic_cast<const Sorter*>(building_at(to)))
+            return false;
+        return insert_item(to, at, kind);
+    };
+    const Direction d = direction_to(from, at);
+    if (sorter.get_filter() == kind)
+        return pass(d);
+    const Direction right = rotated_cw(d);
+    const Direction left = rotated_ccw(d);
+    const bool first_right = sorter.next_right;
+    if (pass(first_right ? right : left)) {
+        sorter.next_right = !first_right;
+        return true;
+    }
+    if (pass(first_right ? left : right)) {
+        sorter.next_right = first_right;
+        return true;
+    }
+    return false;
+}
+
+bool Ship::set_sort_filter(GridPos p, std::optional<ItemKind> item) {
+    auto* sorter = dynamic_cast<Sorter*>(building_at_mut(p));
+    if (!sorter)
+        return false;
+    sorter->set_filter(item);
     return true;
 }
 

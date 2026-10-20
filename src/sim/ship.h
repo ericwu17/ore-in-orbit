@@ -17,7 +17,8 @@
 //
 // Item flow (Ship::tick): belts carry items to whatever they point at, and
 // buildings hand their output to the neighbors that will take it, belts
-// included (see insert_item).
+// included (see insert_item). Filter sorters pass each item straight on to a
+// neighbor in the same step.
 #pragma once
 
 #include "sim/building.h"
@@ -63,6 +64,9 @@ private:
     // Offers one item from `b`'s output buffer to its neighbors, round
     // robin; moves it to the first that takes it.
     void push_output(GridPos p, Building& b);
+    // insert_item() for the sorter at `at`: hands the item on, from `from`,
+    // to the neighbor its filter sends it to.
+    bool sort_item(GridPos at, GridPos from, Sorter& sorter, ItemKind kind);
 
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
@@ -112,12 +116,17 @@ public:
     // takes items from behind or from the side, never from the cell it
     // points at: from behind they start at its back edge, from the side
     // halfway along, unless no belt feeds it from behind (a corner), which
-    // counts as behind.
+    // counts as behind. A sorter takes the item only if the neighbor it
+    // sends it to takes it now; an item from one sorter never goes through a
+    // second straight into a third (nor round a ring of them).
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
     // there or it can't run `recipe`.
     bool set_recipe(GridPos p, const Recipe* recipe);
+    // Sets the filter of the sorter at `p` (nullopt: none, every item turns);
+    // false if there's no sorter there.
+    bool set_sort_filter(GridPos p, std::optional<ItemKind> item);
 
     // One simulation step: every building ticks (gathering, crafting, belts
     // moving), then each belt's front item goes to what it points at, then

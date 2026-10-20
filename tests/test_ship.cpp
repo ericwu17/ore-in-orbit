@@ -26,10 +26,10 @@ void test_new_game() {
     assert(ship.has_hull({kCenter.x - 2, kCenter.y - 2}));
     assert(ship.has_hull({kCenter.x + 2, kCenter.y + 2}));
     assert(!ship.has_hull(kOffHull));
-    // The bootstrap kit.
-    for (const ItemKind kind : {ItemKind::Hull, ItemKind::TransportBelt, ItemKind::AsteroidCollector,
-                                ItemKind::AsteroidCrusher, ItemKind::SolarFurnace})
-        assert(ship.inventory().count(kind) > 0);
+    // Some of every building, and both hulls.
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (is_placeable(static_cast<ItemKind>(i)))
+            assert(ship.inventory().count(static_cast<ItemKind>(i)) > 0);
     for (int i = 0; i < 10; ++i)
         world.advance_tick();
     assert(world.get_tick() == 10);
