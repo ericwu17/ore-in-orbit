@@ -43,9 +43,10 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const std::filesystem::path& sav
 // The credits page (empty for now). Back or Escape returns to the menu.
 void DrawCredits(Screen& screen);
 
-// The game itself: the ship build grid and the build palette. Escape returns
-// to the menu.
-void DrawPlaying(Screen& screen, World& world);
+// The game itself: the ship build grid and the build palette. Escape opens
+// the pause menu (Resume, or Main menu), and sets `paused` while it is open:
+// main.cpp doesn't step the simulation then.
+void DrawPlaying(Screen& screen, World& world, bool& paused);
 
 // The ImGui / ImPlot demo windows, toggled with F1 / F2 on any screen. Kept
 // handy as a widget reference while developing.

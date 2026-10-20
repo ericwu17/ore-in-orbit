@@ -740,7 +740,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
                        "(pick a machine's recipe or a sorter's filter)\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
-                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: main menu\n\n"
+                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: pause menu\n\n"
                        "Everything but hull needs a hull tile under it; the largest buildings need "
                        "reinforced hull.");
     ImGui::PopTextWrapPos();
@@ -1644,23 +1644,25 @@ void DrawCredits(Screen& screen) {
     ImGui::End();
 }
 
-void DrawPlaying(Screen& screen, World& world) {
-    if (ShortcutPressed(ImGuiKey_Escape)) {
-        screen = Screen::MainMenu;
-        g_camera = {};  // the next game starts centred on its bridge
-        g_build.inspected.reset();
-        g_build.inspected_building = nullptr;
-    }
+void DrawPlaying(Screen& screen, World& world, bool& paused) {
+    // Escape opens the pause menu, or closes it again. Not when it closed a
+    // dropdown or tooltip popup: ImGui already did that before we got here,
+    // so look at whether one was open last frame.
+    static bool popup_was_open = false;
+    if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open))
+        paused = !paused;
 
     Ship& ship = world.get_ship();
-    const std::vector<ItemKind> list = BuildList(ship);
-    for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
-        if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
-            ToggleSelected(list[i]);
-    if (ShortcutPressed(ImGuiKey_Q))
-        g_build.selected.reset();
-    if (ShortcutPressed(ImGuiKey_R))
-        g_build.facing = rotated_cw(g_build.facing);
+    if (!paused) {
+        const std::vector<ItemKind> list = BuildList(ship);
+        for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
+            if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
+                ToggleSelected(list[i]);
+        if (ShortcutPressed(ImGuiKey_Q))
+            g_build.selected.reset();
+        if (ShortcutPressed(ImGuiKey_R))
+            g_build.facing = rotated_cw(g_build.facing);
+    }
 
     // The mouse wheel zooms the grid; it never scrolls the page.
     BeginFullscreenPage("##playing", ImGuiWindowFlags_NoScrollWithMouse);
@@ -1676,6 +1678,31 @@ void DrawPlaying(Screen& screen, World& world) {
     DrawShipGrid(ship, grid_avail);
     ImGui::SetCursorScreenPos(ImVec2(grid_min.x + grid_avail.x + gap, grid_min.y));
     DrawCraftPanel(ship, craft_w);
+    popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+
+    // The pause menu: a modal over the game, which dims it and takes the
+    // mouse while it is open.
+    constexpr const char* kPausePopup = "Paused";
+    if (paused && !ImGui::IsPopupOpen(kPausePopup))
+        ImGui::OpenPopup(kPausePopup);
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal(kPausePopup, nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
+        if (theme::PrimaryButton("Resume", button_size))
+            paused = false;
+        if (ImGui::Button("Main menu", button_size)) {
+            paused = false;
+            screen = Screen::MainMenu;
+            g_camera = {};  // the next game starts centred on its bridge
+            g_build.inspected.reset();
+            g_build.inspected_building = nullptr;
+        }
+        if (!paused)
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     ImGui::End();
 }
 

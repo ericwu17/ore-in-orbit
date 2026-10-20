@@ -210,6 +210,7 @@ int main(int, char**)
     // rate while playing, and its save file). The save list starts or loads
     // one.
     Screen screen = Screen::MainMenu;
+    bool paused = false;  // the pause menu is open over the game
     Session session;
     std::string save_list_message;  // why the last new game / load failed
     float tick_accumulator = 0.0f;
@@ -237,7 +238,7 @@ int main(int, char**)
 
         // 2. Advance the simulation (fixed timestep, see step_world), and
         //    autosave now and then.
-        if (screen == Screen::Playing)
+        if (screen == Screen::Playing && !paused)
         {
             step_world(session.world, io.DeltaTime, tick_accumulator);
             session.unsaved_seconds += io.DeltaTime;
@@ -264,7 +265,7 @@ int main(int, char**)
             }
             break;
         }
-        case Screen::Playing:  DrawPlaying(screen, session.world); break;
+        case Screen::Playing:  DrawPlaying(screen, session.world, paused); break;
         case Screen::Credits:  DrawCredits(screen); break;
         }
         DrawDevWindows();
