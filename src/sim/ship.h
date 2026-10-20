@@ -22,7 +22,9 @@
 #include <optional>
 #include <vector>
 
-constexpr int kShipGridSize = 32;
+// Side of the square build grid, in cells. The starting ship is a small
+// patch in its middle: the rest is room to grow.
+constexpr int kShipGridSize = 128;
 
 // Why a place() or remove_*() call did (or didn't) change the ship.
 enum class BuildResult {

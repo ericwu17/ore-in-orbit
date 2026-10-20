@@ -3,7 +3,8 @@
 A new game, in early development. A fixed-timestep simulation driven from
 an SDL2 + Dear ImGui (docking) + ImPlot frame loop, with a themed UI. So far
 there is a main menu (Play, Credits); Play starts a new game (held in
-memory only): a ship built on a square grid. Hull tiles go down first, and
+memory only): a ship built on a 128x128 square grid, starting as a small
+patch in its middle. Hull tiles go down first, and
 every building (hydrogen and asteroid collectors, pipes, transport
 belts) needs a hull tile under it. Everything placed comes out of the
 bridge's inventory, and removing it gives it back. The buildings don't do

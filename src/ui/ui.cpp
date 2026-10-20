@@ -525,15 +525,21 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     const ImU32 grid_line = theme::U32(theme::kGridLine);
     const ImU32 hull = theme::U32(theme::kTileHull);
     const ImU32 reinforced = theme::U32(theme::kTileReinforcedHull);
+    // The grid as whole lines (one per row / column, not an outline per
+    // cell: the grid is large), then the hull filled over it.
+    for (int i = 0; i <= n; ++i) {
+        const float t = static_cast<float>(i) * cell;
+        draw->AddLine(ImVec2(origin.x + t, origin.y), ImVec2(origin.x + t, origin.y + side), grid_line);
+        draw->AddLine(ImVec2(origin.x, origin.y + t), ImVec2(origin.x + side, origin.y + t), grid_line);
+    }
     for (int y = 0; y < n; ++y) {
         for (int x = 0; x < n; ++x) {
             const GridPos p{x, y};
-            const ImVec2 min = CellMin(origin, cell, p);
-            const ImVec2 max(min.x + cell, min.y + cell);
-            if (const std::optional<ItemKind> tile = ship.hull_at(p))
-                draw->AddRectFilled(min, max, *tile == ItemKind::ReinforcedHull ? reinforced : hull);
-            else
-                draw->AddRect(min, max, grid_line);
+            if (const std::optional<ItemKind> tile = ship.hull_at(p)) {
+                const ImVec2 min = CellMin(origin, cell, p);
+                draw->AddRectFilled(min, ImVec2(min.x + cell, min.y + cell),
+                                    *tile == ItemKind::ReinforcedHull ? reinforced : hull);
+            }
         }
     }
     // Buildings after all the hull, since larger ones overlap later cells.
