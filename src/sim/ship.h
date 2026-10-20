@@ -2,10 +2,13 @@
 // them, and the placement rules.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
-// Rules: hull goes on any empty cell; a building needs hull under every cell
-// of its footprint, and all of them free; each placement takes one item from
-// the bridge's inventory, and each removal gives it back. Buildings and hull
-// come off separately: hull can only go once nothing stands on it.
+// Rules: hull goes on any empty cell, and reinforced hull also on plain hull
+// (an upgrade: the plain tile goes back to the inventory); a building needs
+// hull under every cell of its footprint (reinforced hull for the large
+// late-game ones, see needs_reinforced_hull), and all of them free; each
+// placement takes one item from the bridge's inventory, and each removal
+// gives it back. Buildings and hull come off separately: hull can only go
+// once nothing stands on it.
 //
 // Storage: grids indexed [y][x]. A building lives in `buildings` at the
 // top-left cell of its footprint (that index is its position); every cell
@@ -26,6 +29,7 @@ enum class BuildResult {
     Ok,
     OutOfBounds,
     NoHull,            // a building needs hull under its whole footprint
+    NeedsReinforcedHull,
     HullAlreadyThere,
     Occupied,          // another building covers one of those cells
     NoneInInventory,
@@ -42,7 +46,7 @@ private:
     template <typename T>
     using Grid = std::vector<std::vector<T>>;
 
-    Grid<bool> hull;
+    Grid<std::optional<ItemKind>> hull;          // Hull or ReinforcedHull, per cell
     Grid<std::unique_ptr<Building>> buildings;  // at each footprint's top-left cell, else null
     Grid<std::optional<GridPos>> anchor;         // per cell: top-left of the building covering it
     Bridge* bridge = nullptr;                    // owned by `buildings`
@@ -62,6 +66,8 @@ public:
     int size() const { return kShipGridSize; }
     bool in_bounds(GridPos p) const;
     bool has_hull(GridPos p) const;
+    // Which hull is at `p` (Hull or ReinforcedHull), if any.
+    std::optional<ItemKind> hull_at(GridPos p) const;
     // The top-left cell of the building covering `p`, if any.
     std::optional<GridPos> anchor_of(GridPos p) const;
     // The building covering `p` (any cell of its footprint), or null.
@@ -76,16 +82,16 @@ public:
     const Inventory& inventory() const { return bridge->get_inventory(); }
 
     // Whether place() would succeed, without changing anything.
-    BuildResult can_place(ItemKind kind, GridPos p) const;
+    BuildResult can_place(ItemKind kind, GridPos p, Direction facing = Direction::North) const;
     // Places one hull tile or building, taking it from the inventory. `p` is
     // the top-left cell of the building's footprint. `facing` is used by
-    // rotatable buildings only.
+    // rotatable buildings only (and turns a non-square one's footprint).
     BuildResult place(ItemKind kind, GridPos p, Direction facing = Direction::North);
     // Removes the building covering `p` (whole footprint), refunding it. The
     // hull under it stays.
     BuildResult remove_building(GridPos p);
-    // Removes the hull tile at `p`, refunding it; only once no building
-    // covers it.
+    // Removes the hull tile at `p`, refunding it (plain or reinforced); only
+    // once no building covers it.
     BuildResult remove_hull(GridPos p);
 
     // One simulation step for every building.

@@ -1,6 +1,6 @@
 // test_ship.cpp — headless tests for the ship build grid: the starting ship,
-// placement rules, multi-cell footprints, the bridge inventory and removal
-// refunds.
+// placement rules, multi-cell and rotated footprints, reinforced hull, the
+// bridge inventory and removal refunds.
 #include "sim/building.h"
 #include "sim/ship.h"
 #include "sim/world.h"
@@ -26,8 +26,10 @@ void test_new_game() {
     assert(ship.has_hull({kCenter.x - 2, kCenter.y - 2}));
     assert(ship.has_hull({kCenter.x + 2, kCenter.y + 2}));
     assert(!ship.has_hull(kOffHull));
-    for (int i = 0; i < kItemKindCount; ++i)
-        assert(ship.inventory().count(static_cast<ItemKind>(i)) > 0);
+    // The bootstrap kit.
+    for (const ItemKind kind : {ItemKind::Hull, ItemKind::TransportBelt, ItemKind::AsteroidCollector,
+                                ItemKind::AsteroidCrusher, ItemKind::SolarFurnace})
+        assert(ship.inventory().count(kind) > 0);
     for (int i = 0; i < 10; ++i)
         world.advance_tick();
     assert(world.get_tick() == 10);
@@ -155,7 +157,8 @@ void test_footprints() {
 }
 
 void test_hierarchy() {
-    for (const ItemKind kind : {ItemKind::HydrogenCollector, ItemKind::AsteroidCollector}) {
+    for (const ItemKind kind :
+         {ItemKind::HydrogenCollector, ItemKind::AsteroidCollector, ItemKind::TractorArray}) {
         const auto b = make_building(kind, Direction::North);
         assert(dynamic_cast<const Collector*>(b.get()) != nullptr);
         assert(b->item_kind() == kind);
@@ -164,6 +167,54 @@ void test_hierarchy() {
     const auto pipe = make_building(ItemKind::Pipe, Direction::East);
     assert(dynamic_cast<const Collector*>(pipe.get()) == nullptr);
     assert(!pipe->rotatable());
+}
+
+void test_rotated_footprint() {
+    Ship ship = Ship::new_game();
+    assert(footprint_of(ItemKind::Splitter, Direction::North) == (GridSize{2, 1}));
+    assert(footprint_of(ItemKind::Splitter, Direction::East) == (GridSize{1, 2}));
+    // Not rotatable: facing doesn't matter.
+    assert(footprint_of(ItemKind::IonThruster, Direction::East) == (GridSize{2, 3}));
+
+    ship.inventory().add(ItemKind::Splitter, 1);
+    // East of the bridge, facing east: covers (c+1, c) and (c+1, c+1).
+    assert(ship.place(ItemKind::Splitter, kOnHull, Direction::East) == BuildResult::Ok);
+    assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == ship.building_at(kOnHull));
+    assert(ship.building_at({kOnHull.x + 1, kOnHull.y}) == nullptr);
+    assert(ship.building_at(kOnHull)->footprint() == (GridSize{1, 2}));
+}
+
+void test_reinforced_hull() {
+    Ship ship = Ship::new_game();
+    ship.inventory().add(ItemKind::ArcFurnace, 1);
+    ship.inventory().add(ItemKind::ReinforcedHull, 9);
+    // A 3x3 patch of plain hull just east of the start hull.
+    const GridPos corner = kOffHull;
+    for (int y = 0; y < 3; ++y)
+        for (int x = 0; x < 3; ++x)
+            assert(ship.place(ItemKind::Hull, {corner.x + x, corner.y + y}) == BuildResult::Ok);
+    const int hull = ship.inventory().count(ItemKind::Hull);
+
+    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::NeedsReinforcedHull);
+    // Upgrading plain hull refunds it.
+    for (int y = 0; y < 3; ++y)
+        for (int x = 0; x < 2; ++x)
+            assert(ship.place(ItemKind::ReinforcedHull, {corner.x + x, corner.y + y}) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::Hull) == hull + 6);
+    assert(ship.hull_at(corner) == ItemKind::ReinforcedHull);
+    assert(ship.place(ItemKind::ReinforcedHull, corner) == BuildResult::HullAlreadyThere);
+    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::NeedsReinforcedHull);
+    for (int y = 0; y < 3; ++y)
+        assert(ship.place(ItemKind::ReinforcedHull, {corner.x + 2, corner.y + y}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::Ok);
+
+    // Smaller buildings stand on it too, and it refunds as reinforced.
+    assert(ship.remove_building(corner) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Pipe, corner) == BuildResult::Ok);
+    assert(ship.remove_building(corner) == BuildResult::Ok);
+    const int reinforced = ship.inventory().count(ItemKind::ReinforcedHull);
+    assert(ship.remove_hull(corner) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::ReinforcedHull) == reinforced + 1);
 }
 
 }  // namespace
@@ -177,6 +228,8 @@ int main() {
     test_belt_direction();
     test_footprints();
     test_hierarchy();
+    test_rotated_footprint();
+    test_reinforced_hull();
     std::puts("test_ship: all passed");
     return 0;
 }

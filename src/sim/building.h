@@ -1,29 +1,37 @@
 // building.h — everything that stands on a hull tile, as a class hierarchy,
-// plus the bridge's Inventory.
+// plus the bridge's Inventory and hand-crafting queue.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 //   Building (abstract)
-//   ├── Bridge               the ship's command tile; owns the inventory
-//   ├── Collector (abstract) gathers resources from space
-//   │   ├── HydrogenCollector
-//   │   └── AsteroidCollector
-//   ├── Pipe                 carries fluid from collectors to tanks
-//   └── TransportBelt        moves collected items; oriented
+//   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
+//   ├── Collector    gathers from space: asteroid collector, tractor array,
+//   │                hydrogen collector
+//   ├── Conveyor     moves items along: belts, belt tunnel, splitter, filter sorter
+//   ├── Arm          moves items between belts and buildings: grabber arms
+//   ├── CargoHold    item storage
+//   ├── FluidPart    pipe, pump, fluid tank
+//   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
+//   │                chemical plant, fabricators
+//   ├── PowerPlant   solar panel / array, fuel-cell generator, battery bank
+//   └── ShipSystem   survey scanner, ion thruster
 //
-// A building covers a footprint of w x h cells. It doesn't know where it is:
-// the Ship stores it at its footprint's top-left cell. Each class states its footprint as `kSize` (1x1 unless it says
-// otherwise); footprint_of() looks it up by item kind before one exists.
-// None of them does anything per tick yet: tick() is the hook resource flow
-// will plug into.
+// One class per family, not per building: each building's footprint and
+// whether it rotates is data (footprint_of, is_rotatable), looked up by item
+// kind before one exists. A building doesn't know where it is: the Ship
+// stores it at its footprint's top-left cell. Only the bridge does anything
+// per tick so far: tick() is the hook resource flow will plug into.
 #pragma once
 
 #include "sim/game_types.h"
+#include "sim/recipes.h"
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <optional>
+#include <vector>
 
-// Counts of each placeable item, held by the bridge.
+// Counts of each item, held by the bridge.
 class Inventory {
 private:
     std::array<int, kItemKindCount> counts{};
@@ -31,89 +39,133 @@ private:
 public:
     int count(ItemKind kind) const { return counts[static_cast<std::size_t>(kind)]; }
     void add(ItemKind kind, int n = 1);
-    // Removes one; false (and no change) if there are none.
-    bool take(ItemKind kind);
+    void add(const std::vector<ItemStack>& stacks);
+    // Removes n; false (and no change) if there are fewer.
+    bool take(ItemKind kind, int n = 1);
+    bool has(const std::vector<ItemStack>& stacks) const;
+    // Removes every stack; false (and no change) unless all are there.
+    bool take(const std::vector<ItemStack>& stacks);
 };
+
+// The footprint a building of this kind will have when facing `facing`
+// (1x1 for hull). Rotatable buildings that aren't square turn with it: a
+// splitter is 2x1 facing north or south and 1x2 facing east or west.
+GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
+// Whether the player picks a direction when placing it (belts, arms, pumps).
+bool is_rotatable(ItemKind kind);
+// The large late-game buildings that need reinforced hull under them.
+bool needs_reinforced_hull(ItemKind kind);
+// Whether pipes connect to it.
+bool handles_fluid(ItemKind kind);
 
 class Building {
 private:
+    std::optional<ItemKind> kind;
+    Direction dir;
     GridSize size;
 
 public:
-    static constexpr GridSize kSize{1, 1};
-
-    explicit Building(GridSize s) : size(s) {}
+    // `kind` is nullopt for buildings that never came from the inventory
+    // (the bridge).
+    Building(std::optional<ItemKind> k, Direction facing, GridSize s);
     virtual ~Building() = default;
     Building(const Building&) = delete;
     Building& operator=(const Building&) = delete;
 
     GridSize footprint() const { return size; }
-
-    // The item that placed this building, refunded when it is removed;
-    // nullopt for buildings that never came from the inventory (the bridge).
-    virtual std::optional<ItemKind> item_kind() const = 0;
-    // One simulation step. Nothing does anything yet.
-    virtual void tick() {}
+    // The item that placed this building, refunded when it is removed.
+    std::optional<ItemKind> item_kind() const { return kind; }
+    Direction facing() const { return dir; }
+    bool rotatable() const { return kind && is_rotatable(*kind); }
     virtual bool removable() const { return true; }
-    virtual bool rotatable() const { return false; }
-    virtual Direction facing() const { return Direction::North; }
+    // One simulation step.
+    virtual void tick() {}
+};
+
+// A recipe the bridge is hand-crafting. Its inputs left the inventory when
+// it was queued.
+struct CraftJob {
+    const Recipe* recipe = nullptr;
+    Tick elapsed = 0;
 };
 
 class Bridge : public Building {
 private:
     Inventory inventory;
+    std::deque<CraftJob> queue;  // front is in progress
 
 public:
-    Bridge() : Building(kSize) {}
+    Bridge();
 
-    std::optional<ItemKind> item_kind() const override { return std::nullopt; }
     bool removable() const override { return false; }
+    // Advances the front craft job; a finished one puts its outputs in the
+    // inventory.
+    void tick() override;
 
     Inventory& get_inventory() { return inventory; }
     const Inventory& get_inventory() const { return inventory; }
+
+    // Whether queue_craft(recipe) would succeed now.
+    bool can_hand_craft(const Recipe& recipe) const;
+    // Takes the recipe's inputs from the inventory and queues it; false (and
+    // no change) if it isn't hand-craftable or the inputs aren't there.
+    bool queue_craft(const Recipe& recipe);
+    // Drops queued job `index`, refunding its inputs; false if there is none.
+    bool cancel_craft(std::size_t index);
+    const std::deque<CraftJob>& craft_queue() const { return queue; }
 };
 
-// Collectors are 2x2.
 class Collector : public Building {
 public:
-    static constexpr GridSize kSize{2, 2};
-
-    Collector() : Building(kSize) {}
+    explicit Collector(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 };
 
-class HydrogenCollector : public Collector {
+class Conveyor : public Building {
 public:
-    using Collector::Collector;
-    std::optional<ItemKind> item_kind() const override { return ItemKind::HydrogenCollector; }
+    Conveyor(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 };
 
-class AsteroidCollector : public Collector {
+class Arm : public Building {
 public:
-    using Collector::Collector;
-    std::optional<ItemKind> item_kind() const override { return ItemKind::AsteroidCollector; }
+    Arm(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 };
 
-class Pipe : public Building {
+class CargoHold : public Building {
 public:
-    Pipe() : Building(kSize) {}
-    std::optional<ItemKind> item_kind() const override { return ItemKind::Pipe; }
+    CargoHold() : Building(ItemKind::CargoHold, Direction::North, footprint_of(ItemKind::CargoHold)) {}
 };
 
-class TransportBelt : public Building {
-private:
-    Direction dir;
-
+class FluidPart : public Building {
 public:
-    explicit TransportBelt(Direction d) : Building(kSize), dir(d) {}
-
-    std::optional<ItemKind> item_kind() const override { return ItemKind::TransportBelt; }
-    bool rotatable() const override { return true; }
-    Direction facing() const override { return dir; }
+    FluidPart(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 };
 
-// The footprint a building of this kind will have (1x1 for Hull).
-GridSize footprint_of(ItemKind kind);
+// Runs recipes of the categories it handles, at its crafting speed.
+class Machine : public Building {
+public:
+    explicit Machine(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 
-// A new building of the given kind (anything but Hull, which is not a
-// building). `facing` only matters for rotatable kinds.
+    bool crafts(CraftCategory category) const;
+    bool can_run(const Recipe& recipe) const { return crafts(recipe.category); }
+    // Recipe time multiplier: 2 runs a recipe in half its ticks.
+    int crafting_speed() const;
+};
+
+class PowerPlant : public Building {
+public:
+    explicit PowerPlant(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
+};
+
+class ShipSystem : public Building {
+public:
+    explicit ShipSystem(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
+};
+
+// Which building kinds handle a category (the machines; Assembly also
+// includes hand-crafting at the bridge, which isn't listed).
+bool machine_crafts(ItemKind kind, CraftCategory category);
+int machine_crafting_speed(ItemKind kind);
+
+// A new building of the given kind (any placeable kind but the hull ones,
+// which are not buildings). `facing` only matters for rotatable kinds.
 std::unique_ptr<Building> make_building(ItemKind kind, Direction facing);

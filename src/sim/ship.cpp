@@ -9,12 +9,28 @@ namespace {
 // with the bridge at its center.
 constexpr int kStartHullSide = 5;
 
-// What the bridge inventory starts with.
-constexpr int kStartHull              = 150;
-constexpr int kStartHydrogenCollector = 8;
-constexpr int kStartAsteroidCollector = 8;
-constexpr int kStartPipe              = 60;
-constexpr int kStartTransportBelt     = 60;
+// What the bridge inventory starts with: a bootstrap kit (design: one
+// collector, crusher and furnace, belts and hull), plus starter cargo so
+// hand-crafting has something to work with.
+constexpr ItemStack kStartInventory[] = {
+    {ItemKind::Hull, 150},
+    {ItemKind::TransportBelt, 60},
+    {ItemKind::GrabberArm, 10},
+    {ItemKind::Pipe, 30},
+    {ItemKind::CargoHold, 2},
+    {ItemKind::AsteroidCollector, 1},
+    {ItemKind::HydrogenCollector, 1},
+    {ItemKind::AsteroidCrusher, 1},
+    {ItemKind::SolarFurnace, 1},
+    {ItemKind::SolarPanel, 2},
+    {ItemKind::IronOre, 20},
+    {ItemKind::Silica, 20},
+    {ItemKind::IronPlate, 200},
+    {ItemKind::CopperPlate, 100},
+    {ItemKind::NickelPlate, 20},
+    {ItemKind::Glass, 20},
+    {ItemKind::Steel, 20},
+};
 
 }  // namespace
 
@@ -23,6 +39,7 @@ const char* describe(BuildResult result) {
     case BuildResult::Ok:               return "Ok";
     case BuildResult::OutOfBounds:      return "Outside the build grid";
     case BuildResult::NoHull:           return "Needs hull under every tile";
+    case BuildResult::NeedsReinforcedHull: return "Needs reinforced hull under every tile";
     case BuildResult::HullAlreadyThere: return "Already hull there";
     case BuildResult::Occupied:         return "Something is already built there";
     case BuildResult::NoneInInventory:  return "None left in the bridge inventory";
@@ -37,17 +54,16 @@ namespace {
 
 constexpr std::size_t kGridSize = static_cast<std::size_t>(kShipGridSize);
 
-// grid[y][x] for an in-bounds position. decltype(auto): vector<bool> hands
-// back a proxy, not a reference.
+// grid[y][x] for an in-bounds position.
 template <typename Grid>
-decltype(auto) at(Grid& grid, GridPos p) {
+auto& at(Grid& grid, GridPos p) {
     return grid[static_cast<std::size_t>(p.y)][static_cast<std::size_t>(p.x)];
 }
 
 }  // namespace
 
 Ship::Ship()
-    : hull(kGridSize, std::vector<bool>(kGridSize, false)),
+    : hull(kGridSize, std::vector<std::optional<ItemKind>>(kGridSize)),
       buildings(kGridSize),
       anchor(kGridSize, std::vector<std::optional<GridPos>>(kGridSize)) {
     // unique_ptr rows can't be copied from a prototype row like the others.
@@ -61,18 +77,14 @@ Ship Ship::new_game() {
     const int lo = center - kStartHullSide / 2;
     for (int y = lo; y < lo + kStartHullSide; ++y)
         for (int x = lo; x < lo + kStartHullSide; ++x)
-            at(ship.hull, {x, y}) = true;
+            at(ship.hull, {x, y}) = ItemKind::Hull;
 
     auto bridge = std::make_unique<Bridge>();
     ship.bridge = bridge.get();
     ship.add_building({center, center}, std::move(bridge));
 
-    Inventory& inv = ship.inventory();
-    inv.add(ItemKind::Hull, kStartHull);
-    inv.add(ItemKind::HydrogenCollector, kStartHydrogenCollector);
-    inv.add(ItemKind::AsteroidCollector, kStartAsteroidCollector);
-    inv.add(ItemKind::Pipe, kStartPipe);
-    inv.add(ItemKind::TransportBelt, kStartTransportBelt);
+    for (const ItemStack& s : kStartInventory)
+        ship.inventory().add(s.kind, s.count);
     return ship;
 }
 
@@ -81,7 +93,11 @@ bool Ship::in_bounds(GridPos p) const {
 }
 
 bool Ship::has_hull(GridPos p) const {
-    return in_bounds(p) && at(hull, p);
+    return hull_at(p).has_value();
+}
+
+std::optional<ItemKind> Ship::hull_at(GridPos p) const {
+    return in_bounds(p) ? at(hull, p) : std::nullopt;
 }
 
 std::optional<GridPos> Ship::anchor_of(GridPos p) const {
@@ -108,14 +124,19 @@ void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
     at(buildings, p) = std::move(building);
 }
 
-BuildResult Ship::can_place(ItemKind kind, GridPos p) const {
+BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing) const {
+    assert(is_placeable(kind));
     if (!in_bounds(p))
         return BuildResult::OutOfBounds;
     if (kind == ItemKind::Hull) {
         if (has_hull(p))
             return BuildResult::HullAlreadyThere;
+    } else if (kind == ItemKind::ReinforcedHull) {
+        // Plain hull can be upgraded in place.
+        if (hull_at(p) == ItemKind::ReinforcedHull)
+            return BuildResult::HullAlreadyThere;
     } else {
-        const GridSize size = footprint_of(kind);
+        const GridSize size = footprint_of(kind, facing);
         if (!in_bounds({p.x + size.w - 1, p.y + size.h - 1}))
             return BuildResult::OutOfBounds;
         // Missing hull is reported before overlap: it's the first rule.
@@ -123,6 +144,11 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p) const {
             for (int x = p.x; x < p.x + size.w; ++x)
                 if (!has_hull({x, y}))
                     return BuildResult::NoHull;
+        if (needs_reinforced_hull(kind))
+            for (int y = p.y; y < p.y + size.h; ++y)
+                for (int x = p.x; x < p.x + size.w; ++x)
+                    if (hull_at({x, y}) != ItemKind::ReinforcedHull)
+                        return BuildResult::NeedsReinforcedHull;
         for (int y = p.y; y < p.y + size.h; ++y)
             for (int x = p.x; x < p.x + size.w; ++x)
                 if (anchor_of({x, y}))
@@ -134,15 +160,17 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p) const {
 }
 
 BuildResult Ship::place(ItemKind kind, GridPos p, Direction facing) {
-    const BuildResult result = can_place(kind, p);
+    const BuildResult result = can_place(kind, p, facing);
     if (result != BuildResult::Ok)
         return result;
     const bool taken = inventory().take(kind);
     assert(taken);
     (void)taken;
-    if (kind == ItemKind::Hull)
-        at(hull, p) = true;
-    else
+    if (kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull) {
+        if (const std::optional<ItemKind> old = at(hull, p))
+            inventory().add(*old);  // upgrading plain hull
+        at(hull, p) = kind;
+    } else
         add_building(p, make_building(kind, facing));
     return BuildResult::Ok;
 }
@@ -169,12 +197,13 @@ BuildResult Ship::remove_building(GridPos p) {
 BuildResult Ship::remove_hull(GridPos p) {
     if (!in_bounds(p))
         return BuildResult::OutOfBounds;
-    if (!at(hull, p))
+    std::optional<ItemKind>& tile = at(hull, p);
+    if (!tile)
         return BuildResult::NothingThere;
     if (at(anchor, p))
         return BuildResult::HullNotEmpty;
-    at(hull, p) = false;
-    inventory().add(ItemKind::Hull);
+    inventory().add(*tile);
+    tile.reset();
     return BuildResult::Ok;
 }
 

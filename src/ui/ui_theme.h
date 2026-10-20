@@ -52,11 +52,18 @@ constexpr ImVec4 kPlum       = Rgb(120, 72, 110);
 // Ship build grid (the game screen).
 constexpr ImVec4 kGridLine          = kPaper3;     // empty cells
 constexpr ImVec4 kTileHull          = kPaper4;
+constexpr ImVec4 kTileReinforcedHull = Rgb(168, 150, 120);  // kPaper4, a step darker
 constexpr ImVec4 kTileBridge        = kRed;
 constexpr ImVec4 kTileH2Collector   = kTeal;
 constexpr ImVec4 kTileRockCollector = kPlum;
 constexpr ImVec4 kTilePipe          = kNavy;
 constexpr ImVec4 kTileBelt          = kInkDim;
+constexpr ImVec4 kTileExpressBelt   = kWarnText;
+constexpr ImVec4 kTileArm           = kInk;
+constexpr ImVec4 kTileStorage       = Rgb(140, 112, 72);  // cargo holds, fluid tanks
+constexpr ImVec4 kTileMachine       = kNavyHover;
+constexpr ImVec4 kTilePower         = kGood;
+constexpr ImVec4 kTileSystem        = kRedActive;
 constexpr ImVec4 kTileGlyph         = kPaperLight; // letters and arrows on tiles
 
 // Unscaled font sizes, as passed to ImGui::PushFont(nullptr, size); the DPI

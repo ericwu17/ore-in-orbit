@@ -1,5 +1,5 @@
 // game_types.h — pure simulation layer: shared primitive types and constants
-// (time, grid positions and sizes, directions, item kinds).
+// (time, grid positions and sizes, directions, item and fluid kinds).
 //
 // Simulation headers must NOT include imgui/SDL/OpenGL headers: the game rules
 // are completely independent of rendering, so the simulation can be tested or
@@ -41,19 +41,115 @@ constexpr Direction rotated_cw(Direction d) {
     return static_cast<Direction>((static_cast<int>(d) + 1) % 4);
 }
 
-// Everything the bridge inventory can hold and the player can place: hull
-// tiles plus one entry per placeable building. (The bridge itself is not an
-// item: it is placed once, at the start of a game.)
+// Everything the bridge inventory (or a belt) can hold. The placeable kinds
+// come first: hull tiles plus one entry per building (the bridge itself is not
+// an item: it is placed once, at the start of a game). After them come the
+// asteroid chunks, the raw resources crushed out of them, and what is made
+// from those. Fluids are not items: see FluidKind.
 enum class ItemKind {
+    // Placeable: floor.
     Hull,
-    HydrogenCollector,
-    AsteroidCollector,
-    Pipe,
+    ReinforcedHull,
+    // Placeable: logistics.
     TransportBelt,
+    ExpressBelt,
+    BeltTunnel,
+    Splitter,
+    FilterSorter,
+    GrabberArm,
+    FastGrabberArm,
+    CargoHold,
+    Pipe,
+    Pump,
+    FluidTank,
+    // Placeable: collectors.
+    AsteroidCollector,
+    TractorArray,
+    HydrogenCollector,
+    // Placeable: machines.
+    AsteroidCrusher,
+    SolarFurnace,
+    ArcFurnace,
+    IceMelter,
+    Electrolyzer,
+    ChemicalPlant,
+    FabricatorMk1,
+    FabricatorMk2,
+    FabricatorMk3,
+    // Placeable: power.
+    SolarPanel,
+    SolarArray,
+    FuelCellGenerator,
+    BatteryBank,
+    // Placeable: ship systems.
+    SurveyScanner,
+    IonThruster,
+    // Asteroid chunks (what the asteroid collector catches).
+    MetallicChunk,
+    SilicateChunk,
+    CarbonaceousChunk,
+    IceChunk,
+    ExoticChunk,
+    // Raw resources (what the crusher gets out of a chunk).
+    IronOre,
+    NickelOre,
+    CopperOre,
+    Silica,
+    Carbon,
+    WaterIce,
+    IridiumOre,
+    // Smelted and processed materials.
+    IronPlate,
+    CopperPlate,
+    NickelPlate,
+    Glass,
+    Steel,
+    Silicon,
+    IridiumPlate,
+    Plastic,
+    Battery,
+    PropellantCell,
+    // Components.
+    Gear,
+    CopperWire,
+    Circuit,
+    ServoMotor,
+    StructuralFrame,
+    PhotovoltaicCell,
+    AdvancedCircuit,
+    Processor,
     Count,  // not a kind: the number of kinds
 };
 
 constexpr int kItemKindCount = static_cast<int>(ItemKind::Count);
 
-// The player-facing name of an item ("Hull", "Pipe", ...).
+// The groups ItemKind is laid out in, in that order.
+enum class ItemCategory {
+    Placeable,
+    AsteroidChunk,
+    RawResource,
+    Material,
+    Component,
+};
+
+ItemCategory item_category(ItemKind kind);
+// Hull tiles and buildings: what the player can put on the grid.
+constexpr bool is_placeable(ItemKind kind) {
+    return static_cast<int>(kind) <= static_cast<int>(ItemKind::IonThruster);
+}
+
+// The player-facing name of an item ("Hull", "Iron plate", ...).
 const char* item_name(ItemKind kind);
+
+// What pipes carry. Collectors, melters and electrolyzers make them;
+// chemical plants and generators use them up.
+enum class FluidKind {
+    Water,
+    Hydrogen,
+    Oxygen,
+    Count,  // not a kind: the number of kinds
+};
+
+constexpr int kFluidKindCount = static_cast<int>(FluidKind::Count);
+
+const char* fluid_name(FluidKind kind);
