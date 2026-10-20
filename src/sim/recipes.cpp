@@ -5,10 +5,8 @@
 
 const char* craft_category_name(CraftCategory category) {
     switch (category) {
-    case CraftCategory::Crushing:     return "Crushing";
     case CraftCategory::Smelting:     return "Smelting";
-    case CraftCategory::ArcSmelting:  return "Arc smelting";
-    case CraftCategory::Chemistry:    return "Chemistry";
+    case CraftCategory::Refining:     return "Refining";
     case CraftCategory::Assembly:     return "Assembly";
     case CraftCategory::Count:        break;
     }
@@ -44,74 +42,57 @@ public:
 
 std::vector<Recipe> make_recipes() {
     using enum ItemKind;
-    constexpr CraftCategory Crush = CraftCategory::Crushing;
     constexpr CraftCategory Smelt = CraftCategory::Smelting;
-    constexpr CraftCategory Arc = CraftCategory::ArcSmelting;
-    constexpr CraftCategory Chem = CraftCategory::Chemistry;
+    constexpr CraftCategory Refine = CraftCategory::Refining;
     constexpr CraftCategory Assemble = CraftCategory::Assembly;
 
     return {
-        // Crushing: one chunk into its mix of raw resources.
-        R(Crush, 2).named("Crush metallic chunk").in(MetallicChunk).out(IronOre, 3).out(NickelOre, 1),
-        R(Crush, 2).named("Crush silicate chunk").in(SilicateChunk).out(Silica, 2).out(CopperOre, 2),
-        R(Crush, 2).named("Crush carbonaceous chunk").in(CarbonaceousChunk).out(Carbon, 3),
-        R(Crush, 2).named("Crush exotic chunk").in(ExoticChunk).out(IridiumOre, 1).out(IronOre, 2),
+        // Smelting (the first two by hand too, so the bridge has work from
+        // the start).
+        R(Smelt, 1).in(IronOre).out(IronPlate).hand(),
+        R(Smelt, 1).in(CopperOre).out(CopperPlate).hand(),
+        R(Smelt, 1).in(Silica, 2).out(Glass),
+        R(Smelt, 4).in(IronPlate, 3).in(Carbon).out(Steel),
 
-        // Smelting.
-        R(Smelt, 3.2).in(IronOre).out(IronPlate),
-        R(Smelt, 3.2).in(CopperOre).out(CopperPlate),
-        R(Smelt, 3.2).in(NickelOre).out(NickelPlate),
-        R(Smelt, 3.2).in(Silica, 2).out(Glass),
-        R(Smelt, 16).in(IronPlate, 5).in(Carbon).out(Steel),
-        R(Arc, 6).in(Silica, 2).in(Carbon).out(Silicon),
-        R(Arc, 8).in(IridiumOre, 2).out(IridiumPlate),
-
-        // Chemistry.
-        R(Chem, 1).in(Carbon, 2).out(Plastic),
-        R(Chem, 4).in(NickelPlate).in(CopperPlate).out(Battery),
-        R(Chem, 8).in(Steel).out(PropellantCell),
+        // Refining.
+        R(Refine, 1).in(Carbon, 2).out(Plastic),
+        R(Refine, 2).in(Silica).in(Carbon).out(Silicon),
+        R(Refine, 4).in(IridiumOre, 2).out(IridiumPlate),
 
         // Components (all hand-craftable).
         R(Assemble, 0.5).in(IronPlate, 2).out(Gear).hand(),
-        R(Assemble, 0.5).in(CopperPlate).out(CopperWire, 2).hand(),
-        R(Assemble, 0.5).in(IronPlate).in(CopperWire, 3).out(Circuit).hand(),
-        R(Assemble, 1).in(Gear).in(IronPlate).in(CopperWire, 2).out(ServoMotor).hand(),
-        R(Assemble, 2).in(Steel, 2).in(NickelPlate).out(StructuralFrame).hand(),
-        R(Assemble, 3).in(Silicon).in(Glass).in(CopperWire, 2).out(PhotovoltaicCell).hand(),
-        R(Assemble, 6).in(Circuit, 2).in(Plastic, 2).in(Silicon).in(CopperWire, 4).out(AdvancedCircuit).hand(),
-        R(Assemble, 10).in(AdvancedCircuit, 2).in(IridiumPlate).in(Silicon).out(Processor).hand(),
+        R(Assemble, 0.5).in(IronPlate).in(CopperPlate).out(Circuit).hand(),
+        R(Assemble, 2).in(Steel, 2).in(Gear, 2).out(StructuralFrame).hand(),
+        R(Assemble, 3).in(Circuit, 2).in(Plastic).in(Silicon).out(AdvancedCircuit).hand(),
+        R(Assemble, 5).in(AdvancedCircuit, 2).in(IridiumPlate).out(Processor).hand(),
 
         // Tier 0 buildings: bootstrap, hand-craftable.
-        R(Assemble, 0.5).in(IronPlate, 2).out(Hull).hand(),
+        R(Assemble, 0.5).in(IronPlate).out(Hull).hand(),
         R(Assemble, 0.5).in(Gear).in(IronPlate).out(TransportBelt, 2).hand(),
-        R(Assemble, 5).in(IronPlate, 10).in(Gear, 5).in(Circuit, 3).out(AsteroidCollector).hand(),
-        R(Assemble, 3).in(IronPlate, 15).in(Gear, 10).out(AsteroidCrusher).hand(),
+        R(Assemble, 3).in(IronPlate, 5).in(Gear, 3).in(Circuit, 2).out(AsteroidCollector).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
         R(Assemble, 0.5).in(IronPlate, 8).out(CargoHold).hand(),
         R(Assemble, 1).in(IronPlate, 2).in(Circuit).in(TransportBelt, 2).out(FilterSorter).hand(),
         R(Assemble, 1).in(IronPlate, 2).in(Circuit).in(TransportBelt, 2).out(ReverseSorter).hand(),
         R(Assemble, 0.5).in(IronPlate, 2).in(TransportBelt, 2).out(Junction).hand(),
-        R(Assemble, 5).in(IronPlate, 5).in(Glass, 4).in(CopperWire, 6).out(SolarPanel).hand(),
-        R(Assemble, 5).in(IronPlate, 10).in(Gear, 5).in(Circuit, 3).out(FabricatorMk1).hand(),
+        R(Assemble, 3).in(IronPlate, 2).in(Glass, 4).in(Circuit, 2).out(SolarPanel).hand(),
+        R(Assemble, 3).in(IronPlate, 8).in(Gear, 4).in(Circuit, 3).out(FabricatorMk1).hand(),
 
         // Tier 1: logistics and power.
         R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
-        R(Assemble, 5).in(Battery, 5).in(IronPlate, 4).in(Circuit, 2).out(BatteryBank),
+        R(Assemble, 3).in(Steel, 4).in(Circuit, 4).out(BatteryBank),
 
         // Tier 2: industry.
-        R(Assemble, 5).in(Steel, 10).in(NickelPlate, 10).in(Circuit, 10).in(Glass, 10).out(ArcFurnace),
-        R(Assemble, 5).in(Steel, 5).in(Gear, 5).in(Circuit, 5).in(Glass, 5).out(ChemicalPlant),
-        R(Assemble, 8)
-            .in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).in(ServoMotor, 5)
-            .out(FabricatorMk2),
-        R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(NickelPlate).out(ExpressBelt),
-        R(Assemble, 10).in(StructuralFrame, 5).in(PhotovoltaicCell, 16).in(CopperWire, 10).out(SolarArray),
+        R(Assemble, 5).in(Steel, 10).in(Circuit, 10).in(Glass, 10).out(Refinery),
+        R(Assemble, 8).in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).out(FabricatorMk2),
+        R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(Steel).out(ExpressBelt),
+        R(Assemble, 10).in(StructuralFrame, 5).in(SolarPanel, 10).out(SolarArray),
         R(Assemble, 1).in(Hull).in(Steel).out(ReinforcedHull),
 
         // Tier 3: endgame.
         R(Assemble, 15)
-            .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10).in(ServoMotor, 5)
+            .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10)
             .out(TractorArray),
         R(Assemble, 8).in(StructuralFrame, 5).in(AdvancedCircuit, 5).in(Glass, 4).out(SurveyScanner),
         R(Assemble, 20)

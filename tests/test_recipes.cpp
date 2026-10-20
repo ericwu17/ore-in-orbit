@@ -1,5 +1,5 @@
 // test_recipes.cpp — headless tests for the item catalogue and recipe table:
-// every item is named and reachable from asteroid chunks, every building has
+// every item is named and reachable from raw resources, every building has
 // a cost and a recipe some building can run, the bootstrap needs nothing
 // beyond the solar furnace and hand-crafting, and the bridge hand-crafts.
 #include "sim/building.h"
@@ -26,18 +26,20 @@ void test_names_and_categories() {
 
     assert(item_category(ItemKind::Hull) == ItemCategory::Placeable);
     assert(item_category(ItemKind::IonThruster) == ItemCategory::Placeable);
-    assert(item_category(ItemKind::MetallicChunk) == ItemCategory::AsteroidChunk);
+    assert(item_category(ItemKind::IronOre) == ItemCategory::RawResource);
     assert(item_category(ItemKind::IridiumOre) == ItemCategory::RawResource);
-    assert(item_category(ItemKind::PropellantCell) == ItemCategory::Material);
+    assert(item_category(ItemKind::IronPlate) == ItemCategory::Material);
+    assert(item_category(ItemKind::Plastic) == ItemCategory::Material);
+    assert(item_category(ItemKind::Gear) == ItemCategory::Component);
     assert(item_category(ItemKind::Processor) == ItemCategory::Component);
 }
 
-// Every item can be made, starting from what comes from space (asteroid
-// chunks).
+// Every item can be made, starting from what the collectors gather (raw
+// resources).
 void test_everything_reachable() {
     std::array<bool, kItemKindCount> have{};
     for (int i = 0; i < kItemKindCount; ++i)
-        have[static_cast<std::size_t>(i)] = item_category(item(i)) == ItemCategory::AsteroidChunk;
+        have[static_cast<std::size_t>(i)] = item_category(item(i)) == ItemCategory::RawResource;
 
     for (bool changed = true; changed;) {
         changed = false;
@@ -76,15 +78,20 @@ void test_costs_and_machines() {
             runnable = runnable || machine_crafts(item(i), r.category);
         assert(runnable);
         assert(r.ticks > 0);
-        assert(!r.hand_craftable || r.category == CraftCategory::Assembly);
+        assert(!r.hand_craftable || r.category != CraftCategory::Refining);
+        // Early recipes are simple: one product each.
+        if (r.hand_craftable || r.category == CraftCategory::Smelting)
+            assert(r.outputs.size() == 1);
     }
     // Spot checks against the design.
     assert(recipe_for(ItemKind::Gear)->inputs.size() == 1);
     assert(recipe_for(ItemKind::Gear)->inputs[0].kind == ItemKind::IronPlate);
     assert(recipe_for(ItemKind::Gear)->inputs[0].count == 2);
-    assert(recipe_for(ItemKind::CopperWire)->outputs[0].count == 2);
-    assert(recipe_for(ItemKind::NickelOre) == nullptr);  // only a by-product
-    assert(recipe_for(ItemKind::MetallicChunk) == nullptr);  // only caught
+    assert(recipe_for(ItemKind::IronOre) == nullptr);     // only gathered
+    assert(recipe_for(ItemKind::IridiumOre) == nullptr);
+    // The first plates come by hand, before any furnace runs.
+    assert(recipe_for(ItemKind::IronPlate)->hand_craftable);
+    assert(recipe_for(ItemKind::CopperPlate)->hand_craftable);
 }
 
 bool bootstrappable(ItemKind kind, int depth = 0);
@@ -96,11 +103,11 @@ bool all_bootstrappable(const Recipe& r, int depth) {
     return true;
 }
 
-// Obtainable with only a crusher, a solar furnace and hand-crafting.
+// Obtainable with only collectors, a solar furnace and hand-crafting.
 bool bootstrappable(ItemKind kind, int depth) {
     assert(depth < 32);  // no recipe cycles
     const ItemCategory c = item_category(kind);
-    if (c == ItemCategory::AsteroidChunk || c == ItemCategory::RawResource)
+    if (c == ItemCategory::RawResource)
         return true;
     const Recipe* r = recipe_for(kind);
     if (!r)
@@ -123,7 +130,7 @@ void test_bootstrap() {
         assert(all_bootstrappable(*r, 0));
     }
     for (const ItemKind kind :
-         {ItemKind::AsteroidCollector, ItemKind::AsteroidCrusher, ItemKind::SolarFurnace, ItemKind::FabricatorMk1})
+         {ItemKind::AsteroidCollector, ItemKind::SolarFurnace, ItemKind::FabricatorMk1})
         assert(recipe_for(kind)->hand_craftable);
     // The solar furnace is built from raw materials.
     for (const ItemStack& s : recipe_for(ItemKind::SolarFurnace)->inputs)
@@ -131,16 +138,17 @@ void test_bootstrap() {
 }
 
 void test_machines() {
-    const auto arc = make_building(ItemKind::ArcFurnace, Direction::North);
+    const auto refinery = make_building(ItemKind::Refinery, Direction::North);
     const auto solar = make_building(ItemKind::SolarFurnace, Direction::North);
-    const auto* arc_m = dynamic_cast<const Machine*>(arc.get());
+    const auto* refinery_m = dynamic_cast<const Machine*>(refinery.get());
     const auto* solar_m = dynamic_cast<const Machine*>(solar.get());
-    assert(arc_m && solar_m);
+    assert(refinery_m && solar_m);
     const Recipe& silicon = *recipe_for(ItemKind::Silicon);
+    const Recipe& plastic = *recipe_for(ItemKind::Plastic);
     const Recipe& iron = *recipe_for(ItemKind::IronPlate);
-    assert(arc_m->can_run(silicon) && arc_m->can_run(iron));
-    assert(!solar_m->can_run(silicon) && solar_m->can_run(iron));
-    assert(arc_m->crafting_speed() == 2 && solar_m->crafting_speed() == 1);
+    assert(refinery_m->can_run(silicon) && refinery_m->can_run(plastic) && refinery_m->can_run(iron));
+    assert(!solar_m->can_run(silicon) && !solar_m->can_run(plastic) && solar_m->can_run(iron));
+    assert(refinery_m->crafting_speed() == 2 && solar_m->crafting_speed() == 1);
     assert(dynamic_cast<const Machine*>(make_building(ItemKind::Junction, Direction::North).get()) == nullptr);
 
     // Every placeable building kind can be made.
@@ -192,13 +200,13 @@ void test_hand_crafting() {
     assert(bridge.craft_queue().empty());
 
     // A crafted building can be placed.
-    const Recipe& crusher = *recipe_for(ItemKind::AsteroidCrusher);
-    inv.add(ItemKind::Gear, 10);
-    const int crushers = inv.count(ItemKind::AsteroidCrusher);
-    assert(bridge.queue_craft(crusher));
-    for (Tick t = 0; t < crusher.ticks; ++t)
+    const Recipe& fabricator = *recipe_for(ItemKind::FabricatorMk1);
+    inv.add({{ItemKind::IronPlate, 8}, {ItemKind::Gear, 4}, {ItemKind::Circuit, 3}});
+    const int fabricators = inv.count(ItemKind::FabricatorMk1);
+    assert(bridge.queue_craft(fabricator));
+    for (Tick t = 0; t < fabricator.ticks; ++t)
         world.advance_tick();
-    assert(inv.count(ItemKind::AsteroidCrusher) == crushers + 1);
+    assert(inv.count(ItemKind::FabricatorMk1) == fabricators + 1);
 }
 
 void test_inventory_stacks() {

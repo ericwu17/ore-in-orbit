@@ -25,7 +25,7 @@
 // when the format changes (or an item or recipe is renamed or removed, or a
 // building's footprint changes, which can leave saved ones overlapping or
 // off their hull).
-constexpr int kSaveVersion = 3;
+constexpr int kSaveVersion = 5;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

@@ -3,7 +3,8 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 //   Building (abstract)
-//   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
+//   ├── Bridge       the ship's command tile; owns the inventory and the
+//   │                milestone progress, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
 //   │                yet)
@@ -11,8 +12,7 @@
 //   ├── Junction     lets two belt lines cross
 //   ├── Router       spreads items out to its neighbors
 //   ├── CargoHold    item storage
-//   ├── Machine      runs recipes: crusher, furnaces, chemical plant,
-//   │                fabricators
+//   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── PowerPlant   solar panel / array, battery bank
 //   └── ShipSystem   survey scanner, ion thruster
 //
@@ -30,6 +30,7 @@
 #pragma once
 
 #include "sim/game_types.h"
+#include "sim/milestones.h"
 #include "sim/recipes.h"
 
 #include <array>
@@ -124,6 +125,7 @@ private:
 
     Inventory inventory;
     std::deque<CraftJob> queue;  // front is in progress
+    Progress progress;
 
 public:
     Bridge();
@@ -132,17 +134,21 @@ public:
     // Advances the front craft job; a finished one puts its outputs in the
     // inventory.
     void tick() override;
-    // The ship's core: belts deliver anything into the inventory.
+    // The ship's core: belts deliver anything into the inventory, and what
+    // they deliver counts toward the current milestone.
     bool accepts(ItemKind) const override { return true; }
-    void receive(ItemKind kind) override { inventory.add(kind); }
+    void receive(ItemKind kind) override;
 
     Inventory& get_inventory() { return inventory; }
     const Inventory& get_inventory() const { return inventory; }
+    Progress& get_progress() { return progress; }
+    const Progress& get_progress() const { return progress; }
 
     // Whether queue_craft(recipe) would succeed now.
     bool can_hand_craft(const Recipe& recipe) const;
     // Takes the recipe's inputs from the inventory and queues it; false (and
-    // no change) if it isn't hand-craftable or the inputs aren't there.
+    // no change) if it isn't hand-craftable, isn't unlocked yet or the inputs
+    // aren't there.
     bool queue_craft(const Recipe& recipe);
     // Drops queued job `index`, refunding its inputs; false if there is none.
     bool cancel_craft(std::size_t index);
@@ -151,12 +157,11 @@ public:
 
 // How a collector gathers: one catch every `interval` ticks into its
 // buffer, which holds up to `capacity`; it stalls while the buffer is full.
-// A catch is one asteroid chunk, picked by `chunk_weights` (indexed from
-// MetallicChunk).
+// A catch is one of the raw resource it is aimed at, one of `targets`.
 struct CollectorSpec {
     Tick interval = 0;
     int capacity = 0;  // items
-    std::array<int, kChunkKindCount> chunk_weights{};
+    std::vector<ItemKind> targets;  // the first is what a new one aims at
 };
 
 // The spec of a collector kind (asteroid collector, tractor array).
@@ -170,15 +175,19 @@ private:
 
     const CollectorSpec* spec;
     Tick progress = 0;  // ticks toward the next catch
-    Inventory caught;   // chunks
-    // Smooth weighted round robin over the chunk kinds: spreads each kind's
-    // share of the catches evenly, with no randomness.
-    std::array<int, kChunkKindCount> chunk_turn{};
+    Inventory caught;   // raw resources
+    ItemKind target;    // what it catches, one of spec->targets
 
 public:
     explicit Collector(ItemKind k);
 
     const CollectorSpec& get_spec() const { return *spec; }
+    ItemKind get_target() const { return target; }
+    // Whether it can be aimed at `kind` (one of its spec's targets).
+    bool can_target(ItemKind kind) const;
+    // Aims it at `kind`, which can_target() must allow. What it already
+    // caught stays in the buffer.
+    void set_target(ItemKind kind);
     // Gathers, unless the buffer is full.
     void tick() override;
     std::vector<ItemStack> contents() const override { return caught.stacks(); }
@@ -428,8 +437,8 @@ public:
     explicit ShipSystem(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 };
 
-// Which building kinds handle a category (the machines; Assembly also
-// includes hand-crafting at the bridge, which isn't listed).
+// Which building kinds handle a category (the machines; hand-crafting at the
+// bridge, which isn't listed, takes any recipe marked hand_craftable).
 bool machine_crafts(ItemKind kind, CraftCategory category);
 int machine_crafting_speed(ItemKind kind);
 

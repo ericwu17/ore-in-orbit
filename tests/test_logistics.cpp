@@ -2,7 +2,7 @@
 // belts (travel time, spacing and jams, which sides they take items from),
 // buildings feeding their neighbors directly, machines crafting the recipe
 // they were set to, filter and reverse sorters, junctions, routers, and a
-// whole collector -> crusher -> belt -> bridge chain.
+// whole collector -> furnace -> belt -> bridge chain.
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -163,7 +163,7 @@ void test_machine_recipe() {
     const Recipe& iron = *recipe_for(ItemKind::IronPlate);
     const Recipe& silicon = *recipe_for(ItemKind::Silicon);
 
-    // No recipe: takes nothing. Can't run arc smelting.
+    // No recipe: takes nothing. Can't run refining.
     assert(!furnace.get_recipe());
     assert(!ship.insert_item(from_east, east, ItemKind::IronOre));
     assert(!ship.set_recipe(p, &silicon));
@@ -225,9 +225,9 @@ void test_machine_output_full() {
     assert(fab.get_input().count(ItemKind::IronPlate) == 2 * kInputCrafts);
 }
 
-// A collector feeds a crusher (only the chunks its recipe takes), which
-// puts ore on a belt into the bridge. The other chunks back up in the
-// collector until it stalls.
+// A collector aimed at iron ore feeds a solar furnace, which puts plates on
+// a belt into the bridge, keeping up with it. Aimed at something the
+// furnace's recipe doesn't take, the collector backs up until it stalls.
 void test_chain() {
     World world;
     Ship& ship = world.get_ship();
@@ -236,28 +236,25 @@ void test_chain() {
     for (int y = b0 - 3; y <= b0 - 2; ++y)
         for (int x = c - 1; x <= c + 2; ++x)
             ensure_hull(ship, {x, y});
-    const GridPos crusher{c - 1, b0 - 3};
+    const GridPos furnace{c - 1, b0 - 3};
     const GridPos collector_pos{c + 1, b0 - 3};
-    assert(ship.place(ItemKind::AsteroidCrusher, crusher) == BuildResult::Ok);
+    assert(ship.place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);
     assert(ship.place(ItemKind::AsteroidCollector, collector_pos) == BuildResult::Ok);
     assert(ship.place(ItemKind::TransportBelt, {c, b0 - 1}, Direction::South) == BuildResult::Ok);
-    const Recipe* metallic = nullptr;
-    for (const Recipe* r : machine_recipes(ItemKind::AsteroidCrusher))
-        if (r->inputs.front().kind == ItemKind::MetallicChunk)
-            metallic = r;
-    assert(metallic && machine_recipes(ItemKind::AsteroidCrusher).size() == kChunkKindCount);
-    assert(ship.set_recipe(crusher, metallic));
+    assert(ship.set_recipe(furnace, recipe_for(ItemKind::IronPlate)));
 
-    const int iron = ship.inventory().count(ItemKind::IronOre);
-    const int nickel = ship.inventory().count(ItemKind::NickelOre);
-    run(world, 120 * kTicksPerSecond);
     const auto& collector = dynamic_cast<const Collector&>(*ship.building_at(collector_pos));
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    run(world, 30 * kTicksPerSecond);
+    // One catch every two seconds, each smelted and delivered within a few.
+    const int delivered = ship.inventory().count(ItemKind::IronPlate) - plates;
+    assert(delivered >= 12 && delivered <= 15);
+    assert(collector.stored() == 0);
+
+    assert(ship.set_collector_target(collector_pos, ItemKind::Silica));
+    run(world, 60 * kTicksPerSecond);
     assert(collector.full());
-    assert(collector.items().count(ItemKind::MetallicChunk) == 0);
-    const int crushed = (ship.inventory().count(ItemKind::IronOre) - iron) / 3;
-    assert(crushed > 0);
-    assert(ship.inventory().count(ItemKind::IronOre) - iron == crushed * 3);
-    assert(ship.inventory().count(ItemKind::NickelOre) - nickel == crushed);
+    assert(collector.items().count(ItemKind::Silica) == collector.capacity());
 }
 
 void test_cargo_hold() {
@@ -393,9 +390,9 @@ void test_sorter_chain() {
     }
 }
 
-// A collector's chunks ride a belt into a sorter beside the bridge: the
-// metallic ones carry straight on into the bridge, the rest turn into a
-// cargo hold.
+// A collector's catch rides a belt into a sorter beside the bridge: what
+// the filter matches carries straight on into the bridge, the rest turns
+// into a cargo hold.
 void test_sorter_feeds() {
     World world;
     Ship& ship = world.get_ship();
@@ -409,51 +406,49 @@ void test_sorter_feeds() {
     assert(ship.place(ItemKind::TransportBelt, {b1 + 2, c}, Direction::West) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, hold_pos) == BuildResult::Ok);
-    assert(ship.set_sort_filter(sorter, ItemKind::MetallicChunk));
+    assert(ship.set_sort_filter(sorter, ItemKind::IronOre));
+    assert(ship.set_collector_target({b1 + 3, c - 1}, ItemKind::Silica));
 
     const Inventory before = ship.inventory();
-    run(world, 120 * kTicksPerSecond);
+    run(world, 60 * kTicksPerSecond);
     const auto& hold = dynamic_cast<const CargoHold&>(*ship.building_at(hold_pos));
-    assert(ship.inventory().count(ItemKind::MetallicChunk) > before.count(ItemKind::MetallicChunk));
-    assert(hold.get_stored().count(ItemKind::MetallicChunk) == 0);
-    assert(hold.get_stored().total() > 0);
-    for (int k = 0; k < kChunkKindCount; ++k) {
-        const ItemKind chunk = static_cast<ItemKind>(static_cast<int>(ItemKind::MetallicChunk) + k);
-        if (chunk != ItemKind::MetallicChunk)
-            assert(ship.inventory().count(chunk) == before.count(chunk));
-    }
+    assert(ship.inventory().count(ItemKind::Silica) == before.count(ItemKind::Silica));
+    assert(hold.get_stored().count(ItemKind::Silica) > 0);
+
+    assert(ship.set_collector_target({b1 + 3, c - 1}, ItemKind::IronOre));
+    run(world, 60 * kTicksPerSecond);
+    assert(ship.inventory().count(ItemKind::IronOre) > before.count(ItemKind::IronOre));
+    assert(hold.get_stored().count(ItemKind::IronOre) == 0);
 }
 
-// A sorter beside a crusher, just under the belt that feeds it: the ore it
-// turns must not go onto that belt, which would carry it into the crusher
-// (and jam there, as the crusher won't take ore).
+// A sorter beside a furnace, just under the belt that feeds it: the plates
+// it turns must not go onto that belt, which would carry them into the
+// furnace (and jam there, as the furnace won't take plates).
 void test_sorter_not_back_into_source() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos crusher{b1 + 4, b1 + 2};
+    const GridPos furnace{b1 + 4, b1 + 2};
     for (int y = b1 + 1; y <= b1 + 4; ++y)
         for (int x = b1 + 1; x <= b1 + 5; ++x)
             ensure_hull(ship, {x, y});
     ship.inventory().add(ItemKind::FilterSorter, 1);
-    const GridPos into{crusher.x - 1, crusher.y};    // points into the crusher
-    const GridPos behind{crusher.x - 2, crusher.y};  // feeds it from behind
-    assert(ship.place(ItemKind::AsteroidCrusher, crusher) == BuildResult::Ok);
+    const GridPos into{furnace.x - 1, furnace.y};    // points into the furnace
+    const GridPos behind{furnace.x - 2, furnace.y};  // feeds it from behind
+    assert(ship.place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);
     assert(ship.place(ItemKind::TransportBelt, into, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::TransportBelt, behind, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::FilterSorter, {crusher.x - 1, crusher.y + 1}) == BuildResult::Ok);
-    for (const Recipe* r : machine_recipes(ItemKind::AsteroidCrusher))
-        if (r->inputs.front().kind == ItemKind::MetallicChunk)
-            assert(ship.set_recipe(crusher, r));
+    assert(ship.place(ItemKind::FilterSorter, {furnace.x - 1, furnace.y + 1}) == BuildResult::Ok);
+    assert(ship.set_recipe(furnace, recipe_for(ItemKind::IronPlate)));
 
-    ship.inventory().add(ItemKind::MetallicChunk, 100);
+    ship.inventory().add(ItemKind::IronOre, 100);
     for (Tick t = 0; t < 60 * kTicksPerSecond; ++t) {
         if (t % (3 * belt_cell_ticks()) == 0)
-            ship.insert_item(behind, {behind.x - 1, behind.y}, ItemKind::MetallicChunk);
+            ship.insert_item(behind, {behind.x - 1, behind.y}, ItemKind::IronOre);
         world.advance_tick();
         for (const BeltItem& item : belt_at(ship, into).get_items())
-            assert(item.kind == ItemKind::MetallicChunk);
+            assert(item.kind == ItemKind::IronOre);
     }
-    assert(machine_at(ship, crusher).get_output().total() > 0);
+    assert(machine_at(ship, furnace).get_output().total() > 0);
 }
 
 // A reverse sorter turns what its filter matches and passes the rest
@@ -600,7 +595,7 @@ void test_router() {
 void test_machine_recipes() {
     for (const Recipe* r : machine_recipes(ItemKind::FabricatorMk1))
         assert(r->category == CraftCategory::Assembly);
-    assert(machine_recipes(ItemKind::ArcFurnace).size() > machine_recipes(ItemKind::SolarFurnace).size());
+    assert(machine_recipes(ItemKind::Refinery).size() > machine_recipes(ItemKind::SolarFurnace).size());
     assert(machine_recipes(ItemKind::Junction).empty());
 }
 

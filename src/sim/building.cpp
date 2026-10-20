@@ -66,7 +66,6 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     switch (kind) {
     case ItemKind::CargoHold:
     case ItemKind::AsteroidCollector:
-    case ItemKind::AsteroidCrusher:
     case ItemKind::SolarFurnace:
     case ItemKind::SolarPanel:
     case ItemKind::BatteryBank:
@@ -74,8 +73,7 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
         size = {2, 2};
         break;
     case ItemKind::TractorArray:
-    case ItemKind::ArcFurnace:
-    case ItemKind::ChemicalPlant:
+    case ItemKind::Refinery:
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
@@ -107,8 +105,7 @@ bool is_rotatable(ItemKind kind) {
 bool needs_reinforced_hull(ItemKind kind) {
     switch (kind) {
     case ItemKind::TractorArray:
-    case ItemKind::ArcFurnace:
-    case ItemKind::ChemicalPlant:
+    case ItemKind::Refinery:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
     case ItemKind::SolarArray:
@@ -120,11 +117,9 @@ bool needs_reinforced_hull(ItemKind kind) {
 
 bool machine_crafts(ItemKind kind, CraftCategory category) {
     switch (kind) {
-    case ItemKind::AsteroidCrusher: return category == CraftCategory::Crushing;
     case ItemKind::SolarFurnace:    return category == CraftCategory::Smelting;
-    case ItemKind::ArcFurnace:
-        return category == CraftCategory::Smelting || category == CraftCategory::ArcSmelting;
-    case ItemKind::ChemicalPlant:   return category == CraftCategory::Chemistry;
+    case ItemKind::Refinery:
+        return category == CraftCategory::Smelting || category == CraftCategory::Refining;
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:   return category == CraftCategory::Assembly;
@@ -134,7 +129,7 @@ bool machine_crafts(ItemKind kind, CraftCategory category) {
 
 int machine_crafting_speed(ItemKind kind) {
     switch (kind) {
-    case ItemKind::ArcFurnace:
+    case ItemKind::Refinery:
     case ItemKind::FabricatorMk2: return 2;
     case ItemKind::FabricatorMk3: return 4;
     default:                      return 1;
@@ -146,13 +141,21 @@ Building::Building(std::optional<ItemKind> k, Direction facing, GridSize s)
 
 Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize, kBridgeSize}) {}
 
+void Bridge::receive(ItemKind kind) {
+    inventory.add(kind);
+    progress.on_delivered(kind);
+}
+
 bool Bridge::can_hand_craft(const Recipe& recipe) const {
-    return recipe.hand_craftable && inventory.has(recipe.inputs);
+    return recipe.hand_craftable && progress.unlocked(recipe) && inventory.has(recipe.inputs);
 }
 
 bool Bridge::queue_craft(const Recipe& recipe) {
-    if (!recipe.hand_craftable || !inventory.take(recipe.inputs))
+    if (!can_hand_craft(recipe))
         return false;
+    const bool taken = inventory.take(recipe.inputs);
+    assert(taken);
+    (void)taken;
     queue.push_back({&recipe, 0});
     return true;
 }
@@ -176,22 +179,34 @@ void Bridge::tick() {
 }
 
 const CollectorSpec& collector_spec(ItemKind kind) {
-    // Chunk weights: metallic, silicate, carbonaceous, exotic.
+    using enum ItemKind;
     static const CollectorSpec asteroid{
-        .interval = 2 * kTicksPerSecond, .capacity = 10, .chunk_weights = {7, 5, 4, 1}};
+        .interval = 2 * kTicksPerSecond, .capacity = 10, .targets = {IronOre, CopperOre, Silica, Carbon}};
+    // The only source of iridium.
     static const CollectorSpec tractor{
-        .interval = kTicksPerSecond / 2, .capacity = 20, .chunk_weights = {6, 4, 4, 3}};
+        .interval = kTicksPerSecond / 2,
+        .capacity = 20,
+        .targets = {IronOre, CopperOre, Silica, Carbon, IridiumOre}};
     switch (kind) {
-    case ItemKind::AsteroidCollector: return asteroid;
-    case ItemKind::TractorArray:      return tractor;
-    default:                          break;
+    case AsteroidCollector: return asteroid;
+    case TractorArray:      return tractor;
+    default:                break;
     }
     assert(false && "collector_spec: not a collector");
     return asteroid;
 }
 
 Collector::Collector(ItemKind k)
-    : Building(k, Direction::North, footprint_of(k)), spec(&collector_spec(k)) {}
+    : Building(k, Direction::North, footprint_of(k)), spec(&collector_spec(k)), target(spec->targets.front()) {}
+
+bool Collector::can_target(ItemKind kind) const {
+    return std::find(spec->targets.begin(), spec->targets.end(), kind) != spec->targets.end();
+}
+
+void Collector::set_target(ItemKind kind) {
+    assert(can_target(kind));
+    target = kind;
+}
 
 void Collector::tick() {
     if (full())
@@ -199,18 +214,7 @@ void Collector::tick() {
     if (++progress < spec->interval)
         return;
     progress = 0;
-    // Smooth weighted round robin: every kind gains its weight, the one
-    // furthest ahead is caught and pays back the total.
-    int total = 0;
-    std::size_t pick = 0;
-    for (std::size_t i = 0; i < chunk_turn.size(); ++i) {
-        chunk_turn[i] += spec->chunk_weights[i];
-        total += spec->chunk_weights[i];
-        if (chunk_turn[i] > chunk_turn[pick])
-            pick = i;
-    }
-    chunk_turn[pick] -= total;
-    caught.add(static_cast<ItemKind>(static_cast<int>(ItemKind::MetallicChunk) + static_cast<int>(pick)));
+    caught.add(target);
 }
 
 double Collector::rate_per_second() const {
@@ -430,10 +434,8 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Router>();
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
-    case ItemKind::AsteroidCrusher:
     case ItemKind::SolarFurnace:
-    case ItemKind::ArcFurnace:
-    case ItemKind::ChemicalPlant:
+    case ItemKind::Refinery:
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:

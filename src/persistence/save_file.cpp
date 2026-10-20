@@ -19,6 +19,7 @@
 #include "persistence/save_file.h"
 
 #include "sim/building.h"
+#include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/world.h"
@@ -200,9 +201,16 @@ struct SaveAccess {
             for (const CraftJob& job : bridge->queue)
                 jobs.push_back({{"recipe", save_recipe(job.recipe)}, {"elapsed", job.elapsed}});
             j["queue"] = std::move(jobs);
+            j["milestone"] = bridge->progress.current;
+            // Delivered toward it, as item counts.
+            Json delivered = Json::object();
+            for (int i = 0; i < kItemKindCount; ++i)
+                if (const int n = bridge->progress.delivered[static_cast<std::size_t>(i)]; n > 0)
+                    delivered[item_id(static_cast<ItemKind>(i))] = n;
+            j["delivered"] = std::move(delivered);
         } else if (const auto* c = dynamic_cast<const Collector*>(&b)) {
             j["progress"] = c->progress;
-            j["chunk_turn"] = c->chunk_turn;
+            j["target"] = item_id(c->target);
             j["caught"] = save_inventory(c->caught);
         } else if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
             Json items = Json::array();
@@ -243,12 +251,28 @@ struct SaveAccess {
     static void load_state(const Json& j, Building& b) {
         if (auto* bridge = dynamic_cast<Bridge*>(&b)) {
             bridge->inventory = load_inventory(j.at("inventory"));
+            // Progress first: the queue may only hold unlocked recipes.
+            Progress& progress = bridge->progress;
+            progress.current = static_cast<std::size_t>(
+                load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
+            const Inventory delivered = load_inventory(j.at("delivered"));
+            const Milestone* milestone = progress.current_milestone();
+            for (const ItemStack& s : delivered.stacks()) {
+                int need = 0;
+                if (milestone)
+                    for (const ItemStack& d : milestone->deliver)
+                        if (d.kind == s.kind)
+                            need = d.count;
+                if (s.count > need)
+                    throw LoadError(std::string("more ") + item_id(s.kind) + " delivered than the milestone needs");
+                progress.delivered[static_cast<std::size_t>(s.kind)] = s.count;
+            }
             const Json& jobs = load_array(j.at("queue"), "crafts");
             if (jobs.size() > kMaxSavedQueue)
                 throw LoadError("too many crafts queued");
             for (const Json& job : jobs) {
                 const Recipe* recipe = load_recipe(job.at("recipe"));
-                if (!recipe || !recipe->hand_craftable)
+                if (!recipe || !recipe->hand_craftable || !progress.unlocked(*recipe))
                     throw LoadError("the bridge can't craft " + job.at("recipe").dump());
                 // A job finishes (and leaves the queue) when it reaches the
                 // recipe's ticks.
@@ -257,11 +281,10 @@ struct SaveAccess {
         } else if (auto* c = dynamic_cast<Collector*>(&b)) {
             // Progress goes back to 0 when it reaches the interval.
             c->progress = load_progress(j.at("progress"), c->spec->interval);
-            const Json& turns = load_array(j.at("chunk_turn"), "chunk turns");
-            if (turns.size() != c->chunk_turn.size())
-                throw LoadError("expected " + std::to_string(c->chunk_turn.size()) + " chunk turns");
-            for (std::size_t i = 0; i < c->chunk_turn.size(); ++i)
-                c->chunk_turn[i] = static_cast<int>(load_int(turns[i], -1'000'000, 1'000'000));
+            const ItemKind target = load_item(j.at("target"));
+            if (!c->can_target(target))
+                throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(target));
+            c->target = target;
             c->caught = load_inventory(j.at("caught"));
         } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
             for (const Json& item : load_array(j.at("items"), "belt items")) {

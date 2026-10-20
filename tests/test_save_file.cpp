@@ -50,12 +50,28 @@ const Recipe& recipe_named(const char* name) {
 }
 
 // A ship with one of everything that holds state, part way through running:
-// a collector feeding belts into a cargo hold, a solar panel, a filter sorter
-// with items queued on the belt into it, two machines mid-craft (one on
-// reinforced hull), a west-facing express belt, a junction and a router
-// holding items, and the bridge hand-crafting.
+// a collector (aimed at silica) feeding belts into a cargo hold, a solar
+// panel, a filter sorter with items queued on the belt into it, two machines
+// mid-craft (one on reinforced hull), a west-facing express belt, a junction
+// and a router holding items, and the bridge hand-crafting, part way through
+// a milestone.
 World busy_world() {
     World world;
+    world.get_ship().inventory().add({{ItemKind::Hull, 200},
+                                      {ItemKind::ReinforcedHull, 9},
+                                      {ItemKind::TransportBelt, 10},
+                                      {ItemKind::ExpressBelt, 1},
+                                      {ItemKind::FilterSorter, 1},
+                                      {ItemKind::Junction, 1},
+                                      {ItemKind::Router, 1},
+                                      {ItemKind::SolarPanel, 1},
+                                      {ItemKind::Refinery, 1}});
+    // Two milestones done (the refinery's recipes need them), and some way
+    // into the third.
+    Progress& progress = world.get_ship().get_bridge().get_progress();
+    assert(progress.complete_current() && progress.complete_current());
+    for (int i = 0; i < 3; ++i)
+        assert(!progress.on_delivered(ItemKind::AdvancedCircuit));
     Ship& ship = world.get_ship();
     for (int y = c - 6; y <= c + 6; ++y)
         for (int x = x0; x <= x0 + 9; ++x)
@@ -65,6 +81,7 @@ World busy_world() {
             assert(ship.place(ItemKind::ReinforcedHull, {x, y}) == BuildResult::Ok);
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
+    assert(ship.set_collector_target({x0, c - 6}, ItemKind::Silica));
     for (int x = x0 + 2; x <= x0 + 4; ++x)
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
@@ -77,16 +94,9 @@ World busy_world() {
 
     assert(ship.place(ItemKind::SolarFurnace, {x0, c}) == BuildResult::Ok);
     assert(ship.set_recipe({x0, c}, &recipe_named("Iron plate")));
-    for (int i = 0; i < 2; ++i)
-        assert(ship.insert_item({x0, c}, {x0 - 1, c}, ItemKind::IronOre));
 
-    assert(ship.place(ItemKind::ArcFurnace, {x0 + 5, c + 2}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Refinery, {x0 + 5, c + 2}) == BuildResult::Ok);
     assert(ship.set_recipe({x0 + 5, c + 2}, &recipe_named("Silicon")));
-    // Two crafts' worth: the second is still under way when the game is saved.
-    for (int i = 0; i < 4; ++i)
-        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Silica));
-    for (int i = 0; i < 2; ++i)
-        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Carbon));
 
     assert(ship.place(ItemKind::ExpressBelt, {x0 + 3, c + 4}, Direction::West) == BuildResult::Ok);
     assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 4, c + 4}, ItemKind::Glass));
@@ -99,8 +109,15 @@ World busy_world() {
     for (int i = 0; i < 2; ++i)
         assert(ship.insert_item({x0 + 6, c + 6}, {x0 + 5, c + 6}, ItemKind::Steel));
 
-    // Long enough for the first chunk to ride the belts into the cargo hold.
+    // Long enough for the first catch to ride the belts into the cargo hold.
     run(world, 250);
+    // Fed only now, so both machines are mid-craft when the game is saved.
+    for (int i = 0; i < 2; ++i)
+        assert(ship.insert_item({x0, c}, {x0 - 1, c}, ItemKind::IronOre));
+    for (int i = 0; i < 2; ++i) {
+        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Silica));
+        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Carbon));
+    }
     assert(ship.get_bridge().queue_craft(recipe_named("Gear")));
     assert(ship.get_bridge().queue_craft(recipe_named("Gear")));
     run(world, 10);
@@ -201,7 +218,7 @@ Json minimal() {
             "hull": [],
             "buildings": [
                 {"kind": "Bridge", "x": 64, "y": 64, "facing": "North", "output_side": 0,
-                 "inventory": {}, "queue": []}
+                 "inventory": {}, "queue": [], "milestone": 0, "delivered": {}}
             ]}}})");
     save["version"] = kSaveVersion;
     add_hull(save, 64, 64, 6);
@@ -255,8 +272,17 @@ void test_refused() {
     refused_after(save, "an unknown recipe", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Unobtainium", "elapsed": 0}])");
     });
+    refused_after(save, "a recipe that isn't unlocked yet", [](Json& j) {
+        bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
+    });
+    refused_after(save, "a milestone past the last", [](Json& j) { bridge(j)["milestone"] = 99; });
+    refused_after(save, "no milestone", [](Json& j) { bridge(j).erase("milestone"); });
+    refused_after(save, "more delivered than the milestone needs",
+                  [](Json& j) { bridge(j)["delivered"] = {{"IronPlate", 51}}; });
+    refused_after(save, "a delivery the milestone doesn't need",
+                  [](Json& j) { bridge(j)["delivered"] = {{"Gear", 1}}; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
-        bridge(j)["queue"] = Json::parse(R"([{"recipe": "Iron plate", "elapsed": 0}])");
+        bridge(j)["queue"] = Json::parse(R"([{"recipe": "Glass", "elapsed": 0}])");
     });
     refused_after(save, "a craft past its end", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Gear", "elapsed": 100000}])");
@@ -317,7 +343,8 @@ void test_refused() {
             "a router item from an unknown side");
 }
 
-// Machines check their recipe and progress, and large ones their hull.
+// Machines check their recipe and progress, collectors their target, and
+// large buildings their hull.
 void test_machine_refused() {
     // A solar furnace on a 2x2 patch of hull at (65..66, 60..61).
     Json save = minimal();
@@ -334,18 +361,33 @@ void test_machine_refused() {
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
     refused_after(save, "no output buffer", [&](Json& j) { furnace(j).erase("output"); });
 
-    // An arc furnace needs reinforced hull, on load as when placing.
-    Json arc = minimal();
+    // A collector gathers only what it can be aimed at.
+    Json gathering = minimal();
+    for (int y = 60; y <= 61; ++y)
+        for (int x = 65; x <= 66; ++x)
+            hull(gathering).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
+    buildings(gathering).push_back(Json::parse(R"({
+        "kind": "AsteroidCollector", "x": 65, "y": 60, "facing": "North", "output_side": 0,
+        "progress": 0, "target": "Carbon", "caught": {"Carbon": 3}})"));
+    assert(loads(gathering.dump()));
+    auto collector = [](Json& j) -> Json& { return buildings(j)[1]; };
+    refused_after(gathering, "iridium for an asteroid collector",
+                  [&](Json& j) { collector(j)["target"] = "IridiumOre"; });
+    refused_after(gathering, "a collector aimed at a plate", [&](Json& j) { collector(j)["target"] = "IronPlate"; });
+    refused_after(gathering, "a collector with no target", [&](Json& j) { collector(j).erase("target"); });
+
+    // A refinery needs reinforced hull, on load as when placing.
+    Json refinery = minimal();
     for (int y = 60; y <= 62; ++y)
         for (int x = 65; x <= 67; ++x)
-            hull(arc).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
-    buildings(arc).push_back(Json::parse(R"({
-        "kind": "ArcFurnace", "x": 65, "y": 60, "facing": "North", "output_side": 0,
+            hull(refinery).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
+    buildings(refinery).push_back(Json::parse(R"({
+        "kind": "Refinery", "x": 65, "y": 60, "facing": "North", "output_side": 0,
         "recipe": null, "work": null, "input": {}, "output": {}})"));
-    refused(arc.dump(), "an arc furnace on plain hull");
-    for (std::size_t i = 1; i < hull(arc).size(); ++i)
-        hull(arc)[i]["kind"] = "ReinforcedHull";
-    assert(loads(arc.dump()));
+    refused(refinery.dump(), "a refinery on plain hull");
+    for (std::size_t i = 1; i < hull(refinery).size(); ++i)
+        hull(refinery)[i]["kind"] = "ReinforcedHull";
+    assert(loads(refinery.dump()));
 }
 
 }  // namespace

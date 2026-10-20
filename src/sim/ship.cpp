@@ -6,45 +6,18 @@
 
 namespace {
 
-// What the bridge inventory starts with (design: enough for a first
-// production line right away: collectors feeding sorters, a crusher for each
-// chunk kind, a bank of furnaces and fabricators, with the belts, storage and
-// hull to join them up; one or two of each later building to try out; and
-// starter cargo so hand-crafting has something to work with). Power
-// buildings stay few until power works.
+// What the bridge inventory starts with (design: just enough for a first
+// line: collectors feeding furnaces, belts back to the bridge, and a few
+// plates to hand-craft the first gears and circuits; the rest is built).
 constexpr ItemStack kStartInventory[] = {
-    {ItemKind::Hull, 300},
-    // Enough for several of the large buildings that need it.
-    {ItemKind::ReinforcedHull, 90},
-    {ItemKind::TransportBelt, 300},
-    {ItemKind::ExpressBelt, 60},
-    {ItemKind::BeltTunnel, 4},
-    {ItemKind::FilterSorter, 16},
-    {ItemKind::ReverseSorter, 8},
-    {ItemKind::Junction, 16},
-    {ItemKind::Router, 8},
-    {ItemKind::CargoHold, 8},
-    {ItemKind::AsteroidCollector, 4},
-    {ItemKind::TractorArray, 1},
-    {ItemKind::AsteroidCrusher, 4},
-    {ItemKind::SolarFurnace, 8},
-    {ItemKind::ArcFurnace, 2},
-    {ItemKind::ChemicalPlant, 1},
-    {ItemKind::FabricatorMk1, 4},
-    {ItemKind::FabricatorMk2, 1},
-    {ItemKind::FabricatorMk3, 1},
-    {ItemKind::SolarPanel, 4},
-    {ItemKind::SolarArray, 1},
-    {ItemKind::BatteryBank, 2},
-    {ItemKind::SurveyScanner, 1},
-    {ItemKind::IonThruster, 1},
-    {ItemKind::IronOre, 20},
-    {ItemKind::Silica, 20},
-    {ItemKind::IronPlate, 200},
-    {ItemKind::CopperPlate, 100},
-    {ItemKind::NickelPlate, 20},
-    {ItemKind::Glass, 20},
-    {ItemKind::Steel, 20},
+    {ItemKind::Hull, 100},
+    {ItemKind::TransportBelt, 60},
+    {ItemKind::CargoHold, 1},
+    {ItemKind::AsteroidCollector, 2},
+    {ItemKind::SolarFurnace, 2},
+    {ItemKind::FabricatorMk1, 1},
+    {ItemKind::IronPlate, 20},
+    {ItemKind::CopperPlate, 10},
 };
 
 }  // namespace
@@ -281,7 +254,7 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
 
 bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
     auto* machine = dynamic_cast<Machine*>(building_at_mut(p));
-    if (!machine || (recipe && !machine->can_run(*recipe)))
+    if (!machine || (recipe && (!machine->can_run(*recipe) || !bridge->get_progress().unlocked(*recipe))))
         return false;
     inventory().add(machine->set_recipe(recipe));
     return true;
@@ -320,6 +293,14 @@ bool Ship::set_sort_filter(GridPos p, std::optional<ItemKind> item) {
     if (!sorter)
         return false;
     sorter->set_filter(item);
+    return true;
+}
+
+bool Ship::set_collector_target(GridPos p, ItemKind target) {
+    auto* collector = dynamic_cast<Collector*>(building_at_mut(p));
+    if (!collector || !collector->can_target(target))
+        return false;
+    collector->set_target(target);
     return true;
 }
 

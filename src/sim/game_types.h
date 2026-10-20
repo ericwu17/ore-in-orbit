@@ -71,8 +71,7 @@ constexpr Direction direction_to(GridPos from, GridPos to) {
 // Everything the bridge inventory (or a belt) can hold. The placeable kinds
 // come first: hull tiles plus one entry per building (the bridge itself is not
 // an item: it is placed once, at the start of a game). After them come the
-// asteroid chunks, the raw resources crushed out of them, and what is made
-// from those.
+// raw resources the collectors gather, and what is made from those.
 enum class ItemKind {
     // Placeable: floor.
     Hull,
@@ -90,10 +89,8 @@ enum class ItemKind {
     AsteroidCollector,
     TractorArray,
     // Placeable: machines.
-    AsteroidCrusher,
     SolarFurnace,
-    ArcFurnace,
-    ChemicalPlant,
+    Refinery,
     FabricatorMk1,
     FabricatorMk2,
     FabricatorMk3,
@@ -104,14 +101,8 @@ enum class ItemKind {
     // Placeable: ship systems.
     SurveyScanner,
     IonThruster,
-    // Asteroid chunks (what the asteroid collector catches).
-    MetallicChunk,
-    SilicateChunk,
-    CarbonaceousChunk,
-    ExoticChunk,
-    // Raw resources (what the crusher gets out of a chunk).
+    // Raw resources (what the collectors gather).
     IronOre,
-    NickelOre,
     CopperOre,
     Silica,
     Carbon,
@@ -119,34 +110,25 @@ enum class ItemKind {
     // Smelted and processed materials.
     IronPlate,
     CopperPlate,
-    NickelPlate,
     Glass,
     Steel,
     Silicon,
     IridiumPlate,
     Plastic,
-    Battery,
-    PropellantCell,
     // Components.
     Gear,
-    CopperWire,
     Circuit,
-    ServoMotor,
     StructuralFrame,
-    PhotovoltaicCell,
     AdvancedCircuit,
     Processor,
     Count,  // not a kind: the number of kinds
 };
 
 constexpr int kItemKindCount = static_cast<int>(ItemKind::Count);
-// The asteroid chunks, MetallicChunk to ExoticChunk, are contiguous.
-constexpr int kChunkKindCount = static_cast<int>(ItemKind::IronOre) - static_cast<int>(ItemKind::MetallicChunk);
 
 // The groups ItemKind is laid out in, in that order.
 enum class ItemCategory {
     Placeable,
-    AsteroidChunk,
     RawResource,
     Material,
     Component,

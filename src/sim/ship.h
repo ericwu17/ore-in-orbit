@@ -143,11 +143,14 @@ public:
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
-    // there or it can't run `recipe`.
+    // there, it can't run `recipe` or `recipe` isn't unlocked yet.
     bool set_recipe(GridPos p, const Recipe* recipe);
     // Sets the filter of the sorter at `p` (nullopt: none, every item turns);
     // false if there's no sorter there.
     bool set_sort_filter(GridPos p, std::optional<ItemKind> item);
+    // Aims the collector at `p` at `target`; false if there's no collector
+    // there or it can't gather that.
+    bool set_collector_target(GridPos p, ItemKind target);
 
     // One simulation step: every building ticks (gathering, crafting, belts
     // moving), then junctions and routers pass on what's ready, then each

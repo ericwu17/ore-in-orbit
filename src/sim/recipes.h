@@ -4,9 +4,9 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // The production chain:
-//   asteroid chunk --Crushing--> ores, silica, carbon
-//   ore, silica   --Smelting--> plates, glass, steel (ArcSmelting: silicon, iridium)
-//   carbon, plates, steel --Chemistry--> plastic, batteries, propellant
+//   collectors gather one raw resource each: ores, silica, carbon
+//   ore, silica, carbon --Smelting--> plates, glass, steel
+//   carbon, silica, iridium ore --Refining--> plastic, silicon, iridium plate
 //   plates        --Assembly--> components --Assembly--> buildings
 #pragma once
 
@@ -15,14 +15,12 @@
 #include <vector>
 
 // What kind of building a recipe needs. Each machine handles one or more of
-// these (see Machine in building.h); the bridge hand-crafts the Assembly
-// recipes marked hand_craftable.
+// these (see Machine in building.h); the bridge hand-crafts the recipes
+// marked hand_craftable.
 enum class CraftCategory {
-    Crushing,      // Asteroid crusher
-    Smelting,      // Solar furnace, Arc furnace
-    ArcSmelting,   // Arc furnace only
-    Chemistry,     // Chemical plant
-    Assembly,      // Fabricators (and the bridge, for hand-craftable recipes)
+    Smelting,      // Solar furnace, Refinery
+    Refining,      // Refinery only
+    Assembly,      // Fabricators
     Count,         // not a category: the number of categories
 };
 
@@ -44,13 +42,13 @@ struct Recipe {
     bool hand_craftable = false;  // the bridge can make it too
 };
 
-// The player-facing name of a recipe ("Gear", "Crush metallic chunk", ...).
+// The player-facing name of a recipe ("Gear", "Iron plate", ...).
 const char* recipe_name(const Recipe& recipe);
 
 // Every recipe, in a fixed order (by category, then roughly by tier).
 const std::vector<Recipe>& all_recipes();
 
-// The recipe whose main (first) output is `kind`, or null if none: asteroid
-// chunks are only ever caught, and some ores only come as a by-product.
-// For a placeable item, this is what building one costs.
+// The recipe whose main (first) output is `kind`, or null if none: raw
+// resources are only ever gathered. For a placeable item, this is what
+// building one costs.
 const Recipe* recipe_for(ItemKind kind);

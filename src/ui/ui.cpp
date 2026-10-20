@@ -138,10 +138,8 @@ const char* TileLabel(ItemKind kind) {
     case ItemKind::AsteroidCollector: return "A";
     case ItemKind::TractorArray:      return "TA";
     case ItemKind::CargoHold:         return "C";
-    case ItemKind::AsteroidCrusher:   return "Cr";
     case ItemKind::SolarFurnace:      return "SF";
-    case ItemKind::ArcFurnace:        return "AF";
-    case ItemKind::ChemicalPlant:     return "CP";
+    case ItemKind::Refinery:          return "R";
     case ItemKind::FabricatorMk1:     return "F1";
     case ItemKind::FabricatorMk2:     return "F2";
     case ItemKind::FabricatorMk3:     return "F3";
@@ -305,34 +303,25 @@ void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float
 // The color an item is drawn in, by material family.
 ImVec4 ItemColor(ItemKind kind) {
     switch (kind) {
-    case ItemKind::MetallicChunk:
     case ItemKind::IronOre:
     case ItemKind::IronPlate:
     case ItemKind::Steel:           return theme::kItemIron;
     case ItemKind::CopperOre:
-    case ItemKind::CopperPlate:
-    case ItemKind::CopperWire:      return theme::kItemCopper;
-    case ItemKind::NickelOre:
-    case ItemKind::NickelPlate:     return theme::kItemNickel;
-    case ItemKind::SilicateChunk:
+    case ItemKind::CopperPlate:     return theme::kItemCopper;
     case ItemKind::Silica:
     case ItemKind::Glass:
     case ItemKind::Silicon:         return theme::kItemSilica;
-    case ItemKind::CarbonaceousChunk:
     case ItemKind::Carbon:          return theme::kItemCarbon;
-    case ItemKind::ExoticChunk:
     case ItemKind::IridiumOre:
     case ItemKind::IridiumPlate:    return theme::kItemExotic;
-    case ItemKind::Plastic:
-    case ItemKind::Battery:
-    case ItemKind::PropellantCell:  return theme::kItemChemical;
+    case ItemKind::Plastic:         return theme::kItemChemical;
     default:
         return item_category(kind) == ItemCategory::Placeable ? theme::kItemPlaceable : theme::kItemComponent;
     }
 }
 
 // One item, centered on `c`, about `r` across: its sprite, or without one,
-// chunks and raw resources as round lumps, everything made from them as
+// raw resources as round lumps, everything made from them as
 // squares.
 void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
     if (const sprites::Sprite* sprite = sprites::Item(kind)) {
@@ -343,7 +332,7 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
     const ImU32 fill = theme::U32(ItemColor(kind));
     const ImU32 outline = theme::U32(theme::kItemOutline, 0.7f);
     const ItemCategory category = item_category(kind);
-    if (category == ItemCategory::AsteroidChunk || category == ItemCategory::RawResource) {
+    if (category == ItemCategory::RawResource) {
         draw->AddCircleFilled(c, r, fill);
         draw->AddCircle(c, r, outline);
     } else {
@@ -438,7 +427,7 @@ Icon BuildingIcon(const Building& b) {
 }
 
 // What a recipe is shown as: what it makes or, for the recipes named after
-// what they do ("Crush metallic chunk"), what goes in.
+// what they do, what goes in.
 Icon RecipeIcon(const Recipe& r) {
     if (!r.name && !r.outputs.empty())
         return ItemIcon(r.outputs.front().kind);
@@ -462,7 +451,6 @@ const char* IconName(const Icon& icon) {
 const char* CategoryName(ItemCategory category) {
     switch (category) {
     case ItemCategory::Placeable:     return "Buildings";
-    case ItemCategory::AsteroidChunk: return "Asteroid chunks";
     case ItemCategory::RawResource:   return "Raw resources";
     case ItemCategory::Material:      return "Materials";
     case ItemCategory::Component:     return "Components";
@@ -708,7 +696,8 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextColored(theme::kInkDim,
                        "Left click / drag: build\nLeft click a building: inspect it\n"
-                       "(pick a machine's recipe or a sorter's filter)\nRight click / drag: remove a building;\n"
+                       "(pick a machine's recipe, a collector's\ntarget or a sorter's filter)\n"
+                       "Right click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
                        "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: pause menu\n\n"
@@ -749,8 +738,24 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
     ImGui::EndTooltip();
 }
 
+// Which milestone unlocks a recipe not unlocked yet ("Unlocks with
+// milestone 2: Heavy industry"), for its tooltip; empty once it is.
+std::string LockedHint(const Progress& progress, const Recipe& recipe) {
+    if (progress.unlocked(recipe))
+        return {};
+    const std::size_t i = *milestone_unlocking(recipe.outputs.front().kind);
+    return "Unlocks with milestone " + std::to_string(i + 1) + ": " + all_milestones()[i].name;
+}
+
+// The corner badge on a locked recipe's icon ("M2"); empty once unlocked.
+std::string LockedBadge(const Progress& progress, const Recipe& recipe) {
+    if (progress.unlocked(recipe))
+        return {};
+    return "M" + std::to_string(*milestone_unlocking(recipe.outputs.front().kind) + 1);
+}
+
 // One icon button per hand-craftable recipe whose main output is in
-// `category`.
+// `category`; the locked ones faded, with the milestone that unlocks them.
 void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
     const float size = ImGui::GetFrameHeight() * 1.9f;
     IconFlow flow;
@@ -763,16 +768,20 @@ void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
         const bool craftable = bridge.can_hand_craft(r);
         const int makes = r.outputs.front().count;
         const std::string badge = "x" + std::to_string(makes);
+        const std::string locked = LockedBadge(bridge.get_progress(), r);
         flow.Next();
         ImGui::PushID(static_cast<int>(i));
         ImGui::BeginDisabled(!craftable);
-        if (IconButton("##craft", RecipeIcon(r), size, false, {nullptr, makes > 1 ? badge.c_str() : nullptr})) {
+        if (IconButton("##craft", RecipeIcon(r), size, false,
+                       {locked.empty() ? nullptr : locked.c_str(), makes > 1 ? badge.c_str() : nullptr},
+                       locked.empty() ? 1.0f : 0.35f)) {
             const int n = ImGui::GetIO().KeyShift ? 5 : 1;
             for (int k = 0; k < n && bridge.queue_craft(r); ++k) {
             }
         }
         ImGui::EndDisabled();
-        RecipeTooltip(r, &bridge.get_inventory());
+        const std::string hint = LockedHint(bridge.get_progress(), r);
+        RecipeTooltip(r, &bridge.get_inventory(), hint.empty() ? nullptr : hint.c_str());
         ImGui::PopID();
     }
 }
@@ -826,8 +835,8 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         const CollectorSpec& spec = collector->get_spec();
         const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
-        ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
-                           collector->rate_per_second() * 60.0);
+        ImGui::TextColored(theme::kInkDim, "Gathers %s: 1 every %.1f s  (%.0f / min)",
+                           item_name(collector->get_target()), seconds, collector->rate_per_second() * 60.0);
         const bool full = collector->full();
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
         ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
@@ -987,9 +996,8 @@ void EndComboSearch() {
 // one picked, if any.
 std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current) {
     std::optional<ItemKind> picked;
-    for (const ItemCategory category : {ItemCategory::Placeable, ItemCategory::AsteroidChunk,
-                                        ItemCategory::RawResource, ItemCategory::Material,
-                                        ItemCategory::Component}) {
+    for (const ItemCategory category : {ItemCategory::Placeable, ItemCategory::RawResource,
+                                        ItemCategory::Material, ItemCategory::Component}) {
         bool any = false;
         for (int i = 0; i < kItemKindCount && !any; ++i) {
             const ItemKind kind = static_cast<ItemKind>(i);
@@ -1013,7 +1021,8 @@ std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current) 
 }
 
 // The inspected building (clicked on the grid): its details, and for a
-// machine, the recipe picker; for a sorter, the filter picker.
+// machine, the recipe picker; for a collector, what it gathers; for a
+// sorter, the filter picker.
 void DrawInspector(Ship& ship) {
     const Building* b = InspectedBuilding(ship);
     if (!b)
@@ -1021,6 +1030,7 @@ void DrawInspector(Ship& ship) {
     theme::SectionHeading("Inspect");
     BuildingDetails(*b, false);
     if (const auto* machine = dynamic_cast<const Machine*>(b)) {
+        const Progress& progress = ship.get_bridge().get_progress();
         const Recipe* current = machine->get_recipe();
         ImGui::SetNextItemWidth(-1.0f);
         if (BeginIconCombo("##recipe", current ? RecipeIcon(*current) : Icon{},
@@ -1037,15 +1047,36 @@ void DrawInspector(Ship& ship) {
                 if (!ComboSearchShows(recipe_name(*r)))
                     continue;
                 ImGui::PushID(static_cast<int>(i));
+                const std::string hint = LockedHint(progress, *r);
+                ImGui::BeginDisabled(!hint.empty());
                 if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current)
                     ship.set_recipe(*g_build.inspected, r);
-                RecipeTooltip(*r, nullptr);
+                ImGui::EndDisabled();
+                RecipeTooltip(*r, nullptr, hint.empty() ? nullptr : hint.c_str());
                 ImGui::PopID();
             }
             EndComboSearch();
             ImGui::EndCombo();
         }
         ImGui::TextColored(theme::kInkDim, "Changing it returns held ingredients to the bridge.");
+    }
+    if (const auto* collector = dynamic_cast<const Collector*>(b)) {
+        const ItemKind current = collector->get_target();
+        ImGui::SetNextItemWidth(-1.0f);
+        if (BeginIconCombo("##target", ItemIcon(current), item_name(current))) {
+            BeginComboSearch();
+            for (const ItemKind kind : collector->get_spec().targets) {
+                if (!ComboSearchShows(item_name(kind)))
+                    continue;
+                ImGui::PushID(static_cast<int>(kind));
+                if (ComboSearchOption(ItemIcon(kind), kind == current) && kind != current)
+                    ship.set_collector_target(*g_build.inspected, kind);
+                ImGui::SetItemTooltip("%s", item_name(kind));
+                ImGui::PopID();
+            }
+            EndComboSearch();
+            ImGui::EndCombo();
+        }
     }
     if (const auto* sorter = dynamic_cast<const Sorter*>(b)) {
         const std::optional<ItemKind> current = sorter->get_filter();
@@ -1070,8 +1101,39 @@ void DrawInspector(Ship& ship) {
     }
 }
 
-// The right panel: the inspector, hand-crafting at the bridge, its queue,
-// and the recipe book for everything else.
+// The milestone being worked on: what to deliver, how much has been, and
+// what it unlocks.
+void DrawMilestone(const Progress& progress) {
+    theme::SectionHeading("Milestone");
+    const Milestone* m = progress.current_milestone();
+    if (!m) {
+        ImGui::TextColored(theme::kGood, "All milestones complete");
+        return;
+    }
+    ImGui::Text("%zu / %zu: %s", progress.current_index() + 1, all_milestones().size(), m->name);
+    ImGui::TextColored(theme::kInkDim, "Deliver to the bridge:");
+    for (const ItemStack& s : m->deliver) {
+        const int have = progress.delivered_count(s.kind);
+        const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
+        ImGui::AlignTextToFramePadding();
+        IconImage(ItemIcon(s.kind), ImGui::GetFrameHeight());
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::ProgressBar(static_cast<float>(have) / static_cast<float>(s.count), ImVec2(-1.0f, 0.0f),
+                           overlay.c_str());
+    }
+    ImGui::TextColored(theme::kInkDim, "Unlocks");
+    const float icon = ImGui::GetFrameHeight() * 1.4f;
+    IconFlow flow;
+    flow.Start(icon);
+    for (const ItemKind kind : m->unlocks) {
+        flow.Next();
+        IconTile(ItemIcon(kind), icon);
+        ImGui::SetItemTooltip("%s", item_name(kind));
+    }
+}
+
+// The right panel: the current milestone, the inspector, hand-crafting at
+// the bridge, its queue, and the recipe book for everything else.
 void DrawCraftPanel(Ship& ship, float width) {
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
@@ -1080,6 +1142,7 @@ void DrawCraftPanel(Ship& ship, float width) {
 
     ImGui::BeginChild("##craft_panel", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     Bridge& bridge = ship.get_bridge();
+    DrawMilestone(bridge.get_progress());
     ImGui::PushTextWrapPos(0.0f);
     DrawInspector(ship);
     ImGui::PopTextWrapPos();
@@ -1124,6 +1187,8 @@ void DrawCraftPanel(Ship& ship, float width) {
 
     theme::SectionHeading("Hand-craft");
     ImGui::TextColored(theme::kInkDim, "Click: 1   Shift-click: 5");
+    ImGui::SeparatorText("Materials");
+    DrawHandCraftButtons(bridge, ItemCategory::Material);
     ImGui::SeparatorText("Components");
     DrawHandCraftButtons(bridge, ItemCategory::Component);
     ImGui::SeparatorText("Buildings");
@@ -1145,12 +1210,53 @@ void DrawCraftPanel(Ship& ship, float width) {
             if (r.category != category || r.hand_craftable)
                 continue;
             flow.Next();
-            IconTile(RecipeIcon(r), icon);
-            RecipeTooltip(r, &bridge.get_inventory());
+            const std::string locked = LockedBadge(bridge.get_progress(), r);
+            IconTile(RecipeIcon(r), icon, {locked.empty() ? nullptr : locked.c_str()});
+            const std::string hint = LockedHint(bridge.get_progress(), r);
+            RecipeTooltip(r, &bridge.get_inventory(), hint.empty() ? nullptr : hint.c_str());
         }
         ImGui::TreePop();
     }
     ImGui::EndChild();
+}
+
+// The banner over the grid when a milestone is completed: the bridge whose
+// progress it follows, the milestone it last saw being worked on, and until
+// when (ImGui::GetTime()) it shows.
+struct MilestoneBanner {
+    const Bridge* bridge = nullptr;
+    std::size_t seen = 0;
+    double until = 0.0;
+};
+MilestoneBanner g_banner;
+
+// Announces a milestone just completed, for a few seconds, at the top of
+// the grid (`grid_min`, `grid_size`).
+void DrawMilestoneBanner(const Bridge& bridge, ImVec2 grid_min, ImVec2 grid_size) {
+    const Progress& progress = bridge.get_progress();
+    const std::size_t current = progress.current_index();
+    MilestoneBanner& banner = g_banner;
+    if (banner.bridge != &bridge)
+        banner = {&bridge, current, 0.0};  // a new or loaded game: nothing to announce
+    if (current > banner.seen)
+        banner.until = ImGui::GetTime() + 5.0;
+    banner.seen = current;
+    if (current == 0 || ImGui::GetTime() >= banner.until)
+        return;
+
+    const std::string title = std::string("Milestone complete: ") + all_milestones()[current - 1].name;
+    const char* subtitle = progress.all_complete() ? "Every milestone done!" : "New recipes unlocked";
+    const float fh = ImGui::GetFrameHeight();
+    const float pad = fh * 0.6f;
+    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
+    const ImVec2 ss = ImGui::CalcTextSize(subtitle);
+    const float w = std::max(ts.x, ss.x) + pad * 2.0f;
+    const float h = ts.y + ss.y + ImGui::GetStyle().ItemSpacing.y + pad * 2.0f;
+    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), grid_min.y + fh);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    theme::DrawShadowedPanel(draw, min, ImVec2(min.x + w, min.y + h), ImGui::GetStyle().WindowRounding);
+    draw->AddText(ImVec2(min.x + (w - ts.x) * 0.5f, min.y + pad), theme::U32(theme::kGood), title.c_str());
+    draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, min.y + h - pad - ss.y), theme::U32(theme::kInkDim), subtitle);
 }
 
 // A hull tile (`kind`: Hull or ReinforcedHull) over `min`..`max`: its sprite,
@@ -1664,6 +1770,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
     ImVec2 grid_avail = ImGui::GetContentRegionAvail();
     grid_avail.x = std::max(0.0f, grid_avail.x - craft_w - gap);
     DrawShipGrid(ship, grid_avail);
+    DrawMilestoneBanner(ship.get_bridge(), grid_min, grid_avail);
     ImGui::SetCursorScreenPos(ImVec2(grid_min.x + grid_avail.x + gap, grid_min.y));
     DrawCraftPanel(ship, craft_w);
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
@@ -1684,6 +1791,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
             paused = false;
             screen = Screen::MainMenu;
             g_camera = {};  // the next game starts centred on its bridge
+            g_banner = {};
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
         }
@@ -1705,8 +1813,9 @@ struct DebugGiveState {
 DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
-// and give the bridge any items. It is a developer tool, so it is drawn in
-// stock Dear ImGui (dark colours, default sizes), not the game's theme.
+// give the bridge any items, and complete milestones. It is a developer
+// tool, so it is drawn in stock Dear ImGui (dark colours, default sizes),
+// not the game's theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
     // Swap the stock style in for this window (and the popups it opens),
     // keeping the theme's font size and DPI scale so the text stays legible.
@@ -1782,6 +1891,14 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
             for (int i = 0; i < kItemKindCount; ++i)
                 inventory.add(static_cast<ItemKind>(i), give.count);
         ImGui::TextDisabled("In the bridge: %d", inventory.count(give.kind));
+
+        ImGui::SeparatorText("Milestones");
+        Progress& progress = world.get_ship().get_bridge().get_progress();
+        ImGui::Text("Done: %zu / %zu", progress.current_index(), all_milestones().size());
+        ImGui::BeginDisabled(progress.all_complete());
+        if (ImGui::Button("Complete milestone"))
+            progress.complete_current();
+        ImGui::EndDisabled();
 
         ImGui::SeparatorText("Widgets");
         static bool show_imgui_demo = false;

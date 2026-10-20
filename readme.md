@@ -9,12 +9,18 @@ to start a new one or carry on with one. A game is a ship built on a
 (asteroid collectors, transport belts, machines) needs a hull tile under
 it. Everything placed comes out of the
 bridge's inventory, and removing it gives it back (with anything stored
-inside it). Collectors gather asteroid chunks at a set rate into an
-internal buffer and stall when it is full. As in Mindustry there are no
+inside it). Each collector is aimed at one raw resource (iron ore, copper
+ore, silica or carbon; the tractor array can also gather iridium ore) and
+gathers it at a set rate into an internal buffer, stalling when it is full. As in Mindustry there are no
 inserters: buildings put their output straight onto neighboring belts (or
 into neighboring buildings that take it), and belts carry items into
 whatever they point at, the bridge included. Machines craft the recipe the
-player picks for them (click one on the grid). The belt blocks work as in
+player picks for them, and collectors gather what the player aims them at
+(click one on the grid).
+Progress comes in milestones, shown at the top of the right panel: deliver
+the items each one asks for to the bridge (by belt; hand-crafting doesn't
+count) to unlock the next tier of recipes. Locked recipes show greyed out,
+marked with the milestone that unlocks them. The belt blocks work as in
 Mindustry: filter sorters route items by kind (the one picked for it goes
 straight through, the rest turn left or right), and reverse sorters the
 other way round (the one picked turns, the rest go straight); junctions let
@@ -104,8 +110,8 @@ read stays in the list, greyed out, with the reason in its tooltip.
 - **Escape**: back to the main menu (from the game, the save list or the
   credits), saving the game.
 - **Left click / drag**: build the selected item on the grid.
-- **Left click a building**: inspect it; pick a machine's recipe or a
-  sorter's item.
+- **Left click a building**: inspect it; pick a machine's recipe, a
+  collector's target or a sorter's item.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).
@@ -134,6 +140,9 @@ One directory per layer under `src/`; includes name their layer
   - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
     their top-left cell), placement / removal rules, the starting ship, and
     moving items between neighboring buildings each tick.
+  - `milestones.h/.cpp` — the milestones (what to deliver, what each
+    unlocks) and `Progress`, the bridge's way through them, which gates
+    hand-crafting and machine recipes.
   - `world.h/.cpp` — `World`: owns all state (the ship), `advance_tick()`
     steps it.
 - `src/persistence/` — save files, also headless (the tests link it). The

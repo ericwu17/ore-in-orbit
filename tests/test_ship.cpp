@@ -2,6 +2,7 @@
 // placement rules, multi-cell and rotated footprints, reinforced hull, the
 // bridge inventory and removal refunds.
 #include "sim/building.h"
+#include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/world.h"
 
@@ -21,6 +22,17 @@ constexpr GridPos kOffHull{kHullEnd + 1, kCenter.y};
 // On the starting hull, next to the bridge.
 constexpr GridPos kOnHull{kBridgeEnd + 1, kCenter.y};
 
+// A new game's ship, with a few of every building and plenty of hull to
+// try placing.
+Ship stocked_ship() {
+    Ship ship = Ship::new_game();
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (is_placeable(static_cast<ItemKind>(i)))
+            ship.inventory().add(static_cast<ItemKind>(i), 10);
+    ship.inventory().add(ItemKind::Hull, 100);
+    return ship;
+}
+
 void test_new_game() {
     World world;
     const Ship& ship = world.get_ship();
@@ -36,17 +48,21 @@ void test_new_game() {
     assert(ship.has_hull({kHullEnd, kHullEnd}));
     assert(!ship.has_hull({kHullStart - 1, kHullStart}));
     assert(!ship.has_hull(kOffHull));
-    // Some of every building, and both hulls.
-    for (int i = 0; i < kItemKindCount; ++i)
-        if (is_placeable(static_cast<ItemKind>(i)))
-            assert(ship.inventory().count(static_cast<ItemKind>(i)) > 0);
+    // Enough for a first line (collectors into furnaces, belts back to the
+    // bridge), and only hand-craftable buildings: the rest is built.
+    for (const ItemKind kind : {ItemKind::Hull, ItemKind::TransportBelt, ItemKind::AsteroidCollector,
+                                ItemKind::SolarFurnace, ItemKind::FabricatorMk1})
+        assert(ship.inventory().count(kind) > 0);
+    for (const ItemStack& s : ship.inventory().stacks())
+        if (const Recipe* r = recipe_for(s.kind); r && is_placeable(s.kind))
+            assert(r->hand_craftable);
     for (int i = 0; i < 10; ++i)
         world.advance_tick();
     assert(world.get_tick() == 10);
 }
 
 void test_needs_hull() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     const int junctions = ship.inventory().count(ItemKind::Junction);
     const int hull = ship.inventory().count(ItemKind::Hull);
 
@@ -63,7 +79,7 @@ void test_needs_hull() {
 }
 
 void test_rejections() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     assert(ship.place(ItemKind::TransportBelt, kCenter) == BuildResult::Occupied);
     assert(ship.place(ItemKind::TransportBelt, kOnHull) == BuildResult::Ok);
     assert(ship.place(ItemKind::Junction, kOnHull) == BuildResult::Occupied);
@@ -75,7 +91,7 @@ void test_rejections() {
 }
 
 void test_empty_inventory() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     while (ship.inventory().take(ItemKind::TransportBelt)) {
     }
     assert(ship.can_place(ItemKind::TransportBelt, kOnHull) == BuildResult::NoneInInventory);
@@ -85,7 +101,7 @@ void test_empty_inventory() {
 }
 
 void test_remove_refunds() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     const int collectors = ship.inventory().count(ItemKind::AsteroidCollector);
     const int hull = ship.inventory().count(ItemKind::Hull);
 
@@ -112,7 +128,7 @@ void test_remove_refunds() {
 }
 
 void test_belt_direction() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     assert(ship.place(ItemKind::TransportBelt, kOnHull, Direction::West) == BuildResult::Ok);
     const Building* belt = ship.building_at(kOnHull);
     assert(belt->rotatable());
@@ -126,7 +142,7 @@ void test_belt_direction() {
 }
 
 void test_footprints() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     assert(footprint_of(ItemKind::AsteroidCollector) == (GridSize{2, 2}));
     assert(footprint_of(ItemKind::Junction) == (GridSize{1, 1}));
 
@@ -178,7 +194,7 @@ void test_hierarchy() {
 }
 
 void test_rotated_footprint() {
-    Ship ship = Ship::new_game();
+    Ship ship = stocked_ship();
     // Every rotatable building is square, so turning one leaves its
     // footprint alone.
     for (int i = 0; i < kItemKindCount; ++i) {
@@ -195,8 +211,8 @@ void test_rotated_footprint() {
 }
 
 void test_reinforced_hull() {
-    Ship ship = Ship::new_game();
-    ship.inventory().add(ItemKind::ArcFurnace, 1);
+    Ship ship = stocked_ship();
+    ship.inventory().add(ItemKind::Refinery, 1);
     ship.inventory().add(ItemKind::ReinforcedHull, 9);
     // A 3x3 patch of plain hull just east of the start hull.
     const GridPos corner = kOffHull;
@@ -205,7 +221,7 @@ void test_reinforced_hull() {
             assert(ship.place(ItemKind::Hull, {corner.x + x, corner.y + y}) == BuildResult::Ok);
     const int hull = ship.inventory().count(ItemKind::Hull);
 
-    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::NeedsReinforcedHull);
+    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::NeedsReinforcedHull);
     // Upgrading plain hull refunds it.
     for (int y = 0; y < 3; ++y)
         for (int x = 0; x < 2; ++x)
@@ -213,10 +229,10 @@ void test_reinforced_hull() {
     assert(ship.inventory().count(ItemKind::Hull) == hull + 6);
     assert(ship.hull_at(corner) == ItemKind::ReinforcedHull);
     assert(ship.place(ItemKind::ReinforcedHull, corner) == BuildResult::HullAlreadyThere);
-    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::NeedsReinforcedHull);
+    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::NeedsReinforcedHull);
     for (int y = 0; y < 3; ++y)
         assert(ship.place(ItemKind::ReinforcedHull, {corner.x + 2, corner.y + y}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::ArcFurnace, corner) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::Ok);
 
     // Smaller buildings stand on it too, and it refunds as reinforced.
     assert(ship.remove_building(corner) == BuildResult::Ok);

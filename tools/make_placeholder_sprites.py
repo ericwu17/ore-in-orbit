@@ -23,7 +23,6 @@ sprite is missing or has the wrong shape.
 """
 
 import argparse
-import math
 import os
 import sys
 
@@ -53,7 +52,6 @@ STORAGE = (140, 112, 72)
 
 ITEM_IRON = (118, 128, 142)
 ITEM_COPPER = (196, 112, 52)
-ITEM_NICKEL = (146, 160, 112)
 ITEM_SILICA = (224, 198, 140)
 ITEM_CARBON = (62, 56, 52)
 ITEM_EXOTIC = PLUM
@@ -75,10 +73,8 @@ BUILDINGS = {
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
     "AsteroidCollector": (2, 2, "tile", PLUM, "A"),
     "TractorArray":      (3, 3, "tile", PLUM, "TA"),
-    "AsteroidCrusher":   (2, 2, "tile", NAVY_HOVER, "Cr"),
     "SolarFurnace":      (2, 2, "tile", NAVY_HOVER, "SF"),
-    "ArcFurnace":        (3, 3, "tile", NAVY_HOVER, "AF"),
-    "ChemicalPlant":     (3, 3, "tile", NAVY_HOVER, "CP"),
+    "Refinery":          (3, 3, "tile", NAVY_HOVER, "R"),
     "FabricatorMk1":     (3, 3, "tile", NAVY_HOVER, "F1"),
     "FabricatorMk2":     (3, 3, "tile", NAVY_HOVER, "F2"),
     "FabricatorMk3":     (3, 3, "tile", NAVY_HOVER, "F3"),
@@ -90,35 +86,24 @@ BUILDINGS = {
 }
 BRIDGE = (6, 6, "tile", RED, "BRIDGE")
 
-# Everything else: id -> (shape, color, label). Shapes: chunk (a rough
-# rock), lump (round: raw resources), plate (square: made things).
+# Everything else: id -> (shape, color, label). Shapes: lump (round: raw
+# resources), plate (square: made things).
 ITEMS = {
-    "MetallicChunk":     ("chunk", ITEM_IRON, "Me"),
-    "SilicateChunk":     ("chunk", ITEM_SILICA, "Si"),
-    "CarbonaceousChunk": ("chunk", ITEM_CARBON, "Ca"),
-    "ExoticChunk":       ("chunk", ITEM_EXOTIC, "Ex"),
     "IronOre":           ("lump", ITEM_IRON, "Fe"),
-    "NickelOre":         ("lump", ITEM_NICKEL, "Ni"),
     "CopperOre":         ("lump", ITEM_COPPER, "Cu"),
     "Silica":            ("lump", ITEM_SILICA, "SiO"),
     "Carbon":            ("lump", ITEM_CARBON, "C"),
     "IridiumOre":        ("lump", ITEM_EXOTIC, "Ir"),
     "IronPlate":         ("plate", ITEM_IRON, "Fe"),
     "CopperPlate":       ("plate", ITEM_COPPER, "Cu"),
-    "NickelPlate":       ("plate", ITEM_NICKEL, "Ni"),
     "Glass":             ("plate", ITEM_SILICA, "Gl"),
     "Steel":             ("plate", ITEM_IRON, "St"),
     "Silicon":           ("plate", ITEM_SILICA, "Si"),
     "IridiumPlate":      ("plate", ITEM_EXOTIC, "Ir"),
     "Plastic":           ("plate", ITEM_CHEMICAL, "Pl"),
-    "Battery":           ("plate", ITEM_CHEMICAL, "Bt"),
-    "PropellantCell":    ("plate", ITEM_CHEMICAL, "PC"),
     "Gear":              ("plate", ITEM_COMPONENT, "Gr"),
-    "CopperWire":        ("plate", ITEM_COPPER, "Wi"),
     "Circuit":           ("plate", ITEM_COMPONENT, "Ci"),
-    "ServoMotor":        ("plate", ITEM_COMPONENT, "SM"),
     "StructuralFrame":   ("plate", ITEM_COMPONENT, "Fr"),
-    "PhotovoltaicCell":  ("plate", ITEM_COMPONENT, "PV"),
     "AdvancedCircuit":   ("plate", ITEM_COMPONENT, "AC"),
     "Processor":         ("plate", ITEM_COMPONENT, "CPU"),
 }
@@ -244,15 +229,7 @@ def item_image(shape, color, label):
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     edge = SS * 2
-    if shape == "chunk":
-        # A rough rock: a lumpy polygon with fixed "random" radii.
-        radii = [0.40, 0.44, 0.36, 0.43, 0.38, 0.45, 0.35, 0.42, 0.39]
-        pts = []
-        for i, r in enumerate(radii):
-            a = 2 * math.pi * i / len(radii) - math.pi / 2
-            pts.append((s / 2 + math.cos(a) * r * s, s / 2 + math.sin(a) * r * s))
-        d.polygon(pts, fill=color, outline=INK, width=edge)
-    elif shape == "lump":
+    if shape == "lump":
         m = s * 0.12
         d.ellipse((m, m, s - m, s - m), fill=color, outline=INK, width=edge)
     else:

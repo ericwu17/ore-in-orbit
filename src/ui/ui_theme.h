@@ -67,11 +67,10 @@ constexpr ImVec4 kTileGlyph         = kPaperLight; // letters and arrows on tile
 // Items on belts, by material family.
 constexpr ImVec4 kItemIron      = Rgb(118, 128, 142);
 constexpr ImVec4 kItemCopper    = Rgb(196, 112, 52);
-constexpr ImVec4 kItemNickel    = Rgb(146, 160, 112);
 constexpr ImVec4 kItemSilica    = Rgb(224, 198, 140);
 constexpr ImVec4 kItemCarbon    = Rgb(62, 56, 52);
 constexpr ImVec4 kItemExotic    = kPlum;
-constexpr ImVec4 kItemChemical  = kGood;       // plastic, batteries, propellant
+constexpr ImVec4 kItemChemical  = kGood;       // plastic
 constexpr ImVec4 kItemComponent = kNavy;
 constexpr ImVec4 kItemPlaceable = kRed;
 constexpr ImVec4 kItemOutline   = kInk;
