@@ -116,17 +116,10 @@ int load_coord(const Json& j) {
     return static_cast<int>(load_int(j, 0, kShipGridSize - 1));
 }
 
-// The id of an item that is gone, which older saves still hold: it loads
-// as the one that replaced it. A placed splitter (2x1, holding nothing)
-// becomes a router on its first cell.
-constexpr const char* kSplitterId = "Splitter";
-
 std::optional<ItemKind> item_from_id(std::string_view id) {
     for (int i = 0; i < kItemKindCount; ++i)
         if (id == item_id(static_cast<ItemKind>(i)))
             return static_cast<ItemKind>(i);
-    if (id == kSplitterId)
-        return ItemKind::Router;
     return std::nullopt;
 }
 
@@ -428,10 +421,7 @@ struct SaveAccess {
                     throw LoadError("buildings overlap");
             }
 
-        // A splitter, from before routers (see kSplitterId), saved no state a
-        // router needs.
-        if (kind_json != kSplitterId)
-            load_state(j, *b);
+        load_state(j, *b);
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))
             ship.bridge = bridge;
         ship.add_building(p, std::move(b));

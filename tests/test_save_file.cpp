@@ -318,24 +318,6 @@ void test_refused() {
             "a router item from an unknown side");
 }
 
-// Splitters are gone: an older save's load as routers, placed or not.
-void test_splitter_to_router() {
-    Json save = minimal();
-    hull(save).push_back({{"x", 70}, {"y", 64}, {"kind", "Hull"}});
-    hull(save).push_back({{"x", 70}, {"y", 65}, {"kind", "Hull"}});
-    bridge(save)["inventory"] = {{"Splitter", 2}, {"Router", 1}};
-    buildings(save).push_back(Json::parse(R"({"kind": "Splitter", "x": 70, "y": 64, "facing": "East",
-                                              "output_side": 0, "items": []})"));
-    std::string error;
-    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
-    assert(loaded);
-    const Ship& ship = loaded->world.get_ship();
-    assert(ship.inventory().count(ItemKind::Router) == 3);
-    const auto* router = dynamic_cast<const Router*>(ship.building_at({70, 64}));
-    assert(router && router->empty() && router->footprint() == (GridSize{1, 1}));
-    assert(ship.building_at({70, 65}) == nullptr);
-}
-
 // Machines check their recipe and progress, and large ones their hull.
 void test_machine_refused() {
     // A solar furnace on a 2x2 patch of hull at (65..66, 60..61).
@@ -377,7 +359,6 @@ int main() {
     test_determinism();
     test_header_only();
     test_refused();
-    test_splitter_to_router();
     test_machine_refused();
     std::puts("test_save_file: all passed");
     return 0;
