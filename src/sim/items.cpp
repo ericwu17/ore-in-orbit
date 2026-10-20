@@ -9,8 +9,10 @@ const char* item_name(ItemKind kind) {
     case ItemKind::TransportBelt:     return "Transport belt";
     case ItemKind::ExpressBelt:       return "Express belt";
     case ItemKind::BeltTunnel:        return "Belt tunnel";
-    case ItemKind::Splitter:          return "Splitter";
     case ItemKind::FilterSorter:      return "Filter sorter";
+    case ItemKind::ReverseSorter:     return "Reverse sorter";
+    case ItemKind::Junction:          return "Junction";
+    case ItemKind::Router:            return "Router";
     case ItemKind::CargoHold:         return "Cargo hold";
     case ItemKind::Pipe:              return "Pipe";
     case ItemKind::Pump:              return "Pump";
@@ -76,8 +78,10 @@ const char* item_id(ItemKind kind) {
     case ItemKind::TransportBelt:     return "TransportBelt";
     case ItemKind::ExpressBelt:       return "ExpressBelt";
     case ItemKind::BeltTunnel:        return "BeltTunnel";
-    case ItemKind::Splitter:          return "Splitter";
     case ItemKind::FilterSorter:      return "FilterSorter";
+    case ItemKind::ReverseSorter:     return "ReverseSorter";
+    case ItemKind::Junction:          return "Junction";
+    case ItemKind::Router:            return "Router";
     case ItemKind::CargoHold:         return "CargoHold";
     case ItemKind::Pipe:              return "Pipe";
     case ItemKind::Pump:              return "Pump";

@@ -17,8 +17,9 @@
 //
 // Item flow (Ship::tick): belts carry items to whatever they point at, and
 // buildings hand their output to the neighbors that will take it, belts
-// included (see insert_item). Filter sorters pass each item straight on to a
-// neighbor in the same step.
+// included (see insert_item). Filter and reverse sorters pass each item
+// straight on to a neighbor in the same step; junctions and routers hold
+// items a moment, then pass them on.
 #pragma once
 
 #include "sim/building.h"
@@ -34,7 +35,7 @@ constexpr int kShipGridSize = 128;
 
 // The starting ship: a square hull patch of this side, centered on the grid,
 // with the bridge in its middle, its top-left cell at kStartBridgePos.
-constexpr int kStartHullSide = 24;
+constexpr int kStartHullSide = 48;
 constexpr GridPos kStartBridgePos{(kShipGridSize - kBridgeSize) / 2, (kShipGridSize - kBridgeSize) / 2};
 
 // Why a place() or remove_*() call did (or didn't) change the ship.
@@ -73,9 +74,17 @@ private:
     // Offers one item from `b`'s output buffer to its neighbors, round
     // robin; moves it to the first that takes it.
     void push_output(GridPos p, Building& b);
+    // For a junction or router at `p`: hands on the items that are ready to
+    // go (one per way across a junction; a router's one, to the next
+    // neighbor in turn that takes it).
+    void pass_on(GridPos p, Building& b);
+    // insert_item(), for an item that left `source` (the building it was
+    // output from, before any sorters): a belt that points into `source`
+    // won't take it, as it would only carry it straight back.
+    bool insert_item(GridPos to, GridPos from, const Building* source, ItemKind kind);
     // insert_item() for the sorter at `at`: hands the item on, from `from`,
     // to the neighbor its filter sends it to.
-    bool sort_item(GridPos at, GridPos from, Sorter& sorter, ItemKind kind);
+    bool sort_item(GridPos at, GridPos from, const Building* source, Sorter& sorter, ItemKind kind);
 
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
@@ -125,9 +134,12 @@ public:
     // takes items from behind or from the side, never from the cell it
     // points at: from behind they start at its back edge, from the side
     // halfway along, unless no belt feeds it from behind (a corner), which
-    // counts as behind. A sorter takes the item only if the neighbor it
+    // counts as behind; nor, from a sorter, if it points into the building
+    // the item came from before the sorter. A sorter takes the item only if the neighbor it
     // sends it to takes it now; an item from one sorter never goes through a
-    // second straight into a third (nor round a ring of them).
+    // second straight into a third (nor round a ring of them). A junction
+    // takes it while its queue that way has room and something stands on
+    // the far side; a router while it's empty.
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
@@ -138,7 +150,8 @@ public:
     bool set_sort_filter(GridPos p, std::optional<ItemKind> item);
 
     // One simulation step: every building ticks (gathering, crafting, belts
-    // moving), then each belt's front item goes to what it points at, then
-    // each building puts one item of output out to a neighbor.
+    // moving), then junctions and routers pass on what's ready, then each
+    // belt's front item goes to what it points at, then each building puts
+    // one item of output out to a neighbor.
     void tick();
 };

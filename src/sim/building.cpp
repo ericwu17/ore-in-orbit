@@ -64,9 +64,6 @@ bool Inventory::take(const std::vector<ItemStack>& stacks) {
 GridSize footprint_of(ItemKind kind, Direction facing) {
     GridSize size{1, 1};
     switch (kind) {
-    case ItemKind::Splitter:
-        size = {2, 1};
-        break;
     case ItemKind::CargoHold:
     case ItemKind::FluidTank:
     case ItemKind::AsteroidCollector:
@@ -106,7 +103,6 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
-    case ItemKind::Splitter:
     case ItemKind::Pump:
         return true;
     default:
@@ -308,6 +304,66 @@ void Conveyor::pop_front() {
     items.erase(items.begin());
 }
 
+void Junction::tick() {
+    for (std::deque<JunctionItem>& lane : lanes)
+        for (JunctionItem& item : lane)
+            item.elapsed = std::min(item.elapsed + 1, kJunctionTicks);
+}
+
+std::vector<ItemStack> Junction::contents() const {
+    Inventory held;
+    for (const std::deque<JunctionItem>& lane : lanes)
+        for (const JunctionItem& item : lane)
+            held.add(item.kind);
+    return held.stacks();
+}
+
+void Junction::insert(ItemKind kind, Direction travel) {
+    assert(has_room(travel));
+    lanes[static_cast<std::size_t>(travel)].push_back({kind, 0});
+}
+
+std::optional<ItemKind> Junction::item_ready(Direction travel) const {
+    const std::deque<JunctionItem>& l = lane(travel);
+    if (l.empty() || l.front().elapsed < kJunctionTicks)
+        return std::nullopt;
+    return l.front().kind;
+}
+
+void Junction::pop(Direction travel) {
+    std::deque<JunctionItem>& l = lanes[static_cast<std::size_t>(travel)];
+    assert(!l.empty());
+    l.pop_front();
+}
+
+void Router::tick() {
+    if (held)
+        elapsed = std::min(elapsed + 1, kRouterTicks);
+}
+
+std::vector<ItemStack> Router::contents() const {
+    if (!held)
+        return {};
+    return {{*held, 1}};
+}
+
+void Router::insert(ItemKind kind, Direction from) {
+    assert(empty());
+    held = kind;
+    came_from = from;
+    elapsed = 0;
+}
+
+std::optional<ItemKind> Router::item_ready() const {
+    return elapsed >= kRouterTicks ? held : std::nullopt;
+}
+
+void Router::pop() {
+    assert(held);
+    held.reset();
+    elapsed = 0;
+}
+
 bool Machine::crafts(CraftCategory category) const {
     return machine_crafts(*item_kind(), category);
 }
@@ -408,10 +464,14 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
-    case ItemKind::Splitter:
         return std::make_unique<Conveyor>(kind, facing);
     case ItemKind::FilterSorter:
-        return std::make_unique<Sorter>();
+    case ItemKind::ReverseSorter:
+        return std::make_unique<Sorter>(kind);
+    case ItemKind::Junction:
+        return std::make_unique<Junction>();
+    case ItemKind::Router:
+        return std::make_unique<Router>();
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
     case ItemKind::Pipe:

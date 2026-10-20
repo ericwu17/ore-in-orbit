@@ -106,11 +106,13 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
         R(Assemble, 0.5).in(IronPlate, 8).out(CargoHold).hand(),
         R(Assemble, 1).in(IronPlate, 2).in(Circuit).in(TransportBelt, 2).out(FilterSorter).hand(),
+        R(Assemble, 1).in(IronPlate, 2).in(Circuit).in(TransportBelt, 2).out(ReverseSorter).hand(),
+        R(Assemble, 0.5).in(IronPlate, 2).in(TransportBelt, 2).out(Junction).hand(),
         R(Assemble, 5).in(IronPlate, 5).in(Glass, 4).in(CopperWire, 6).out(SolarPanel).hand(),
         R(Assemble, 5).in(IronPlate, 10).in(Gear, 5).in(Circuit, 3).out(FabricatorMk1).hand(),
 
         // Tier 1: logistics and fluids.
-        R(Assemble, 1).in(Circuit, 5).in(IronPlate, 5).in(TransportBelt, 4).out(Splitter),
+        R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
         R(Assemble, 3).in(IronPlate, 10).in(CopperPlate, 5).in(Pipe, 5).out(IceMelter),
         R(Assemble, 5).in(Steel, 5).in(CopperPlate, 10).in(Circuit, 5).in(Pipe, 2).out(Electrolyzer),

@@ -180,17 +180,19 @@ void test_hierarchy() {
 
 void test_rotated_footprint() {
     Ship ship = Ship::new_game();
-    assert(footprint_of(ItemKind::Splitter, Direction::North) == (GridSize{2, 1}));
-    assert(footprint_of(ItemKind::Splitter, Direction::East) == (GridSize{1, 2}));
+    // Every rotatable building is square, so turning one leaves its
+    // footprint alone.
+    for (int i = 0; i < kItemKindCount; ++i) {
+        const ItemKind kind = static_cast<ItemKind>(i);
+        if (is_placeable(kind) && is_rotatable(kind))
+            assert(footprint_of(kind, Direction::East) == footprint_of(kind, Direction::North));
+    }
     // Not rotatable: facing doesn't matter.
     assert(footprint_of(ItemKind::IonThruster, Direction::East) == (GridSize{2, 3}));
 
-    ship.inventory().add(ItemKind::Splitter, 1);
-    // East of the bridge, facing east: covers kOnHull and the cell below.
-    assert(ship.place(ItemKind::Splitter, kOnHull, Direction::East) == BuildResult::Ok);
-    assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == ship.building_at(kOnHull));
-    assert(ship.building_at({kOnHull.x + 1, kOnHull.y}) == nullptr);
-    assert(ship.building_at(kOnHull)->footprint() == (GridSize{1, 2}));
+    assert(ship.place(ItemKind::BeltTunnel, kOnHull, Direction::East) == BuildResult::Ok);
+    assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == nullptr);
+    assert(ship.building_at(kOnHull)->footprint() == (GridSize{1, 1}));
 }
 
 void test_reinforced_hull() {

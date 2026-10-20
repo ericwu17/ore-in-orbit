@@ -116,10 +116,17 @@ int load_coord(const Json& j) {
     return static_cast<int>(load_int(j, 0, kShipGridSize - 1));
 }
 
+// The id of an item that is gone, which older saves still hold: it loads
+// as the one that replaced it. A placed splitter (2x1, holding nothing)
+// becomes a router on its first cell.
+constexpr const char* kSplitterId = "Splitter";
+
 std::optional<ItemKind> item_from_id(std::string_view id) {
     for (int i = 0; i < kItemKindCount; ++i)
         if (id == item_id(static_cast<ItemKind>(i)))
             return static_cast<ItemKind>(i);
+    if (id == kSplitterId)
+        return ItemKind::Router;
     return std::nullopt;
 }
 
@@ -129,6 +136,15 @@ ItemKind load_item(const Json& j) {
     if (!kind)
         throw LoadError("unknown item \"" + id + "\"");
     return *kind;
+}
+
+// An item, or null for none.
+Json save_optional_item(std::optional<ItemKind> kind) {
+    return kind ? Json(item_id(*kind)) : Json(nullptr);
+}
+
+std::optional<ItemKind> load_optional_item(const Json& j) {
+    return j.is_null() ? std::nullopt : std::optional<ItemKind>(load_item(j));
 }
 
 Direction load_direction(const Json& j) {
@@ -231,9 +247,23 @@ struct SaveAccess {
                 items.push_back({{"item", item_id(item.kind)}, {"pos", item.pos}});
             j["items"] = std::move(items);
         } else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
-            const std::optional<ItemKind> filter = sorter->get_filter();
-            j["filter"] = filter ? Json(item_id(*filter)) : Json(nullptr);
+            j["filter"] = save_optional_item(sorter->get_filter());
             j["next_right"] = sorter->next_right;
+        } else if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
+            // The items crossing each way, front first.
+            Json lanes = Json::object();
+            for (int d = 0; d < 4; ++d) {
+                Json lane = Json::array();
+                for (const JunctionItem& item : junction->lanes[static_cast<std::size_t>(d)])
+                    lane.push_back({{"item", item_id(item.kind)}, {"elapsed", item.elapsed}});
+                lanes[direction_id(static_cast<Direction>(d))] = std::move(lane);
+            }
+            j["lanes"] = std::move(lanes);
+        } else if (const auto* router = dynamic_cast<const Router*>(&b)) {
+            j["held"] = save_optional_item(router->held);
+            j["came_from"] = direction_id(router->came_from);
+            j["elapsed"] = router->elapsed;
+            j["next_out"] = direction_id(router->next_out);
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* m = dynamic_cast<const Machine*>(&b)) {
@@ -282,9 +312,23 @@ struct SaveAccess {
                 belt->insert(kind, pos);
             }
         } else if (auto* sorter = dynamic_cast<Sorter*>(&b)) {
-            const Json& filter = j.at("filter");
-            sorter->set_filter(filter.is_null() ? std::nullopt : std::optional<ItemKind>(load_item(filter)));
+            sorter->set_filter(load_optional_item(j.at("filter")));
             sorter->next_right = j.at("next_right").get<bool>();
+        } else if (auto* junction = dynamic_cast<Junction*>(&b)) {
+            const Json& lanes = j.at("lanes");
+            for (int d = 0; d < 4; ++d) {
+                const Json& lane = load_array(lanes.at(direction_id(static_cast<Direction>(d))), "junction items");
+                if (lane.size() > kJunctionCapacity)
+                    throw LoadError("too many items in a junction");
+                for (const Json& item : lane)
+                    junction->lanes[static_cast<std::size_t>(d)].push_back(
+                        {load_item(item.at("item")), load_tick(item.at("elapsed"), kJunctionTicks)});
+            }
+        } else if (auto* router = dynamic_cast<Router*>(&b)) {
+            router->held = load_optional_item(j.at("held"));
+            router->came_from = load_direction(j.at("came_from"));
+            router->elapsed = load_tick(j.at("elapsed"), kRouterTicks);
+            router->next_out = load_direction(j.at("next_out"));
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
@@ -384,7 +428,10 @@ struct SaveAccess {
                     throw LoadError("buildings overlap");
             }
 
-        load_state(j, *b);
+        // A splitter, from before routers (see kSplitterId), saved no state a
+        // router needs.
+        if (kind_json != kSplitterId)
+            load_state(j, *b);
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))
             ship.bridge = bridge;
         ship.add_building(p, std::move(b));

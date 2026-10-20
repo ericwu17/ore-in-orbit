@@ -14,9 +14,13 @@ chunks, or hydrogen) and stall when it is full. As in Mindustry there are no
 inserters: buildings put their output straight onto neighboring belts (or
 into neighboring buildings that take it), and belts carry items into
 whatever they point at, the bridge included. Machines craft the recipe the
-player picks for them (click one on the grid). Filter sorters route items
-by kind, as in Mindustry: the one picked for it goes straight through, the
-rest turn left or right. Pipes don't carry fluid yet.
+player picks for them (click one on the grid). The belt blocks work as in
+Mindustry: filter sorters route items by kind (the one picked for it goes
+straight through, the rest turn left or right), and reverse sorters the
+other way round (the one picked turns, the rest go straight); junctions let
+two belt lines cross, each item leaving by the side opposite the one it came
+in by; routers pass each item on to their other three sides in turn. Pipes
+don't carry fluid yet.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot, and nlohmann::json (vendored in
 `third_party/nlohmann/`, for save files). Runs on macOS, Linux and Windows.
@@ -62,9 +66,9 @@ Every building, item and fluid is drawn from a PNG in `assets/sprites/`:
 - `items/<ItemId>.png` — the icon of every item, buildings included
   (square), shown in the palette, cargo, crafting panels and pickers.
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
-  plus `buildings/Bridge.png`. Its shape is the building's footprint (2:1
-  for the 2x1 splitter, 1:1 for a 2x2 collector), drawn facing **North**;
-  the game turns belts, splitters and pumps to face the way they point.
+  plus `buildings/Bridge.png`. Its shape is the building's footprint (2:3
+  for the 2x3 ion thruster, 1:1 for a 2x2 collector), drawn facing
+  **North**; the game turns belts and pumps to face the way they point.
   The pipe's sprite is just its hub: the joins to its neighbors are drawn
   by the game.
 - `fluids/<FluidId>.png` — the icon of every fluid (square).
@@ -105,7 +109,7 @@ read stays in the list, greyed out, with the reason in its tooltip.
   credits), saving the game.
 - **Left click / drag**: build the selected item on the grid.
 - **Left click a building**: inspect it; pick a machine's recipe or a
-  filter sorter's item.
+  sorter's item.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).

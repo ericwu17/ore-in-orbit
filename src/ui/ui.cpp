@@ -285,7 +285,6 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
         DrawArrow(draw, c, d, cell * 0.28f, glyph);
         break;
     case ItemKind::TransportBelt:
-    case ItemKind::Splitter:
         conveyor(theme::kTileBelt);
         break;
     case ItemKind::ExpressBelt:
@@ -301,10 +300,26 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
         break;
     }
     case ItemKind::FilterSorter:
+    case ItemKind::ReverseSorter:
         // No arrow: it doesn't face a way. Its filter is drawn over it (see
         // DrawSorterFilter).
         draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
-        draw->AddRect(a, b, theme::U32(theme::kWarn, alpha), rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
+        draw->AddRect(a, b, theme::U32(*kind == ItemKind::ReverseSorter ? theme::kRed : theme::kWarn, alpha),
+                      rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
+        break;
+    case ItemKind::Junction:
+        // A cross: the two ways over it.
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
+        draw->AddLine(ImVec2(c.x, a.y), ImVec2(c.x, b.y), glyph, std::max(1.0f, cell * 0.1f));
+        draw->AddLine(ImVec2(a.x, c.y), ImVec2(b.x, c.y), glyph, std::max(1.0f, cell * 0.1f));
+        break;
+    case ItemKind::Router:
+        // An arrow out of every side.
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding);
+        for (const Direction dir : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+            const ImVec2 v = DirectionVector(dir);
+            DrawArrow(draw, ImVec2(c.x + v.x * cell * 0.25f, c.y + v.y * cell * 0.25f), v, cell * 0.12f, glyph);
+        }
         break;
     default:
         letter_tile(TileColor(*kind), TileLabel(*kind));
@@ -403,6 +418,25 @@ void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImV
     }
     if (machine.crafting())
         DrawBufferGauge(draw, min, max, cell, machine.craft_progress());
+}
+
+// The items crossing a junction whose cell's top-left corner is `min`, each
+// as far across as it has got.
+void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell) {
+    for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+        const ImVec2 d = DirectionVector(travel);
+        const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
+        for (const JunctionItem& item : junction.lane(travel)) {
+            const float t = cell * static_cast<float>(item.elapsed) / static_cast<float>(kJunctionTicks);
+            DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
+        }
+    }
+}
+
+// The item a router holds, in the middle of its tile.
+void DrawRouterItem(ImDrawList* draw, const Router& router, ImVec2 min, float cell) {
+    if (const std::optional<ItemKind> held = router.get_held())
+        DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.16f), *held);
 }
 
 // A sorter's filter item, in the middle of its tile.
@@ -898,7 +932,24 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         ImGui::TextUnformatted("Filter:");
         ImGui::SameLine();
         AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kInk, false);
-        ImGui::TextColored(theme::kInkDim, "Matching items go straight through;\nothers turn left or right");
+        if (sorter->inverted())
+            ImGui::TextColored(theme::kInkDim, "Matching items turn left or right;\nothers go straight through");
+        else
+            ImGui::TextColored(theme::kInkDim, "Matching items go straight through;\nothers turn left or right");
+    }
+    if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
+        ImGui::TextColored(theme::kInkDim, "Items cross straight over, out the\nopposite side");
+        Inventory crossing;
+        for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
+            for (const JunctionItem& item : junction->lane(travel))
+                crossing.add(item.kind);
+        for (const ItemStack& s : crossing.stacks())
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
+    }
+    if (const auto* router = dynamic_cast<const Router*>(&b)) {
+        ImGui::TextColored(theme::kInkDim, "Passes items to its other three sides\nin turn");
+        if (const std::optional<ItemKind> held = router->get_held())
+            AmountLine(ItemIcon(*held), item_name(*held), theme::kInk, in_tooltip);
     }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
@@ -1357,11 +1408,19 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                 if (b == InspectedBuilding(ship))
                     draw->AddRect(min, max, theme::U32(theme::kRed), 0.0f, 0, 2.0f);
             }
-    // Items on belts, over every building (they cross onto the next cell).
+    // Items on belts, junctions and routers, over every building (they
+    // cross onto the next cell).
     for (int y = lo.y; y <= hi.y; ++y)
-        for (int x = lo.x; x <= hi.x; ++x)
-            if (const auto* belt = dynamic_cast<const Conveyor*>(ship.building_anchored_at({x, y})))
-                DrawBeltItems(draw, *belt, CellMin(origin, cell, {x, y}), cell);
+        for (int x = lo.x; x <= hi.x; ++x) {
+            const Building* b = ship.building_anchored_at({x, y});
+            const ImVec2 min = CellMin(origin, cell, {x, y});
+            if (const auto* belt = dynamic_cast<const Conveyor*>(b))
+                DrawBeltItems(draw, *belt, min, cell);
+            else if (const auto* junction = dynamic_cast<const Junction*>(b))
+                DrawJunctionItems(draw, *junction, min, cell);
+            else if (const auto* router = dynamic_cast<const Router*>(b))
+                DrawRouterItem(draw, *router, min, cell);
+        }
 
     // Hover preview: a ghost of what would be built (its footprint starting
     // at the hovered cell), outlined in good / bad. Clipped to the grid.

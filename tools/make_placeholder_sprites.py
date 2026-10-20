@@ -64,15 +64,18 @@ ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = NAVY
 
 # Placeables: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, sorter, pipe, pump, tile.
+# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, pipe,
+# pump, tile.
 BUILDINGS = {
     "Hull":              (1, 1, "hull", HULL, ""),
     "ReinforcedHull":    (1, 1, "hull", REINFORCED_HULL, ""),
     "TransportBelt":     (1, 1, "belt", INK_DIM, ""),
     "ExpressBelt":       (1, 1, "belt", WARN_TEXT, ""),
     "BeltTunnel":        (1, 1, "tunnel", INK_DIM, ""),
-    "Splitter":          (2, 1, "belt", INK_DIM, ""),
     "FilterSorter":      (1, 1, "sorter", INK_DIM, ""),
+    "ReverseSorter":     (1, 1, "reverse_sorter", INK_DIM, ""),
+    "Junction":          (1, 1, "junction", INK_DIM, ""),
+    "Router":            (1, 1, "router", INK_DIM, ""),
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
     "Pipe":              (1, 1, "pipe", NAVY, ""),
     "Pump":              (1, 1, "pump", NAVY, ""),
@@ -202,10 +205,12 @@ def building_image(w, h, look, color, label):
         for fx in (0.17, 0.83):
             for fy in (0.17, 0.83):
                 d.ellipse((W * fx - r, H * fy - r, W * fx + r, H * fy + r), fill=darker(color, 0.75))
-    elif look in ("belt", "tunnel", "sorter"):
+    elif look in ("belt", "tunnel", "sorter", "reverse_sorter"):
         d.rounded_rectangle(box, radius=s * 0.08, fill=color, outline=darker(color), width=edge)
         if look == "sorter":
             d.rounded_rectangle(box, radius=s * 0.08, outline=WARN, width=int(s * 0.08))
+        elif look == "reverse_sorter":
+            d.rounded_rectangle(box, radius=s * 0.08, outline=RED, width=int(s * 0.08))
         else:
             # Rails down both sides, and an arrow on every cell.
             for x in (box[0] + s * 0.1, box[2] - s * 0.1):
@@ -217,6 +222,19 @@ def building_image(w, h, look, color, label):
             # The tunnel mouth: a bar across the back (south) edge.
             y = H / 2 + s * 0.3
             d.line((W / 2 - s * 0.38, y, W / 2 + s * 0.38, y), fill=INK, width=int(s * 0.12))
+    elif look == "junction":
+        # A cross: the two ways over it.
+        d.rounded_rectangle(box, radius=s * 0.08, fill=color, outline=darker(color), width=edge)
+        bar = s * 0.07
+        d.rectangle((W / 2 - bar, box[1] + edge, W / 2 + bar, box[3] - edge), fill=PAPER_LIGHT)
+        d.rectangle((box[0] + edge, H / 2 - bar, box[2] - edge, H / 2 + bar), fill=PAPER_LIGHT)
+    elif look == "router":
+        # An arrow out of every side.
+        d.rounded_rectangle(box, radius=s * 0.15, fill=color, outline=darker(color), width=edge)
+        for i in range(4):
+            arrow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            arrow_up(ImageDraw.Draw(arrow), W / 2, H / 2 - s * 0.25, s * 0.13, PAPER_LIGHT)
+            img.alpha_composite(arrow.rotate(-90 * i))
     elif look == "pipe":
         # Just the hub: the game draws the joins to neighboring pipes.
         half = s * 0.14

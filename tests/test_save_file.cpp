@@ -52,8 +52,8 @@ const Recipe& recipe_named(const char* name) {
 // A ship with one of everything that holds state, part way through running:
 // a collector feeding belts into a cargo hold, a hydrogen collector, a
 // filter sorter with items queued on the belt into it, two machines mid-craft
-// (one on reinforced hull), a west-facing express belt and a pipe, and the
-// bridge hand-crafting.
+// (one on reinforced hull), a west-facing express belt and a pipe, a
+// junction and a router holding items, and the bridge hand-crafting.
 World busy_world() {
     World world;
     Ship& ship = world.get_ship();
@@ -91,6 +91,14 @@ World busy_world() {
     assert(ship.place(ItemKind::ExpressBelt, {x0 + 3, c + 4}, Direction::West) == BuildResult::Ok);
     assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 4, c + 4}, ItemKind::Glass));
     assert(ship.place(ItemKind::Pipe, {x0 + 2, c + 6}) == BuildResult::Ok);
+
+    // A junction into a router, which has nowhere to pass its item on: both
+    // keep what they hold.
+    assert(ship.place(ItemKind::Junction, {x0 + 6, c + 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Router, {x0 + 7, c + 6}) == BuildResult::Ok);
+    assert(ship.insert_item({x0 + 7, c + 6}, {x0 + 8, c + 6}, ItemKind::Gear));
+    for (int i = 0; i < 2; ++i)
+        assert(ship.insert_item({x0 + 6, c + 6}, {x0 + 5, c + 6}, ItemKind::Steel));
 
     // Long enough for the first chunk to ride the belts into the cargo hold.
     run(world, 250);
@@ -147,6 +155,10 @@ void test_round_trip() {
     assert(sorter && sorter->get_filter() == ItemKind::IronOre);
     const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
     assert(belt && belt->facing() == Direction::West && belt->get_items().size() == 1);
+    const auto* junction = dynamic_cast<const Junction*>(copy.building_at({x0 + 6, c + 6}));
+    assert(junction && junction->lane(Direction::East).size() == 2);
+    const auto* router = dynamic_cast<const Router*>(copy.building_at({x0 + 7, c + 6}));
+    assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
 }
 
 // A loaded game carries on exactly as the original does.
@@ -294,6 +306,34 @@ void test_refused() {
     refused(with_building(R"({"kind": "FilterSorter", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "filter": "Unobtainium", "next_right": false})"),
             "an unknown filter");
+    refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "lanes": {"North": [], "East": [{"item": "Gear", "elapsed": 9999}],
+                                        "South": [], "West": []}})"),
+            "an item past the end of a junction");
+    refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "lanes": {"North": [], "East": [], "South": []}})"),
+            "a junction missing a way across");
+    refused(with_building(R"({"kind": "Router", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "held": "Gear", "came_from": "Up", "elapsed": 0, "next_out": "North"})"),
+            "a router item from an unknown side");
+}
+
+// Splitters are gone: an older save's load as routers, placed or not.
+void test_splitter_to_router() {
+    Json save = minimal();
+    hull(save).push_back({{"x", 70}, {"y", 64}, {"kind", "Hull"}});
+    hull(save).push_back({{"x", 70}, {"y", 65}, {"kind", "Hull"}});
+    bridge(save)["inventory"] = {{"Splitter", 2}, {"Router", 1}};
+    buildings(save).push_back(Json::parse(R"({"kind": "Splitter", "x": 70, "y": 64, "facing": "East",
+                                              "output_side": 0, "items": []})"));
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    assert(loaded);
+    const Ship& ship = loaded->world.get_ship();
+    assert(ship.inventory().count(ItemKind::Router) == 3);
+    const auto* router = dynamic_cast<const Router*>(ship.building_at({70, 64}));
+    assert(router && router->empty() && router->footprint() == (GridSize{1, 1}));
+    assert(ship.building_at({70, 65}) == nullptr);
 }
 
 // Machines check their recipe and progress, and large ones their hull.
@@ -337,6 +377,7 @@ int main() {
     test_determinism();
     test_header_only();
     test_refused();
+    test_splitter_to_router();
     test_machine_refused();
     std::puts("test_save_file: all passed");
     return 0;

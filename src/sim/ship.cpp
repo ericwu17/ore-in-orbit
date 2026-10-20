@@ -19,8 +19,10 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::TransportBelt, 300},
     {ItemKind::ExpressBelt, 60},
     {ItemKind::BeltTunnel, 4},
-    {ItemKind::Splitter, 2},
     {ItemKind::FilterSorter, 16},
+    {ItemKind::ReverseSorter, 8},
+    {ItemKind::Junction, 16},
+    {ItemKind::Router, 8},
     {ItemKind::CargoHold, 8},
     {ItemKind::Pipe, 40},
     {ItemKind::Pump, 2},
@@ -237,11 +239,28 @@ BuildResult Ship::remove_hull(GridPos p) {
 }
 
 bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {
+    return insert_item(to, from, building_at(from), kind);
+}
+
+bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKind kind) {
     Building* target = building_at_mut(to);
     if (!target)
         return false;
     if (auto* sorter = dynamic_cast<Sorter*>(target))
-        return sort_item(to, from, *sorter, kind);
+        return sort_item(to, from, source, *sorter, kind);
+    if (auto* junction = dynamic_cast<Junction*>(target)) {
+        const Direction travel = direction_to(from, to);
+        if (!junction->has_room(travel) || !building_at(neighbor(to, travel)))
+            return false;  // full that way, or nothing to cross to
+        junction->insert(kind, travel);
+        return true;
+    }
+    if (auto* router = dynamic_cast<Router*>(target)) {
+        if (!router->empty())
+            return false;
+        router->insert(kind, direction_to(to, from));
+        return true;
+    }
     auto* belt = dynamic_cast<Conveyor*>(target);
     if (!belt) {
         if (!target->accepts(kind))
@@ -252,6 +271,8 @@ bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {
     const Direction facing = belt->facing();
     if (from == neighbor(to, facing))
         return false;  // the cell it feeds
+    if (source && building_at(neighbor(to, facing)) == source)
+        return false;  // back where it came from, through a sorter
     int pos = 0;
     if (from != neighbor(to, rotated_cw(rotated_cw(facing)))) {
         // From the side: halfway along, unless nothing feeds it from behind.
@@ -273,7 +294,7 @@ bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
     return true;
 }
 
-bool Ship::sort_item(GridPos at, GridPos from, Sorter& sorter, ItemKind kind) {
+bool Ship::sort_item(GridPos at, GridPos from, const Building* source, Sorter& sorter, ItemKind kind) {
     // Sorter to sorter to anything is as far as an item goes in one step
     // (Mindustry's rule): a third would let a ring of them pass it round
     // forever.
@@ -282,10 +303,10 @@ bool Ship::sort_item(GridPos at, GridPos from, Sorter& sorter, ItemKind kind) {
         const GridPos to = neighbor(at, out);
         if (from_sorter && dynamic_cast<const Sorter*>(building_at(to)))
             return false;
-        return insert_item(to, at, kind);
+        return insert_item(to, at, source, kind);
     };
     const Direction d = direction_to(from, at);
-    if (sorter.get_filter() == kind)
+    if (sorter.passes_straight(kind))
         return pass(d);
     const Direction right = rotated_cw(d);
     const Direction left = rotated_ccw(d);
@@ -307,6 +328,30 @@ bool Ship::set_sort_filter(GridPos p, std::optional<ItemKind> item) {
         return false;
     sorter->set_filter(item);
     return true;
+}
+
+void Ship::pass_on(GridPos p, Building& b) {
+    if (auto* junction = dynamic_cast<Junction*>(&b)) {
+        for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
+            if (const std::optional<ItemKind> item = junction->item_ready(travel))
+                if (insert_item(neighbor(p, travel), p, *item))
+                    junction->pop(travel);
+    } else if (auto* router = dynamic_cast<Router*>(&b)) {
+        const std::optional<ItemKind> item = router->item_ready();
+        if (!item)
+            return;
+        // Clockwise from the side whose turn it is, skipping the way back.
+        Direction out = router->next_out;
+        for (int k = 0; k < 4; ++k, out = rotated_cw(out)) {
+            if (out == router->get_came_from())
+                continue;
+            if (insert_item(neighbor(p, out), p, *item)) {
+                router->pop();
+                router->next_out = rotated_cw(out);
+                return;
+            }
+        }
+    }
 }
 
 void Ship::push_output(GridPos p, Building& b) {
@@ -345,6 +390,8 @@ void Ship::push_output(GridPos p, Building& b) {
 void Ship::tick() {
     for (const GridPos p : placed)
         at(buildings, p)->tick();
+    for (const GridPos p : placed)
+        pass_on(p, *at(buildings, p));
     for (const GridPos p : placed) {
         auto* belt = dynamic_cast<Conveyor*>(at(buildings, p).get());
         if (!belt)

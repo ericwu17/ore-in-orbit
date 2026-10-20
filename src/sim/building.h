@@ -6,9 +6,11 @@
 //   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array,
 //   │                hydrogen collector
-//   ├── Conveyor     moves items along: belts (belt tunnel and splitter don't
-//   │                work yet)
-//   ├── Sorter       routes items by kind (the filter sorter)
+//   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
+//   │                yet)
+//   ├── Sorter       routes items by kind (filter and reverse sorters)
+//   ├── Junction     lets two belt lines cross
+//   ├── Router       spreads items out to its neighbors
 //   ├── CargoHold    item storage
 //   ├── FluidPart    pipe, pump, fluid tank
 //   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
@@ -61,7 +63,7 @@ public:
 
 // The footprint a building of this kind will have when facing `facing`
 // (1x1 for hull). Rotatable buildings that aren't square turn with it: a
-// splitter is 2x1 facing north or south and 1x2 facing east or west.
+// 2x1 one facing north or south would be 1x2 facing east or west.
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts, pumps).
 bool is_rotatable(ItemKind kind);
@@ -210,7 +212,7 @@ constexpr int kBeltLength = 60;
 constexpr int kBeltSpacing = 20;
 
 // Belt speed in positions per tick (a cell is kBeltLength): 0 for the
-// conveyors that don't move items yet (tunnel, splitter).
+// conveyors that don't move items yet (the tunnel).
 int belt_speed(ItemKind kind);
 
 struct BeltItem {
@@ -246,18 +248,107 @@ public:
 // other item turns left or right, alternating when both sides would take it.
 // It holds nothing: it takes an item only if where it would go takes it at
 // once (see Ship::insert_item). With no filter, every item turns.
+//
+// The reverse sorter (Mindustry's inverted sorter) is the same the other way
+// round: matching items turn, the rest go straight; with no filter, every
+// item goes straight.
 class Sorter : public Building {
 private:
     std::optional<ItemKind> filter;
 
 public:
-    Sorter() : Building(ItemKind::FilterSorter, Direction::North, footprint_of(ItemKind::FilterSorter)) {}
+    // `k` is FilterSorter or ReverseSorter.
+    explicit Sorter(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 
+    // Whether it's a reverse sorter.
+    bool inverted() const { return item_kind() == ItemKind::ReverseSorter; }
+    // Whether `kind` goes straight through (else it turns).
+    bool passes_straight(ItemKind kind) const { return (filter == kind) != inverted(); }
     std::optional<ItemKind> get_filter() const { return filter; }
     void set_filter(std::optional<ItemKind> item) { filter = item; }
     // Which side an item that turns tries first: right of its travel
     // direction, or left. Kept by the Ship, which flips it after each turn.
     bool next_right = false;
+};
+
+// A junction's queue for each way across holds up to kJunctionCapacity
+// items, and each takes kJunctionTicks to cross.
+constexpr int kJunctionCapacity = 6;
+constexpr Tick kJunctionTicks = kTicksPerSecond / 3;
+
+struct JunctionItem {
+    ItemKind kind;
+    Tick elapsed = 0;  // ticks since it came in, up to kJunctionTicks
+};
+
+// The junction, as in Mindustry: items cross it straight, out the side
+// opposite the one they came in by, so two belt lines can cross without
+// mixing. Each of the four ways across is its own queue: it takes an item
+// coming in one way while that queue has room and something stands on the
+// far side, and hands its front item on once it has crossed (see
+// Ship::insert_item and Ship::tick). One way jamming doesn't hold up the
+// others.
+class Junction : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    // Indexed by the Direction the items travel; front first.
+    std::array<std::deque<JunctionItem>, 4> lanes;
+
+public:
+    Junction() : Building(ItemKind::Junction, Direction::North, footprint_of(ItemKind::Junction)) {}
+
+    // Moves every item on across.
+    void tick() override;
+    std::vector<ItemStack> contents() const override;
+
+    // The items crossing toward `travel`, front first.
+    const std::deque<JunctionItem>& lane(Direction travel) const {
+        return lanes[static_cast<std::size_t>(travel)];
+    }
+    bool has_room(Direction travel) const { return lane(travel).size() < kJunctionCapacity; }
+    // Adds an item crossing toward `travel`; has_room(travel) must hold.
+    void insert(ItemKind kind, Direction travel);
+    // The front item crossing toward `travel`, once it has crossed.
+    std::optional<ItemKind> item_ready(Direction travel) const;
+    void pop(Direction travel);
+};
+
+// Ticks a router holds an item before it can pass it on.
+constexpr Tick kRouterTicks = 4;
+
+// The router, as in Mindustry: it takes one item at a time, from any side,
+// and after kRouterTicks hands it on to one of its other three neighbors,
+// never back the way it came, taking turns among those that will take it
+// (see Ship::insert_item and Ship::tick).
+class Router : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    std::optional<ItemKind> held;
+    Direction came_from = Direction::North;  // the side `held` came in by
+    Tick elapsed = 0;                         // ticks `held` has been here, up to kRouterTicks
+
+public:
+    Router() : Building(ItemKind::Router, Direction::North, footprint_of(ItemKind::Router)) {}
+
+    void tick() override;
+    std::vector<ItemStack> contents() const override;
+
+    std::optional<ItemKind> get_held() const { return held; }
+    Direction get_came_from() const { return came_from; }
+    bool empty() const { return !held; }
+    // Takes an item that came in by side `from`; empty() must hold.
+    void insert(ItemKind kind, Direction from);
+    // The held item, once it may go on.
+    std::optional<ItemKind> item_ready() const;
+    void pop();
+    // Which way the next item goes first (round robin, kept by the Ship).
+    Direction next_out = Direction::North;
 };
 
 // Storage: takes any item until it holds kCargoCapacity.

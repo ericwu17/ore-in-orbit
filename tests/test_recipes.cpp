@@ -193,10 +193,10 @@ void test_hand_crafting() {
     assert(bridge.craft_queue().empty());
 
     // Not hand-craftable, or not enough inputs: refused, nothing taken.
-    const Recipe& splitter = *recipe_for(ItemKind::Splitter);
-    assert(!splitter.hand_craftable);
-    assert(!bridge.can_hand_craft(splitter));
-    assert(!bridge.queue_craft(splitter));
+    const Recipe& router = *recipe_for(ItemKind::Router);
+    assert(!router.hand_craftable);
+    assert(!bridge.can_hand_craft(router));
+    assert(!bridge.queue_craft(router));
     const Recipe& processor = *recipe_for(ItemKind::Processor);
     assert(processor.hand_craftable && !bridge.can_hand_craft(processor));
     assert(!bridge.queue_craft(processor));
