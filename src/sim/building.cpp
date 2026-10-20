@@ -92,8 +92,6 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::BeltTunnel:
     case ItemKind::Splitter:
     case ItemKind::FilterSorter:
-    case ItemKind::GrabberArm:
-    case ItemKind::FastGrabberArm:
     case ItemKind::Pump:
         return true;
     default:
@@ -210,9 +208,6 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::Splitter:
     case ItemKind::FilterSorter:
         return std::make_unique<Conveyor>(kind, facing);
-    case ItemKind::GrabberArm:
-    case ItemKind::FastGrabberArm:
-        return std::make_unique<Arm>(kind, facing);
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
     case ItemKind::Pipe:

@@ -15,7 +15,6 @@ constexpr int kStartHullSide = 5;
 constexpr ItemStack kStartInventory[] = {
     {ItemKind::Hull, 150},
     {ItemKind::TransportBelt, 60},
-    {ItemKind::GrabberArm, 10},
     {ItemKind::Pipe, 30},
     {ItemKind::CargoHold, 2},
     {ItemKind::AsteroidCollector, 1},

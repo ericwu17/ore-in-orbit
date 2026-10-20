@@ -104,7 +104,6 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 5).in(IronPlate, 10).in(Pipe, 5).in(Circuit, 2).out(HydrogenCollector).hand(),
         R(Assemble, 3).in(IronPlate, 15).in(Gear, 10).out(AsteroidCrusher).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
-        R(Assemble, 0.5).in(Circuit).in(Gear).in(IronPlate).out(GrabberArm).hand(),
         R(Assemble, 0.5).in(IronPlate, 8).out(CargoHold).hand(),
         R(Assemble, 5).in(IronPlate, 5).in(Glass, 4).in(CopperWire, 6).out(SolarPanel).hand(),
         R(Assemble, 5).in(IronPlate, 10).in(Gear, 5).in(Circuit, 3).out(FabricatorMk1).hand(),
@@ -127,7 +126,6 @@ std::vector<Recipe> make_recipes() {
             .in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).in(ServoMotor, 5)
             .out(FabricatorMk2),
         R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(NickelPlate).out(ExpressBelt),
-        R(Assemble, 1).in(GrabberArm).in(Circuit, 2).in(ServoMotor).out(FastGrabberArm),
         R(Assemble, 10).in(StructuralFrame, 5).in(PhotovoltaicCell, 16).in(CopperWire, 10).out(SolarArray),
         R(Assemble, 1).in(Hull).in(Steel).out(ReinforcedHull),
 

@@ -10,8 +10,6 @@ const char* item_name(ItemKind kind) {
     case ItemKind::BeltTunnel:        return "Belt tunnel";
     case ItemKind::Splitter:          return "Splitter";
     case ItemKind::FilterSorter:      return "Filter sorter";
-    case ItemKind::GrabberArm:        return "Grabber arm";
-    case ItemKind::FastGrabberArm:    return "Fast grabber arm";
     case ItemKind::CargoHold:         return "Cargo hold";
     case ItemKind::Pipe:              return "Pipe";
     case ItemKind::Pump:              return "Pump";

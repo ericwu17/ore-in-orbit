@@ -56,8 +56,6 @@ enum class ItemKind {
     BeltTunnel,
     Splitter,
     FilterSorter,
-    GrabberArm,
-    FastGrabberArm,
     CargoHold,
     Pipe,
     Pump,

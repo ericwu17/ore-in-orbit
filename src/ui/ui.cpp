@@ -245,25 +245,13 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
         const ImVec2 back(c.x - d.x * cell * 0.3f, c.y - d.y * cell * 0.3f);
         const ImVec2 p(-d.y * cell * 0.38f, d.x * cell * 0.38f);
         draw->AddLine(ImVec2(back.x - p.x, back.y - p.y), ImVec2(back.x + p.x, back.y + p.y),
-                      theme::U32(theme::kTileArm, alpha), cell * 0.12f);
+                      theme::U32(theme::kTileTunnelMouth, alpha), cell * 0.12f);
         break;
     }
     case ItemKind::FilterSorter:
         conveyor(theme::kTileBelt);
         draw->AddRect(a, b, theme::U32(theme::kWarn, alpha), rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
         break;
-    case ItemKind::GrabberArm:
-    case ItemKind::FastGrabberArm: {
-        // A base at the back and an arm reaching forward.
-        const ImU32 color =
-            theme::U32(*kind == ItemKind::FastGrabberArm ? theme::kTileExpressBelt : theme::kTileArm, alpha);
-        const ImVec2 base(c.x - d.x * cell * 0.22f, c.y - d.y * cell * 0.22f);
-        const ImVec2 tip(c.x + d.x * cell * 0.32f, c.y + d.y * cell * 0.32f);
-        draw->AddLine(base, tip, color, cell * 0.1f);
-        draw->AddCircleFilled(base, cell * 0.16f, color);
-        DrawArrow(draw, tip, d, cell * 0.14f, color);
-        break;
-    }
     default:
         letter_tile(TileColor(*kind), TileLabel(*kind));
         break;

@@ -7,7 +7,6 @@
 //   ├── Collector    gathers from space: asteroid collector, tractor array,
 //   │                hydrogen collector
 //   ├── Conveyor     moves items along: belts, belt tunnel, splitter, filter sorter
-//   ├── Arm          moves items between belts and buildings: grabber arms
 //   ├── CargoHold    item storage
 //   ├── FluidPart    pipe, pump, fluid tank
 //   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
@@ -20,6 +19,10 @@
 // kind before one exists. A building doesn't know where it is: the Ship
 // stores it at its footprint's top-left cell. Only the bridge does anything
 // per tick so far: tick() is the hook resource flow will plug into.
+//
+// There are no inserters: as in Mindustry, belts and pipes feed straight
+// into the building they point at, and buildings put their output straight
+// onto the belts and pipes next to them.
 #pragma once
 
 #include "sim/game_types.h"
@@ -51,7 +54,7 @@ public:
 // (1x1 for hull). Rotatable buildings that aren't square turn with it: a
 // splitter is 2x1 facing north or south and 1x2 facing east or west.
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
-// Whether the player picks a direction when placing it (belts, arms, pumps).
+// Whether the player picks a direction when placing it (belts, pumps).
 bool is_rotatable(ItemKind kind);
 // The large late-game buildings that need reinforced hull under them.
 bool needs_reinforced_hull(ItemKind kind);
@@ -123,11 +126,6 @@ public:
 class Conveyor : public Building {
 public:
     Conveyor(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
-};
-
-class Arm : public Building {
-public:
-    Arm(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 };
 
 class CargoHold : public Building {
