@@ -18,7 +18,7 @@
 // whether it rotates is data (footprint_of, is_rotatable), looked up by item
 // kind before one exists. A building doesn't know where it is: the Ship
 // stores it at its footprint's top-left cell. Only the bridge does anything
-// per tick so far: tick() is the hook resource flow will plug into.
+// per tick: the bridge (hand-crafting) and the collectors (gathering).
 //
 // There are no inserters: as in Mindustry, belts and pipes feed straight
 // into the building they point at, and buildings put their output straight
@@ -34,13 +34,18 @@
 #include <optional>
 #include <vector>
 
-// Counts of each item, held by the bridge.
+// Counts of each item: the bridge's inventory, and the buffers inside
+// buildings.
 class Inventory {
 private:
     std::array<int, kItemKindCount> counts{};
 
 public:
     int count(ItemKind kind) const { return counts[static_cast<std::size_t>(kind)]; }
+    // All items, of every kind.
+    int total() const;
+    // One stack per kind held, in ItemKind order.
+    std::vector<ItemStack> stacks() const;
     void add(ItemKind kind, int n = 1);
     void add(const std::vector<ItemStack>& stacks);
     // Removes n; false (and no change) if there are fewer.
@@ -83,6 +88,9 @@ public:
     virtual bool removable() const { return true; }
     // One simulation step.
     virtual void tick() {}
+    // The items held inside it (buffers), refunded to the bridge when it is
+    // removed.
+    virtual std::vector<ItemStack> contents() const { return {}; }
 };
 
 // A recipe the bridge is hand-crafting. Its inputs left the inventory when
@@ -118,9 +126,51 @@ public:
     const std::deque<CraftJob>& craft_queue() const { return queue; }
 };
 
+// How a collector gathers: one catch every `interval` ticks into its
+// buffer, which holds up to `capacity`; it stalls while the buffer is full.
+// A catch is one asteroid chunk, picked by `chunk_weights` (indexed from
+// MetallicChunk), or `fluid_amount` units of `fluid`.
+struct CollectorSpec {
+    Tick interval = 0;
+    int capacity = 0;  // items, or fluid units
+    std::array<int, kChunkKindCount> chunk_weights{};
+    std::optional<FluidKind> fluid;
+    int fluid_amount = 0;
+};
+
+// The spec of a collector kind (asteroid collector, tractor array,
+// hydrogen collector).
+const CollectorSpec& collector_spec(ItemKind kind);
+
 class Collector : public Building {
+private:
+    const CollectorSpec* spec;
+    Tick progress = 0;  // ticks toward the next catch
+    Inventory caught;   // chunks
+    int fluid = 0;      // units of spec->fluid
+    // Smooth weighted round robin over the chunk kinds: spreads each kind's
+    // share of the catches evenly, with no randomness.
+    std::array<int, kChunkKindCount> chunk_turn{};
+
 public:
-    explicit Collector(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
+    explicit Collector(ItemKind k);
+
+    const CollectorSpec& get_spec() const { return *spec; }
+    // Gathers, unless the buffer is full.
+    void tick() override;
+    std::vector<ItemStack> contents() const override { return caught.stacks(); }
+
+    const Inventory& items() const { return caught; }
+    Inventory& items() { return caught; }
+    int fluid_amount() const { return fluid; }
+    // How much the buffer holds (items or fluid units), out of capacity().
+    int stored() const { return spec->fluid ? fluid : caught.total(); }
+    int capacity() const { return spec->capacity; }
+    bool full() const { return stored() >= capacity(); }
+    // Items (or fluid units) gathered per second while not full.
+    double rate_per_second() const;
+    // How far along the next catch is, 0 to 1.
+    float catch_progress() const;
 };
 
 class Conveyor : public Building {

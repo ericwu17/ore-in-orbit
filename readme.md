@@ -7,8 +7,9 @@ memory only): a ship built on a 128x128 square grid, starting as a small
 patch in its middle. Hull tiles go down first, and
 every building (hydrogen and asteroid collectors, pipes, transport
 belts) needs a hull tile under it. Everything placed comes out of the
-bridge's inventory, and removing it gives it back. The buildings don't do
-anything yet.
+bridge's inventory, and removing it gives it back (with anything stored
+inside it). Collectors gather at a set rate into an internal buffer (asteroid
+chunks, or hydrogen) and stall when it is full.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot. Runs on macOS, Linux and Windows.
 
@@ -68,8 +69,9 @@ One directory per layer under `src/`; includes name their layer
     `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory holds).
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
     `Collector` → hydrogen / asteroid, `Pipe`, `TransportBelt`),
-    each class's footprint (`kSize`, e.g. 2x2 collectors), the
-    `make_building` factory and the bridge's `Inventory`.
+    each kind's footprint (`footprint_of`, e.g. 2x2 collectors), the
+    collectors' rates and buffers (`CollectorSpec`), the `make_building`
+    factory and `Inventory` (the bridge's, and building buffers).
   - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
     their top-left cell), placement / removal rules and the starting ship.
   - `world.h/.cpp` — `World`: owns all state (the ship), `advance_tick()`

@@ -3,6 +3,7 @@
 // (see building.h).
 #include "sim/building.h"
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 
@@ -23,6 +24,21 @@ bool Inventory::take(ItemKind kind, int n) {
         return false;
     have -= n;
     return true;
+}
+
+int Inventory::total() const {
+    int sum = 0;
+    for (const int n : counts)
+        sum += n;
+    return sum;
+}
+
+std::vector<ItemStack> Inventory::stacks() const {
+    std::vector<ItemStack> out;
+    for (std::size_t i = 0; i < counts.size(); ++i)
+        if (counts[i] > 0)
+            out.push_back({static_cast<ItemKind>(i), counts[i]});
+    return out;
 }
 
 bool Inventory::has(const std::vector<ItemStack>& stacks) const {
@@ -186,6 +202,60 @@ void Bridge::tick() {
         return;
     inventory.add(job.recipe->outputs);
     queue.pop_front();
+}
+
+const CollectorSpec& collector_spec(ItemKind kind) {
+    // Chunk weights: metallic, silicate, carbonaceous, ice, exotic.
+    static const CollectorSpec asteroid{
+        .interval = 2 * kTicksPerSecond, .capacity = 10, .chunk_weights = {7, 5, 4, 3, 1}};
+    static const CollectorSpec tractor{
+        .interval = kTicksPerSecond / 2, .capacity = 20, .chunk_weights = {6, 4, 4, 3, 3}};
+    static const CollectorSpec hydrogen{
+        .interval = kTicksPerSecond / 2, .capacity = 100, .fluid = FluidKind::Hydrogen, .fluid_amount = 5};
+    switch (kind) {
+    case ItemKind::AsteroidCollector: return asteroid;
+    case ItemKind::TractorArray:      return tractor;
+    case ItemKind::HydrogenCollector: return hydrogen;
+    default:                          break;
+    }
+    assert(false && "collector_spec: not a collector");
+    return asteroid;
+}
+
+Collector::Collector(ItemKind k)
+    : Building(k, Direction::North, footprint_of(k)), spec(&collector_spec(k)) {}
+
+void Collector::tick() {
+    if (full())
+        return;
+    if (++progress < spec->interval)
+        return;
+    progress = 0;
+    if (spec->fluid) {
+        fluid = std::min(fluid + spec->fluid_amount, spec->capacity);
+        return;
+    }
+    // Smooth weighted round robin: every kind gains its weight, the one
+    // furthest ahead is caught and pays back the total.
+    int total = 0;
+    std::size_t pick = 0;
+    for (std::size_t i = 0; i < chunk_turn.size(); ++i) {
+        chunk_turn[i] += spec->chunk_weights[i];
+        total += spec->chunk_weights[i];
+        if (chunk_turn[i] > chunk_turn[pick])
+            pick = i;
+    }
+    chunk_turn[pick] -= total;
+    caught.add(static_cast<ItemKind>(static_cast<int>(ItemKind::MetallicChunk) + static_cast<int>(pick)));
+}
+
+double Collector::rate_per_second() const {
+    const double per_catch = spec->fluid ? spec->fluid_amount : 1.0;
+    return per_catch * static_cast<double>(kTicksPerSecond) / static_cast<double>(spec->interval);
+}
+
+float Collector::catch_progress() const {
+    return static_cast<float>(progress) / static_cast<float>(spec->interval);
 }
 
 bool Machine::crafts(CraftCategory category) const {

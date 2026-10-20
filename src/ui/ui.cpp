@@ -258,6 +258,22 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
     }
 }
 
+// A thin gauge along the bottom of a building's footprint (`min`..`max`),
+// filled to `fraction`; warning-colored when full.
+void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float fraction) {
+    if (cell < 8.0f)
+        return;  // too far out to read
+    const float inset = cell * 0.2f;
+    const float h = std::max(2.0f, cell * 0.08f);
+    const ImVec2 a(min.x + inset, max.y - inset * 0.5f - h);
+    const ImVec2 b(max.x - inset, max.y - inset * 0.5f);
+    draw->AddRectFilled(a, b, theme::U32(theme::kTileGlyph, 0.5f));
+    const float f = std::clamp(fraction, 0.0f, 1.0f);
+    if (f > 0.0f)
+        draw->AddRectFilled(a, ImVec2(a.x + (b.x - a.x) * f, b.y),
+                            theme::U32(f >= 1.0f ? theme::kWarn : theme::kTileGlyph));
+}
+
 // The placeable items in the build list: those in the inventory, plus the
 // selected one. The first nine get the number keys.
 std::vector<ItemKind> BuildList(const Ship& ship) {
@@ -475,6 +491,22 @@ void BuildingTooltip(const Building& b) {
                 crafts += std::string(crafts.empty() ? "" : ", ") + craft_category_name(static_cast<CraftCategory>(c));
         ImGui::TextColored(theme::kInkDim, "%s, speed x%d", crafts.c_str(), machine->crafting_speed());
     }
+    if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
+        const CollectorSpec& spec = collector->get_spec();
+        const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
+        if (spec.fluid)
+            ImGui::TextColored(theme::kInkDim, "%d %s every %.1f s  (%.0f / s)", spec.fluid_amount,
+                               fluid_name(*spec.fluid), seconds, collector->rate_per_second());
+        else
+            ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
+                               collector->rate_per_second() * 60.0);
+        const bool full = collector->full();
+        ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(ImGui::GetFrameHeight() * 8.0f, 0.0f),
+                           full ? "Buffer full" : "");
+        ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
+        for (const ItemStack& s : collector->items().stacks())
+            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+    }
     if (b.rotatable())
         ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
 }
@@ -618,9 +650,14 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     constexpr int kMaxFootprint = 3;
     for (int y = std::max(0, lo.y - (kMaxFootprint - 1)); y <= hi.y; ++y)
         for (int x = std::max(0, lo.x - (kMaxFootprint - 1)); x <= hi.x; ++x)
-            if (const Building* b = ship.building_anchored_at({x, y}))
-                DrawBuilding(draw, ship, {x, y}, CellMin(origin, cell, {x, y}), cell, b->footprint(),
-                             b->item_kind(), b->facing(), 1.0f);
+            if (const Building* b = ship.building_anchored_at({x, y})) {
+                const ImVec2 min = CellMin(origin, cell, {x, y});
+                DrawBuilding(draw, ship, {x, y}, min, cell, b->footprint(), b->item_kind(), b->facing(), 1.0f);
+                if (const auto* collector = dynamic_cast<const Collector*>(b))
+                    DrawBufferGauge(draw, min, FootprintMax(min, cell, b->footprint()), cell,
+                                    static_cast<float>(collector->stored()) /
+                                        static_cast<float>(collector->capacity()));
+            }
 
     // Hover preview: a ghost of what would be built (its footprint starting
     // at the hovered cell), outlined in good / bad. Clipped to the grid.

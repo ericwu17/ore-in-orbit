@@ -120,6 +120,8 @@ enum class ItemKind {
 };
 
 constexpr int kItemKindCount = static_cast<int>(ItemKind::Count);
+// The asteroid chunks, MetallicChunk to ExoticChunk, are contiguous.
+constexpr int kChunkKindCount = static_cast<int>(ItemKind::IronOre) - static_cast<int>(ItemKind::MetallicChunk);
 
 // The groups ItemKind is laid out in, in that order.
 enum class ItemCategory {

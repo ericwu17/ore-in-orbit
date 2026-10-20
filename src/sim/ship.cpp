@@ -185,6 +185,7 @@ BuildResult Ship::remove_building(GridPos p) {
         return BuildResult::NotRemovable;
     if (const auto kind = building->item_kind())
         inventory().add(*kind);
+    inventory().add(building->contents());
     const GridSize size = building->footprint();
     for (int y = a->y; y < a->y + size.h; ++y)
         for (int x = a->x; x < a->x + size.w; ++x)
