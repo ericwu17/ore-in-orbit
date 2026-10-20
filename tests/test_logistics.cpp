@@ -13,8 +13,21 @@
 
 namespace {
 
-// The bridge is at (c, c); the starting hull spans c +-2 on both axes.
+// The bridge covers b0..b1 on both axes, and the starting hull h0..h1; c,
+// the middle of the grid, is a row (and column) through the bridge.
 constexpr int c = kShipGridSize / 2;
+constexpr int b0 = kStartBridgePos.x;
+constexpr int b1 = b0 + kBridgeSize - 1;
+constexpr int h0 = (kShipGridSize - kStartHullSide) / 2;
+constexpr int h1 = h0 + kStartHullSide - 1;
+static_assert(kStartBridgePos.x == kStartBridgePos.y && h0 <= b0 - 2 && h1 >= b1 + 2,
+              "the tests build on two rows of starting hull around the bridge");
+
+// Puts hull at `p`, unless the starting hull already covers it.
+void ensure_hull(Ship& ship, GridPos p) {
+    if (!ship.has_hull(p))
+        assert(ship.place(ItemKind::Hull, p) == BuildResult::Ok);
+}
 
 // Ticks for an item to cross one transport belt cell.
 Tick belt_cell_ticks() {
@@ -38,28 +51,29 @@ const Machine& machine_at(const Ship& ship, GridPos p) {
     return *machine;
 }
 
-// Three belts heading west into the bridge carry an item there in exactly
-// three cells' travel time.
+// Three belts heading west into the bridge's east side carry an item there
+// in exactly three cells' travel time.
 void test_belt_to_bridge() {
     World world;
     Ship& ship = world.get_ship();
-    assert(ship.place(ItemKind::Hull, {c + 3, c}) == BuildResult::Ok);
-    for (int x = c + 1; x <= c + 3; ++x)
+    for (int x = b1 + 1; x <= b1 + 3; ++x) {
+        ensure_hull(ship, {x, c});
         assert(ship.place(ItemKind::TransportBelt, {x, c}, Direction::West) == BuildResult::Ok);
+    }
 
     // Not from the cell it points at; from behind, it starts at the back.
-    assert(!ship.insert_item({c + 3, c}, {c + 2, c}, ItemKind::IronPlate));
-    assert(ship.insert_item({c + 3, c}, {c + 4, c}, ItemKind::IronPlate));
-    assert(belt_at(ship, {c + 3, c}).get_items().front().pos == 0);
+    assert(!ship.insert_item({b1 + 3, c}, {b1 + 2, c}, ItemKind::IronPlate));
+    assert(ship.insert_item({b1 + 3, c}, {b1 + 4, c}, ItemKind::IronPlate));
+    assert(belt_at(ship, {b1 + 3, c}).get_items().front().pos == 0);
 
     const int plates = ship.inventory().count(ItemKind::IronPlate);
     const Tick per_cell = belt_cell_ticks();
     run(world, 3 * per_cell - 1);
     assert(ship.inventory().count(ItemKind::IronPlate) == plates);
-    assert(belt_at(ship, {c + 1, c}).get_items().size() == 1);
+    assert(belt_at(ship, {b1 + 1, c}).get_items().size() == 1);
     run(world, 1);
     assert(ship.inventory().count(ItemKind::IronPlate) == plates + 1);
-    for (int x = c + 1; x <= c + 3; ++x)
+    for (int x = b1 + 1; x <= b1 + 3; ++x)
         assert(belt_at(ship, {x, c}).get_items().empty());
 }
 
@@ -68,7 +82,7 @@ void test_belt_to_bridge() {
 void test_belt_jam() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos p{c + 1, c - 2};  // pointing north, off the hull
+    const GridPos p{c, b0 - 2};  // pointing north, into nothing
     assert(ship.place(ItemKind::TransportBelt, p, Direction::North) == BuildResult::Ok);
     const GridPos behind{p.x, p.y + 1};
     int accepted = 0;
@@ -94,7 +108,7 @@ void test_belt_jam() {
 void test_belt_sides() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos p{c + 1, c - 2};
+    const GridPos p{c, b0 - 2};
     assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
     assert(belt_at(ship, p).get_items().front().pos == 0);
@@ -117,8 +131,8 @@ void test_collector_feeds() {
     {
         World world;
         Ship& ship = world.get_ship();
-        assert(ship.place(ItemKind::AsteroidCollector, {c + 1, c}) == BuildResult::Ok);
-        const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({c + 1, c}));
+        assert(ship.place(ItemKind::AsteroidCollector, {b1 + 1, c}) == BuildResult::Ok);
+        const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({b1 + 1, c}));
         const int before = ship.inventory().total();
         run(world, collector.get_spec().interval * 3);
         assert(ship.inventory().total() == before + 3);
@@ -127,9 +141,9 @@ void test_collector_feeds() {
     {
         World world;
         Ship& ship = world.get_ship();
-        assert(ship.place(ItemKind::AsteroidCollector, {c + 1, c + 1}) == BuildResult::Ok);
-        assert(ship.place(ItemKind::TransportBelt, {c, c + 1}, Direction::North) == BuildResult::Ok);
-        const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({c + 1, c + 1}));
+        assert(ship.place(ItemKind::AsteroidCollector, {b1 + 1, b1 + 1}) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, {b1, b1 + 1}, Direction::North) == BuildResult::Ok);
+        const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({b1 + 1, b1 + 1}));
         const int before = ship.inventory().total();
         const Tick per_cell = belt_cell_ticks();
         run(world, collector.get_spec().interval + per_cell - 1);
@@ -142,8 +156,8 @@ void test_collector_feeds() {
 void test_machine_recipe() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos p{c + 1, c + 1};  // diagonal from the bridge: no neighbors
-    const GridPos east{c + 3, c + 1}, from_east{c + 2, c + 1};
+    const GridPos p{b1 + 1, b1 + 1};  // diagonal from the bridge: no neighbors
+    const GridPos east{b1 + 3, b1 + 1}, from_east{b1 + 2, b1 + 1};
     assert(ship.place(ItemKind::SolarFurnace, p) == BuildResult::Ok);
     const Machine& furnace = machine_at(ship, p);
     const Recipe& iron = *recipe_for(ItemKind::IronPlate);
@@ -153,8 +167,8 @@ void test_machine_recipe() {
     assert(!furnace.get_recipe());
     assert(!ship.insert_item(from_east, east, ItemKind::IronOre));
     assert(!ship.set_recipe(p, &silicon));
-    assert(!ship.set_recipe({c + 2, c - 2}, &iron));  // nothing there
-    assert(ship.set_recipe({c + 2, c + 2}, &iron));   // any cell of it
+    assert(!ship.set_recipe({b1 + 1, b0}, &iron));      // nothing there
+    assert(ship.set_recipe({b1 + 2, b1 + 2}, &iron));  // any cell of it
     assert(furnace.get_recipe() == &iron);
 
     // Only its ingredients, kInputCrafts crafts' worth.
@@ -193,17 +207,17 @@ void test_machine_recipe() {
 void test_machine_output_full() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos p{c + 1, c + 1};
+    const GridPos p{b1 + 1, b1 + 1};
     ship.inventory().add(ItemKind::FabricatorMk1, 1);
-    for (int y = c + 1; y <= c + 3; ++y)
-        for (int x = c + 1; x <= c + 3; ++x)
-            ship.place(ItemKind::Hull, {x, y});  // some are already hull
+    for (int y = b1 + 1; y <= b1 + 3; ++y)
+        for (int x = b1 + 1; x <= b1 + 3; ++x)
+            ensure_hull(ship, {x, y});
     assert(ship.place(ItemKind::FabricatorMk1, p) == BuildResult::Ok);
     const Recipe& gear = *recipe_for(ItemKind::Gear);
     assert(ship.set_recipe(p, &gear));
     const Machine& fab = machine_at(ship, p);
     for (Tick t = 0; t < gear.ticks * 10; ++t) {
-        ship.insert_item({c + 3, c + 1}, {c + 4, c + 1}, ItemKind::IronPlate);
+        ship.insert_item({b1 + 3, b1 + 1}, {b1 + 4, b1 + 1}, ItemKind::IronPlate);
         world.advance_tick();
     }
     assert(fab.get_output().count(ItemKind::Gear) == kOutputCrafts);
@@ -217,13 +231,16 @@ void test_machine_output_full() {
 void test_chain() {
     World world;
     Ship& ship = world.get_ship();
-    for (int x = c - 1; x <= c + 2; ++x)
-        assert(ship.place(ItemKind::Hull, {x, c - 3}) == BuildResult::Ok);
-    const GridPos crusher{c - 1, c - 3};
-    const GridPos collector_pos{c + 1, c - 3};
+    // North of the bridge, a row apart from it: the belt between them
+    // leads into it.
+    for (int y = b0 - 3; y <= b0 - 2; ++y)
+        for (int x = c - 1; x <= c + 2; ++x)
+            ensure_hull(ship, {x, y});
+    const GridPos crusher{c - 1, b0 - 3};
+    const GridPos collector_pos{c + 1, b0 - 3};
     assert(ship.place(ItemKind::AsteroidCrusher, crusher) == BuildResult::Ok);
     assert(ship.place(ItemKind::AsteroidCollector, collector_pos) == BuildResult::Ok);
-    assert(ship.place(ItemKind::TransportBelt, {c, c - 1}, Direction::South) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, {c, b0 - 1}, Direction::South) == BuildResult::Ok);
     const Recipe* metallic = nullptr;
     for (const Recipe* r : machine_recipes(ItemKind::AsteroidCrusher))
         if (r->inputs.front().kind == ItemKind::MetallicChunk)
@@ -246,10 +263,10 @@ void test_chain() {
 void test_cargo_hold() {
     World world;
     Ship& ship = world.get_ship();
-    const GridPos p{c + 1, c + 1};
+    const GridPos p{b1 + 1, b1 + 1};
     assert(ship.place(ItemKind::CargoHold, p) == BuildResult::Ok);
     int stored = 0;
-    while (ship.insert_item({c + 2, c + 1}, {c + 3, c + 1}, ItemKind::Steel))
+    while (ship.insert_item({b1 + 2, b1 + 1}, {b1 + 3, b1 + 1}, ItemKind::Steel))
         ++stored;
     assert(stored == kCargoCapacity);
     const int steel = ship.inventory().count(ItemKind::Steel);
@@ -257,14 +274,15 @@ void test_cargo_hold() {
     assert(ship.inventory().count(ItemKind::Steel) == steel + kCargoCapacity);
 }
 
-// A sorter one cell north-east of the bridge, with its west side as the
-// way in and a belt leading away from each of the other three.
+// A sorter one cell diagonally off the bridge's north-east corner, with its
+// west side as the way in and a belt leading away from each of the other
+// three.
 struct SorterRig {
-    static constexpr GridPos sorter{c + 1, c - 1};
-    static constexpr GridPos west{c, c - 1};
-    static constexpr GridPos east{c + 2, c - 1};
-    static constexpr GridPos north{c + 1, c - 2};
-    static constexpr GridPos south{c + 1, c};
+    static constexpr GridPos sorter{b1 + 1, b0 - 1};
+    static constexpr GridPos west{b1, b0 - 1};
+    static constexpr GridPos east{b1 + 2, b0 - 1};
+    static constexpr GridPos north{b1 + 1, b0 - 2};
+    static constexpr GridPos south{b1 + 1, b0};
 
     explicit SorterRig(Ship& ship) {
         ship.inventory().add(ItemKind::FilterSorter, 1);
@@ -331,7 +349,7 @@ void test_sorter_filter() {
     const auto& sorter = dynamic_cast<const Sorter&>(*ship.building_at(rig.sorter));
     assert(!sorter.get_filter());
     assert(!ship.set_sort_filter(rig.east, ItemKind::Gear));          // a belt
-    assert(!ship.set_sort_filter({c - 1, c - 1}, ItemKind::Gear));    // nothing
+    assert(!ship.set_sort_filter({b0 - 1, b0 - 1}, ItemKind::Gear));  // nothing
     assert(ship.set_sort_filter(rig.sorter, ItemKind::Gear));
     assert(sorter.get_filter() == ItemKind::Gear);
     assert(ship.set_sort_filter(rig.sorter, std::nullopt));
@@ -351,27 +369,27 @@ void test_sorter_chain() {
         World world;
         Ship& ship = world.get_ship();
         ship.inventory().add(ItemKind::FilterSorter, 3);
-        for (int x = c + 3; x <= c + 4; ++x)
-            assert(ship.place(ItemKind::Hull, {x, c - 1}) == BuildResult::Ok);
+        const int y = b0 - 2;  // a row apart from the bridge
         for (int x = c + 1; x <= c + 3; ++x) {
-            assert(ship.place(ItemKind::FilterSorter, {x, c - 1}) == BuildResult::Ok);
-            assert(ship.set_sort_filter({x, c - 1}, ItemKind::IronPlate));
+            assert(ship.place(ItemKind::FilterSorter, {x, y}) == BuildResult::Ok);
+            assert(ship.set_sort_filter({x, y}, ItemKind::IronPlate));
         }
-        assert(ship.place(ItemKind::TransportBelt, {c + 4, c - 1}, Direction::East) == BuildResult::Ok);
-        assert(!ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::IronPlate));
-        assert(ship.remove_building({c + 3, c - 1}) == BuildResult::Ok);
-        assert(ship.place(ItemKind::TransportBelt, {c + 3, c - 1}, Direction::East) == BuildResult::Ok);
-        assert(ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::IronPlate));
-        assert(belt_at(ship, {c + 3, c - 1}).get_items().size() == 1);
+        assert(ship.place(ItemKind::TransportBelt, {c + 4, y}, Direction::East) == BuildResult::Ok);
+        assert(!ship.insert_item({c + 1, y}, {c, y}, ItemKind::IronPlate));
+        assert(ship.remove_building({c + 3, y}) == BuildResult::Ok);
+        assert(ship.place(ItemKind::TransportBelt, {c + 3, y}, Direction::East) == BuildResult::Ok);
+        assert(ship.insert_item({c + 1, y}, {c, y}, ItemKind::IronPlate));
+        assert(belt_at(ship, {c + 3, y}).get_items().size() == 1);
     }
     {
         World world;
         Ship& ship = world.get_ship();
         ship.inventory().add(ItemKind::FilterSorter, 4);
-        for (int y = c - 2; y <= c - 1; ++y)
-            for (int x = c + 1; x <= c + 2; ++x)
+        // Diagonally off the bridge's bottom-right corner, touching nothing.
+        for (int y = b1 + 1; y <= b1 + 2; ++y)
+            for (int x = b1 + 1; x <= b1 + 2; ++x)
                 assert(ship.place(ItemKind::FilterSorter, {x, y}) == BuildResult::Ok);
-        assert(!ship.insert_item({c + 1, c - 1}, {c, c - 1}, ItemKind::Gear));
+        assert(!ship.insert_item({b1 + 1, b1 + 1}, {b1, b1 + 1}, ItemKind::Gear));
     }
 }
 
@@ -382,13 +400,13 @@ void test_sorter_feeds() {
     World world;
     Ship& ship = world.get_ship();
     for (int y = c - 1; y <= c; ++y)
-        for (int x = c + 3; x <= c + 4; ++x)
-            assert(ship.place(ItemKind::Hull, {x, y}) == BuildResult::Ok);
+        for (int x = b1 + 3; x <= b1 + 4; ++x)
+            ensure_hull(ship, {x, y});
     ship.inventory().add(ItemKind::FilterSorter, 1);
-    const GridPos sorter{c + 1, c};
-    const GridPos hold_pos{c + 1, c + 1};  // the sorter's south side
-    assert(ship.place(ItemKind::AsteroidCollector, {c + 3, c - 1}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::TransportBelt, {c + 2, c}, Direction::West) == BuildResult::Ok);
+    const GridPos sorter{b1 + 1, c};
+    const GridPos hold_pos{b1 + 1, c + 1};  // the sorter's south side
+    assert(ship.place(ItemKind::AsteroidCollector, {b1 + 3, c - 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, {b1 + 2, c}, Direction::West) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, hold_pos) == BuildResult::Ok);
     assert(ship.set_sort_filter(sorter, ItemKind::MetallicChunk));

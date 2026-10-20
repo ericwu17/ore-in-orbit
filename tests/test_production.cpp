@@ -11,10 +11,10 @@
 
 namespace {
 
-constexpr GridPos kCenter{kShipGridSize / 2, kShipGridSize / 2};
 // On the starting hull, with room for a 2x2 building, diagonal from the
-// bridge (not beside it: it would hand its output to the bridge).
-constexpr GridPos kOnHull{kCenter.x + 1, kCenter.y + 1};
+// bridge's bottom-right corner (not beside it: it would hand its output to
+// the bridge).
+constexpr GridPos kOnHull{kStartBridgePos.x + kBridgeSize, kStartBridgePos.y + kBridgeSize};
 
 std::unique_ptr<Collector> make_collector(ItemKind kind) {
     std::unique_ptr<Building> b = make_building(kind, Direction::North);

@@ -22,8 +22,10 @@
 #include <string>
 
 // The version write_save() writes; read_save() reads only this one. Bump it
-// when the format changes (or an item, fluid or recipe is renamed).
-constexpr int kSaveVersion = 1;
+// when the format changes (or an item, fluid or recipe is renamed, or a
+// building's footprint changes, which can leave saved ones overlapping or
+// off their hull).
+constexpr int kSaveVersion = 2;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

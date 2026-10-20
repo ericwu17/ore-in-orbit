@@ -32,6 +32,11 @@
 // patch in its middle: the rest is room to grow.
 constexpr int kShipGridSize = 128;
 
+// The starting ship: a square hull patch of this side, centered on the grid,
+// with the bridge in its middle, its top-left cell at kStartBridgePos.
+constexpr int kStartHullSide = 10;
+constexpr GridPos kStartBridgePos{(kShipGridSize - kBridgeSize) / 2, (kShipGridSize - kBridgeSize) / 2};
+
 // Why a place() or remove_*() call did (or didn't) change the ship.
 enum class BuildResult {
     Ok,
@@ -80,8 +85,8 @@ public:
     // An empty grid (no hull, no bridge). Games start from new_game().
     Ship();
 
-    // The starting ship: a small hull patch with the bridge in the middle,
-    // and the bridge inventory stocked.
+    // The starting ship: a kStartHullSide hull patch with the bridge in the
+    // middle, and the bridge inventory stocked.
     static Ship new_game();
 
     int size() const { return kShipGridSize; }

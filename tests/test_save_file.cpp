@@ -20,8 +20,10 @@ using Json = nlohmann::ordered_json;
 
 namespace {
 
-// The bridge is at (c, c); the starting hull spans c +-2 on both axes.
+// Rows near the middle of the grid, through the bridge; and the first
+// column east of the starting hull.
 constexpr int c = kShipGridSize / 2;
+constexpr int x0 = (kShipGridSize + kStartHullSide) / 2;
 
 void run(World& world, Tick ticks) {
     for (Tick t = 0; t < ticks; ++t)
@@ -56,39 +58,39 @@ World busy_world() {
     World world;
     Ship& ship = world.get_ship();
     for (int y = c - 6; y <= c + 6; ++y)
-        for (int x = c + 3; x <= c + 12; ++x)
+        for (int x = x0; x <= x0 + 9; ++x)
             assert(ship.place(ItemKind::Hull, {x, y}) == BuildResult::Ok);
     for (int y = c + 2; y <= c + 4; ++y)
-        for (int x = c + 8; x <= c + 10; ++x)
+        for (int x = x0 + 5; x <= x0 + 7; ++x)
             assert(ship.place(ItemKind::ReinforcedHull, {x, y}) == BuildResult::Ok);
 
-    assert(ship.place(ItemKind::AsteroidCollector, {c + 3, c - 6}) == BuildResult::Ok);
-    for (int x = c + 5; x <= c + 7; ++x)
+    assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
+    for (int x = x0 + 2; x <= x0 + 4; ++x)
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::CargoHold, {c + 8, c - 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::HydrogenCollector, {c + 11, c - 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::HydrogenCollector, {x0 + 8, c - 6}) == BuildResult::Ok);
 
-    assert(ship.place(ItemKind::TransportBelt, {c + 5, c - 2}, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::FilterSorter, {c + 6, c - 2}) == BuildResult::Ok);
-    assert(ship.set_sort_filter({c + 6, c - 2}, ItemKind::IronOre));
-    assert(ship.insert_item({c + 5, c - 2}, {c + 4, c - 2}, ItemKind::Silica));
+    assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
+    assert(ship.set_sort_filter({x0 + 3, c - 2}, ItemKind::IronOre));
+    assert(ship.insert_item({x0 + 2, c - 2}, {x0 + 1, c - 2}, ItemKind::Silica));
 
-    assert(ship.place(ItemKind::SolarFurnace, {c + 3, c}) == BuildResult::Ok);
-    assert(ship.set_recipe({c + 3, c}, &recipe_named("Iron plate")));
+    assert(ship.place(ItemKind::SolarFurnace, {x0, c}) == BuildResult::Ok);
+    assert(ship.set_recipe({x0, c}, &recipe_named("Iron plate")));
     for (int i = 0; i < 2; ++i)
-        assert(ship.insert_item({c + 3, c}, {c + 2, c}, ItemKind::IronOre));
+        assert(ship.insert_item({x0, c}, {x0 - 1, c}, ItemKind::IronOre));
 
-    assert(ship.place(ItemKind::ArcFurnace, {c + 8, c + 2}) == BuildResult::Ok);
-    assert(ship.set_recipe({c + 8, c + 2}, &recipe_named("Silicon")));
+    assert(ship.place(ItemKind::ArcFurnace, {x0 + 5, c + 2}) == BuildResult::Ok);
+    assert(ship.set_recipe({x0 + 5, c + 2}, &recipe_named("Silicon")));
     // Two crafts' worth: the second is still under way when the game is saved.
     for (int i = 0; i < 4; ++i)
-        assert(ship.insert_item({c + 8, c + 2}, {c + 7, c + 2}, ItemKind::Silica));
+        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Silica));
     for (int i = 0; i < 2; ++i)
-        assert(ship.insert_item({c + 8, c + 2}, {c + 7, c + 2}, ItemKind::Carbon));
+        assert(ship.insert_item({x0 + 5, c + 2}, {x0 + 4, c + 2}, ItemKind::Carbon));
 
-    assert(ship.place(ItemKind::ExpressBelt, {c + 6, c + 4}, Direction::West) == BuildResult::Ok);
-    assert(ship.insert_item({c + 6, c + 4}, {c + 7, c + 4}, ItemKind::Glass));
-    assert(ship.place(ItemKind::Pipe, {c + 5, c + 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::ExpressBelt, {x0 + 3, c + 4}, Direction::West) == BuildResult::Ok);
+    assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 4, c + 4}, ItemKind::Glass));
+    assert(ship.place(ItemKind::Pipe, {x0 + 2, c + 6}) == BuildResult::Ok);
 
     // Long enough for the first chunk to ride the belts into the cargo hold.
     run(world, 250);
@@ -123,9 +125,9 @@ void test_round_trip() {
     const Ship& ship = world.get_ship();
     // Everything is mid-flight.
     assert(ship.get_bridge().craft_queue().size() == 2);
-    assert(dynamic_cast<const Machine*>(ship.building_at({c + 3, c}))->crafting());
-    assert(dynamic_cast<const Machine*>(ship.building_at({c + 8, c + 2}))->crafting());
-    assert(dynamic_cast<const CargoHold*>(ship.building_at({c + 8, c - 6}))->get_stored().total() > 0);
+    assert(dynamic_cast<const Machine*>(ship.building_at({x0, c}))->crafting());
+    assert(dynamic_cast<const Machine*>(ship.building_at({x0 + 5, c + 2}))->crafting());
+    assert(dynamic_cast<const CargoHold*>(ship.building_at({x0 + 5, c - 6}))->get_stored().total() > 0);
 
     const std::string text = save_text(world);
     std::string error;
@@ -139,11 +141,11 @@ void test_round_trip() {
 
     // Spot checks through the public API.
     const Ship& copy = loaded->world.get_ship();
-    assert(copy.hull_at({c + 9, c + 3}) == ItemKind::ReinforcedHull);
+    assert(copy.hull_at({x0 + 6, c + 3}) == ItemKind::ReinforcedHull);
     assert(copy.get_bridge().get_inventory().count(ItemKind::Hull) == ship.inventory().count(ItemKind::Hull));
-    const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({c + 6, c - 2}));
+    const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
     assert(sorter && sorter->get_filter() == ItemKind::IronOre);
-    const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({c + 6, c + 4}));
+    const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
     assert(belt && belt->facing() == Direction::West && belt->get_items().size() == 1);
 }
 
@@ -167,21 +169,33 @@ void test_header_only() {
     assert(header && header->name == "Test ship" && header->played == 42);
 }
 
-// A hand-written save: just the bridge, on one hull tile.
+Json& hull(Json& save) { return save["world"]["ship"]["hull"]; }
+Json& buildings(Json& save) { return save["world"]["ship"]["buildings"]; }
+Json& bridge(Json& save) { return buildings(save)[0]; }
+
+// Hull tiles on the square of side `side` from (x, y).
+void add_hull(Json& save, int x, int y, int side) {
+    for (int dy = 0; dy < side; ++dy)
+        for (int dx = 0; dx < side; ++dx)
+            hull(save).push_back({{"x", x + dx}, {"y", y + dy}, {"kind", "Hull"}});
+}
+
+// A hand-written save: just the bridge at (64, 64), on the 6x6 of hull it
+// covers (its top-left tile first).
+static_assert(kBridgeSize == 6, "the hand-written saves below place things around a 6x6 bridge");
 Json minimal() {
-    return Json::parse(R"({
-        "format": "ore-in-orbit-save", "version": 1, "name": "T", "saved_at": 0, "played": 0,
+    Json save = Json::parse(R"({
+        "format": "ore-in-orbit-save", "version": 0, "name": "T", "saved_at": 0, "played": 0,
         "world": {"tick": 0, "ship": {
-            "hull": [{"x": 64, "y": 64, "kind": "Hull"}],
+            "hull": [],
             "buildings": [
                 {"kind": "Bridge", "x": 64, "y": 64, "facing": "North", "output_side": 0,
                  "inventory": {}, "queue": []}
             ]}}})");
+    save["version"] = kSaveVersion;
+    add_hull(save, 64, 64, 6);
+    return save;
 }
-
-Json& hull(Json& save) { return save["world"]["ship"]["hull"]; }
-Json& buildings(Json& save) { return save["world"]["ship"]["buildings"]; }
-Json& bridge(Json& save) { return buildings(save)[0]; }
 
 bool loads(const std::string& text) {
     std::string error;
@@ -243,40 +257,41 @@ void test_refused() {
     refused_after(save, "no bridge", [](Json& j) { buildings(j) = Json::array(); });
     refused_after(save, "the bridge off hull", [](Json& j) { hull(j)[0]["x"] = 63; });
     refused_after(save, "two bridges", [](Json& j) {
-        hull(j).push_back({{"x", 65}, {"y", 64}, {"kind", "Hull"}});
+        add_hull(j, 70, 64, 6);
         Json second = bridge(j);
-        second["x"] = 65;
+        second["x"] = 70;
         buildings(j).push_back(second);
     });
 
-    // Buildings after the bridge: one more hull tile at (65, 64) to put them on.
-    Json two_tiles = minimal();
-    hull(two_tiles).push_back({{"x", 65}, {"y", 64}, {"kind", "Hull"}});
+    // Buildings after the bridge: one more hull tile, east of it at
+    // (70, 64), to put them on.
+    Json one_more = minimal();
+    hull(one_more).push_back({{"x", 70}, {"y", 64}, {"kind", "Hull"}});
     auto with_building = [&](const char* building) {
-        Json j = two_tiles;
+        Json j = one_more;
         buildings(j).push_back(Json::parse(building));
         return j.dump();
     };
     assert(loads(with_building(
-        R"({"kind": "TransportBelt", "x": 65, "y": 64, "facing": "East", "output_side": 0,
+        R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
             "items": [{"item": "IronOre", "pos": 30}]})")));
     refused(with_building(R"({"kind": "TransportBelt", "x": 64, "y": 64, "facing": "East", "output_side": 0,
                               "items": []})"),
             "overlapping buildings");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 65, "y": 64, "facing": "Up", "output_side": 0,
+    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "Up", "output_side": 0,
                               "items": []})"),
             "an unknown direction");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 65, "y": 64, "facing": "East", "output_side": 0,
+    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "items": [{"item": "IronOre", "pos": 30}, {"item": "IronOre", "pos": 20}]})"),
             "belt items too close");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 65, "y": 64, "facing": "East", "output_side": 0,
+    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "items": [{"item": "IronOre", "pos": 61}]})"),
             "a belt item off the belt");
-    refused(with_building(R"({"kind": "Hull", "x": 65, "y": 64, "facing": "North", "output_side": 0})"),
+    refused(with_building(R"({"kind": "Hull", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
             "hull as a building");
-    refused(with_building(R"({"kind": "SolarFurnace", "x": 65, "y": 64, "facing": "North", "output_side": 0})"),
+    refused(with_building(R"({"kind": "SolarFurnace", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
             "a building partly off hull");
-    refused(with_building(R"({"kind": "FilterSorter", "x": 65, "y": 64, "facing": "North", "output_side": 0,
+    refused(with_building(R"({"kind": "FilterSorter", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "filter": "Unobtainium", "next_right": false})"),
             "an unknown filter");
 }

@@ -172,7 +172,7 @@ int machine_crafting_speed(ItemKind kind) {
 Building::Building(std::optional<ItemKind> k, Direction facing, GridSize s)
     : kind(k), dir(facing), size(s) {}
 
-Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{1, 1}) {}
+Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize, kBridgeSize}) {}
 
 bool Bridge::can_hand_craft(const Recipe& recipe) const {
     return recipe.hand_craftable && inventory.has(recipe.inputs);

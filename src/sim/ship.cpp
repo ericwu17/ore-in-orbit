@@ -6,10 +6,6 @@
 
 namespace {
 
-// The starting ship: a square hull patch of this side, centered on the grid,
-// with the bridge at its center.
-constexpr int kStartHullSide = 5;
-
 // What the bridge inventory starts with: some of every building (design: a
 // bootstrap kit of belts, sorters, hull, a collector, crusher and furnace,
 // plus one of each later building to try out), and starter cargo so
@@ -95,15 +91,16 @@ Ship::Ship()
 
 Ship Ship::new_game() {
     Ship ship;
-    const int center = kShipGridSize / 2;
-    const int lo = center - kStartHullSide / 2;
+    static_assert(kStartHullSide >= kBridgeSize && (kStartHullSide - kBridgeSize) % 2 == 0,
+                  "the bridge sits in the middle of the starting hull");
+    const int lo = (kShipGridSize - kStartHullSide) / 2;
     for (int y = lo; y < lo + kStartHullSide; ++y)
         for (int x = lo; x < lo + kStartHullSide; ++x)
             at(ship.hull, {x, y}) = ItemKind::Hull;
 
     auto bridge = std::make_unique<Bridge>();
     ship.bridge = bridge.get();
-    ship.add_building({center, center}, std::move(bridge));
+    ship.add_building(kStartBridgePos, std::move(bridge));
 
     for (const ItemStack& s : kStartInventory)
         ship.inventory().add(s.kind, s.count);

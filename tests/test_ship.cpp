@@ -10,11 +10,16 @@
 
 namespace {
 
+// The middle of the grid, under the bridge.
 constexpr GridPos kCenter{kShipGridSize / 2, kShipGridSize / 2};
-// Just outside the 5x5 starting hull patch.
-constexpr GridPos kOffHull{kCenter.x + 3, kCenter.y};
+// The bridge's last column (and row), and the starting hull's.
+constexpr int kBridgeEnd = kStartBridgePos.x + kBridgeSize - 1;
+constexpr int kHullStart = (kShipGridSize - kStartHullSide) / 2;
+constexpr int kHullEnd = kHullStart + kStartHullSide - 1;
+// Just outside the starting hull patch.
+constexpr GridPos kOffHull{kHullEnd + 1, kCenter.y};
 // On the starting hull, next to the bridge.
-constexpr GridPos kOnHull{kCenter.x + 1, kCenter.y};
+constexpr GridPos kOnHull{kBridgeEnd + 1, kCenter.y};
 
 void test_new_game() {
     World world;
@@ -22,9 +27,14 @@ void test_new_game() {
     const Building* bridge = ship.building_at(kCenter);
     assert(bridge == &ship.get_bridge());
     assert(!bridge->item_kind());
+    assert(bridge->footprint() == (GridSize{kBridgeSize, kBridgeSize}));
+    assert(ship.building_anchored_at(kStartBridgePos) == bridge);
+    assert(ship.building_at({kBridgeEnd, kBridgeEnd}) == bridge);
+    assert(ship.building_at({kBridgeEnd + 1, kBridgeEnd}) == nullptr);
     assert(ship.has_hull(kCenter));
-    assert(ship.has_hull({kCenter.x - 2, kCenter.y - 2}));
-    assert(ship.has_hull({kCenter.x + 2, kCenter.y + 2}));
+    assert(ship.has_hull({kHullStart, kHullStart}));
+    assert(ship.has_hull({kHullEnd, kHullEnd}));
+    assert(!ship.has_hull({kHullStart - 1, kHullStart}));
     assert(!ship.has_hull(kOffHull));
     // Some of every building, and both hulls.
     for (int i = 0; i < kItemKindCount; ++i)
@@ -120,12 +130,11 @@ void test_footprints() {
     assert(footprint_of(ItemKind::AsteroidCollector) == (GridSize{2, 2}));
     assert(footprint_of(ItemKind::Pipe) == (GridSize{1, 1}));
 
-    // The starting hull spans kCenter +-2: a collector at (c+2, c) would
-    // stick out past it.
-    const GridPos edge{kCenter.x + 2, kCenter.y};
+    // On the starting hull's last column, a collector would stick out past it.
+    const GridPos edge{kHullEnd, kCenter.y};
     assert(ship.place(ItemKind::AsteroidCollector, edge) == BuildResult::NoHull);
     // Overlapping the bridge, even by one cell.
-    assert(ship.place(ItemKind::AsteroidCollector, {kCenter.x - 1, kCenter.y - 1}) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::AsteroidCollector, {kBridgeEnd, kBridgeEnd}) == BuildResult::Occupied);
     // Hanging off the grid's last row / column.
     assert(ship.can_place(ItemKind::AsteroidCollector, {kShipGridSize - 1, 0}) == BuildResult::OutOfBounds);
 
@@ -177,7 +186,7 @@ void test_rotated_footprint() {
     assert(footprint_of(ItemKind::IonThruster, Direction::East) == (GridSize{2, 3}));
 
     ship.inventory().add(ItemKind::Splitter, 1);
-    // East of the bridge, facing east: covers (c+1, c) and (c+1, c+1).
+    // East of the bridge, facing east: covers kOnHull and the cell below.
     assert(ship.place(ItemKind::Splitter, kOnHull, Direction::East) == BuildResult::Ok);
     assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == ship.building_at(kOnHull));
     assert(ship.building_at({kOnHull.x + 1, kOnHull.y}) == nullptr);

@@ -224,7 +224,7 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
     };
 
     if (!kind) {
-        letter_tile(theme::kTileBridge, "B");
+        letter_tile(theme::kTileBridge, "Bridge");
         return;
     }
     switch (*kind) {
@@ -731,8 +731,10 @@ bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
     if (!cam.placed) {
         // The bridge sits in the middle of the grid.
         cam.cell = std::clamp(ImGui::GetFrameHeight(), min_cell, max_cell);
-        const float center = (static_cast<float>(n / 2) + 0.5f) * cam.cell;
-        cam.offset = ImVec2(canvas_size.x * 0.5f - center, canvas_size.y * 0.5f - center);
+        const float bridge_half = static_cast<float>(kBridgeSize) * 0.5f;
+        const ImVec2 center((static_cast<float>(kStartBridgePos.x) + bridge_half) * cam.cell,
+                            (static_cast<float>(kStartBridgePos.y) + bridge_half) * cam.cell);
+        cam.offset = ImVec2(canvas_size.x * 0.5f - center.x, canvas_size.y * 0.5f - center.y);
         cam.placed = true;
     }
 

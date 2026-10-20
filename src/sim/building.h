@@ -115,6 +115,9 @@ struct CraftJob {
     Tick elapsed = 0;
 };
 
+// The bridge's footprint is kBridgeSize square.
+constexpr int kBridgeSize = 6;
+
 class Bridge : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
