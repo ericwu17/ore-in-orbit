@@ -34,7 +34,7 @@ constexpr int kShipGridSize = 128;
 
 // The starting ship: a square hull patch of this side, centered on the grid,
 // with the bridge in its middle, its top-left cell at kStartBridgePos.
-constexpr int kStartHullSide = 10;
+constexpr int kStartHullSide = 24;
 constexpr GridPos kStartBridgePos{(kShipGridSize - kBridgeSize) / 2, (kShipGridSize - kBridgeSize) / 2};
 
 // Why a place() or remove_*() call did (or didn't) change the ship.
