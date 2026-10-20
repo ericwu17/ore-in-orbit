@@ -6,39 +6,41 @@
 
 namespace {
 
-// What the bridge inventory starts with: some of every building (design: a
-// bootstrap kit of belts, sorters, hull, a collector, crusher and furnace,
-// plus one of each later building to try out), and starter cargo so
-// hand-crafting has something to work with.
+// What the bridge inventory starts with (design: enough for a first
+// production line right away: collectors feeding sorters, a crusher for each
+// chunk kind, a bank of furnaces and fabricators, with the belts, storage and
+// hull to join them up; one or two of each later building to try out; and
+// starter cargo so hand-crafting has something to work with). Fluid and
+// power buildings stay few until pipes and power work.
 constexpr ItemStack kStartInventory[] = {
-    {ItemKind::Hull, 150},
-    // Enough for a few of the large buildings that need it.
-    {ItemKind::ReinforcedHull, 60},
-    {ItemKind::TransportBelt, 60},
-    {ItemKind::ExpressBelt, 20},
+    {ItemKind::Hull, 300},
+    // Enough for several of the large buildings that need it.
+    {ItemKind::ReinforcedHull, 90},
+    {ItemKind::TransportBelt, 300},
+    {ItemKind::ExpressBelt, 60},
     {ItemKind::BeltTunnel, 4},
     {ItemKind::Splitter, 2},
-    {ItemKind::FilterSorter, 4},
-    {ItemKind::CargoHold, 2},
-    {ItemKind::Pipe, 30},
-    {ItemKind::Pump, 1},
-    {ItemKind::FluidTank, 1},
-    {ItemKind::AsteroidCollector, 1},
+    {ItemKind::FilterSorter, 16},
+    {ItemKind::CargoHold, 8},
+    {ItemKind::Pipe, 40},
+    {ItemKind::Pump, 2},
+    {ItemKind::FluidTank, 2},
+    {ItemKind::AsteroidCollector, 4},
     {ItemKind::TractorArray, 1},
-    {ItemKind::HydrogenCollector, 1},
-    {ItemKind::AsteroidCrusher, 1},
-    {ItemKind::SolarFurnace, 1},
-    {ItemKind::ArcFurnace, 1},
-    {ItemKind::IceMelter, 1},
+    {ItemKind::HydrogenCollector, 2},
+    {ItemKind::AsteroidCrusher, 5},
+    {ItemKind::SolarFurnace, 8},
+    {ItemKind::ArcFurnace, 2},
+    {ItemKind::IceMelter, 2},
     {ItemKind::Electrolyzer, 1},
     {ItemKind::ChemicalPlant, 1},
-    {ItemKind::FabricatorMk1, 1},
+    {ItemKind::FabricatorMk1, 4},
     {ItemKind::FabricatorMk2, 1},
     {ItemKind::FabricatorMk3, 1},
-    {ItemKind::SolarPanel, 2},
+    {ItemKind::SolarPanel, 4},
     {ItemKind::SolarArray, 1},
     {ItemKind::FuelCellGenerator, 1},
-    {ItemKind::BatteryBank, 1},
+    {ItemKind::BatteryBank, 2},
     {ItemKind::SurveyScanner, 1},
     {ItemKind::IonThruster, 1},
     {ItemKind::IronOre, 20},
