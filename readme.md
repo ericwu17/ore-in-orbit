@@ -59,7 +59,7 @@ mingw32-make && ./ore-in-orbit.exe
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).
-- **Middle drag, or Space + left drag**: pan the grid.
+- **Middle drag, or hold Space and move the mouse**: pan the grid.
 - **1–9**: pick the item to build. **R**: rotate the transport belt.
 - **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
 

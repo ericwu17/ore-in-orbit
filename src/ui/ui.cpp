@@ -83,7 +83,8 @@ struct Camera {
     bool placed = false;  // false: centre on the bridge at the default zoom, next frame
     float cell = 0.0f;    // screen pixels per grid cell
     ImVec2 offset;        // the grid's top-left corner, relative to the canvas's
-    bool left_pans = false;  // the current left drag started with Space held: it pans
+    bool space_pans = false;  // Space went down (or was held) over the canvas: the grid follows the mouse
+    bool left_pans = false;   // the current left drag started with Space held: it pans, never builds
 };
 Camera g_camera;
 
@@ -439,7 +440,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
                        "Left click / drag: build\nLeft click a building: inspect it\n"
                        "(pick a machine's recipe)\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
-                       "Scroll: zoom\nMiddle drag / Space + drag: pan\n"
+                       "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
                        "1-9: pick item   R: rotate\nEsc: main menu\n\n"
                        "Everything but hull needs a hull tile under it; the largest buildings need "
                        "reinforced hull.");
@@ -715,28 +716,35 @@ bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
         cam.cell = new_cell;
     }
 
-    // Pan: middle drag, or left drag with Space held (for trackpads).
+    // Pan: middle drag, or hold Space and move the mouse, with or without a
+    // button down (for trackpads). Once started over the canvas, a Space pan
+    // carries on over the panels until Space comes up.
     const bool space = ImGui::IsKeyDown(ImGuiKey_Space) && !io.WantTextInput;
+    if (!space)
+        cam.space_pans = false;
+    else if (ImGui::IsItemHovered())
+        cam.space_pans = true;
     if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         cam.left_pans = space;
-    const bool panning = ImGui::IsItemActive() && (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
-                                                   (cam.left_pans && ImGui::IsMouseDown(ImGuiMouseButton_Left)));
+    const bool panning =
+        cam.space_pans || (ImGui::IsItemActive() && (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
+                                                     (cam.left_pans && ImGui::IsMouseDown(ImGuiMouseButton_Left))));
     if (panning) {
         cam.offset.x += io.MouseDelta.x;
         cam.offset.y += io.MouseDelta.y;
     }
-    if (panning || (space && ImGui::IsItemHovered()))
+    if (panning)
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 
     // Keep the middle of the view over the grid.
     const float side = cam.cell * static_cast<float>(n);
     cam.offset.x = std::clamp(cam.offset.x, canvas_size.x * 0.5f - side, canvas_size.x * 0.5f);
     cam.offset.y = std::clamp(cam.offset.y, canvas_size.y * 0.5f - side, canvas_size.y * 0.5f);
-    return panning || space;
+    return panning;
 }
 
 // The build grid on a canvas filling `avail`: click / drag to build and
-// remove, scroll to zoom, middle drag (or Space + drag) to pan.
+// remove, scroll to zoom, middle drag (or hold Space and move) to pan.
 void DrawShipGrid(Ship& ship, ImVec2 avail) {
     const int n = ship.size();
     const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
