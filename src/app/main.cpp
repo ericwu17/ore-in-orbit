@@ -29,6 +29,7 @@
 #include "persistence/save_slots.h"
 #include "sim/game_types.h"
 #include "sim/world.h"
+#include "ui/sprites.h"
 #include "ui/ui.h"
 #include "ui/ui_theme.h"
 
@@ -197,6 +198,8 @@ int main(int, char**)
 
     // Setup the font, Dear ImGui / ImPlot styles and DPI scaling (ui_theme.h)
     ui::theme::ApplyTheme(main_scale);
+    // The item, building and fluid sprites (ui/sprites.h)
+    ui::sprites::Load();
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
@@ -286,6 +289,7 @@ int main(int, char**)
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
+    ui::sprites::Unload();  // after the renderer freed its texture
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
 

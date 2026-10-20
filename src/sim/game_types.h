@@ -167,6 +167,9 @@ constexpr bool is_placeable(ItemKind kind) {
 
 // The player-facing name of an item ("Hull", "Iron plate", ...).
 const char* item_name(ItemKind kind);
+// An item's stable id: its enumerator's name ("Hull", "IronPlate", ...).
+// Saves write items by it, and sprite files are named after it.
+const char* item_id(ItemKind kind);
 
 // What pipes carry. Collectors, melters and electrolyzers make them;
 // chemical plants and generators use them up.
@@ -180,3 +183,5 @@ enum class FluidKind {
 constexpr int kFluidKindCount = static_cast<int>(FluidKind::Count);
 
 const char* fluid_name(FluidKind kind);
+// A fluid's stable id: its enumerator's name (sprite files are named after it).
+const char* fluid_id(FluidKind kind);

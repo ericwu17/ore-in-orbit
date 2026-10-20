@@ -55,6 +55,35 @@ git submodule update --init   # Dear ImGui, ImPlot
 mingw32-make && ./ore-in-orbit.exe
 ```
 
+## Sprites
+
+Every building, item and fluid is drawn from a PNG in `assets/sprites/`:
+
+- `items/<ItemId>.png` — the icon of every item, buildings included
+  (square), shown in the palette, cargo, crafting panels and pickers.
+- `buildings/<ItemId>.png` — how each building looks built on the grid,
+  plus `buildings/Bridge.png`. Its shape is the building's footprint (2:1
+  for the 2x1 splitter, 1:1 for a 2x2 collector), drawn facing **North**;
+  the game turns belts, splitters and pumps to face the way they point.
+  The pipe's sprite is just its hub: the joins to its neighbors are drawn
+  by the game.
+- `fluids/<FluidId>.png` — the icon of every fluid (square).
+
+`<ItemId>` is the item's enumerator in `src/sim/game_types.h`, as saves
+write it (`IronPlate`, `AsteroidCollector`). Any resolution works as long
+as the shape is right; the stand-ins are 64 px per cell.
+
+The PNGs are embedded into the executable, like the logo and the font: to
+try new art, replace the file and run `make` again (adding or deleting a
+sprite also triggers a rebuild). A sprite that is missing or misshapen is
+reported at startup and drawn as a plain stand-in shape, and `make test`
+names it.
+
+The current sprites are placeholders made by
+`tools/make_placeholder_sprites.py` (Python 3 and Pillow). It only writes
+the sprites that are missing, so it never overwrites real art;
+`--force` regenerates them all.
+
 ## Saves
 
 Every game is saved in its own file, in the `saves/` folder of the game's
@@ -92,7 +121,8 @@ One directory per layer under `src/`; includes name their layer
 - `src/sim/` — pure simulation, no SDL/imgui/OpenGL, so the tests can link
   it headless.
   - `game_types.h` — `Tick` and the tick rate (60 per real second),
-    `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory holds).
+    `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory
+    holds) with each item's name and id (`items.cpp`).
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
     `Collector` → hydrogen / asteroid, `Pipe`, `TransportBelt`),
     each kind's footprint (`footprint_of`, e.g. 2x2 collectors), the
@@ -121,6 +151,10 @@ One directory per layer under `src/`; includes name their layer
     demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
+  - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into
+    one atlas texture at startup and looked up by item, building or fluid.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
   fixed-timestep loop, the game being played and when it is saved), the
   embedded app icon, and the macOS-only startup tweak.
+- `assets/` — the app icon (`logo.png`) and the sprites.
+- `tools/` — `make_placeholder_sprites.py` (see Sprites).

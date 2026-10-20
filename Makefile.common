@@ -21,7 +21,7 @@
 IMGUI_DIR = imgui
 # ImPlot (charts), a submodule built against imgui.
 IMPLOT_DIR = implot
-# Vendored single-header libraries: stb_image (app icon), nlohmann::json
+# Vendored single-header libraries: stb_image (app icon, sprites), nlohmann::json
 # (save files)
 THIRD_PARTY_DIR = third_party
 
@@ -38,7 +38,8 @@ CXXFLAGS += $(PLATFORM_CXXFLAGS)
 # every file, so all of them see the same json.
 CXXFLAGS += -DJSON_DISABLE_ENUM_SERIALIZATION=1
 CXXFLAGS += -MMD -MP   # header dependency tracking
-# Build-time generated headers (logo_png.h, see the embed rule below).
+# Build-time generated headers (logo_png.h, roboto_ttf.h, sprites_png.h: see
+# the embed rules below).
 GENERATED_DIR = $(BUILD_DIR)/generated
 CXXFLAGS += -I$(GENERATED_DIR)
 
@@ -147,9 +148,41 @@ $(FONT_HEADER): $(IMGUI_DIR)/misc/fonts/Roboto-Medium.ttf
 
 $(BUILD_DIR)/src/ui/ui_theme.o: $(FONT_HEADER)
 
+# Embed every sprite under assets/sprites/ (see src/ui/sprites.h) the same
+# way: one array per PNG, plus kEmbeddedSprites[], the table of them by path
+# ("items/IronPlate.png"), ended by a null entry. sprite_list.txt holds the
+# list of files and is only rewritten when it changes, so adding or deleting
+# a sprite regenerates the header too (the wildcard alone wouldn't).
+SPRITES_DIR    = assets/sprites
+SPRITE_PNGS   := $(sort $(wildcard $(SPRITES_DIR)/*/*.png))
+SPRITE_LIST    = $(GENERATED_DIR)/sprite_list.txt
+SPRITES_HEADER = $(GENERATED_DIR)/sprites_png.h
+$(SPRITE_LIST): FORCE
+	@mkdir -p $(dir $@)
+	@echo '$(SPRITE_PNGS)' | cmp -s - $@ || echo '$(SPRITE_PNGS)' > $@
+
+$(SPRITES_HEADER): $(SPRITE_LIST) $(SPRITE_PNGS)
+	@mkdir -p $(dir $@)
+	@{ echo '// Generated from $(SPRITES_DIR)/ by the makefile. Do not edit.'; \
+	  n=0; for f in $(SPRITE_PNGS); do \
+	    echo "static const unsigned char kSprite$$n[] = {"; \
+	    od -An -v -tx1 "$$f" | sed 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
+	    echo '};'; n=$$((n + 1)); \
+	  done; \
+	  echo 'struct EmbeddedSprite { const char* path; const unsigned char* data; std::size_t size; };'; \
+	  echo 'static const EmbeddedSprite kEmbeddedSprites[] = {'; \
+	  n=0; for f in $(SPRITE_PNGS); do \
+	    echo "    {\"$${f#$(SPRITES_DIR)/}\", kSprite$$n, sizeof(kSprite$$n)},"; n=$$((n + 1)); \
+	  done; \
+	  echo '    {nullptr, nullptr, 0},'; \
+	  echo '};'; } > $@
+	@echo "Embedded $(words $(SPRITE_PNGS)) sprites into $@"
+
+$(BUILD_DIR)/src/ui/sprites.o: $(SPRITES_HEADER)
+
 clean:
 	rm -rf $(BUILD_DIR) $(EXE)
 
 -include $(DEPS)
 
-.PHONY: all clean test
+.PHONY: all clean test FORCE

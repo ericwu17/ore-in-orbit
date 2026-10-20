@@ -1,8 +1,9 @@
 // app_icon.h — the window / taskbar / Dock icon.
 //
 // assets/logo.png is embedded into the executable at build time (the
-// makefiles generate logo_png.h from it), so the binary needs no assets
-// directory at runtime.
+// makefiles generate logo_png.h from it), like the sprites (ui/sprites.h),
+// so the binary needs no assets directory at runtime. This file also
+// compiles stb_image, which the sprites use too.
 #pragma once
 
 struct SDL_Window;

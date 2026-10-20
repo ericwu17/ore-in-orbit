@@ -2,6 +2,7 @@
 // (the ship build grid, its build palette and the crafting panel), plus the
 // developer demo windows.
 #include "ui/ui.h"
+#include "ui/sprites.h"
 #include "ui/ui_theme.h"
 
 #include "persistence/save_slots.h"
@@ -25,6 +26,7 @@
 namespace {
 
 namespace theme = ui::theme;
+namespace sprites = ui::sprites;
 
 // A borderless, transparent window covering the whole display, for a screen's
 // contents, plus any `extra` window flags. Pair with ImGui::End().
@@ -195,9 +197,23 @@ void DrawArrow(ImDrawList* draw, ImVec2 c, ImVec2 d, float h, ImU32 color) {
                             color);
 }
 
+// A sprite stretched over `min`..`max`, turned from North (as drawn) to
+// face `facing`, and faded by `alpha`.
+void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImVec2 max,
+                Direction facing = Direction::North, float alpha = 1.0f) {
+    // The picture's corners, clockwise from its top left; each quarter turn
+    // moves them one screen corner on.
+    const ImVec2 uv[4] = {sprite.uv0, ImVec2(sprite.uv1.x, sprite.uv0.y), sprite.uv1, ImVec2(sprite.uv0.x, sprite.uv1.y)};
+    const int turns = static_cast<int>(facing);
+    const auto at = [&](int corner) { return uv[(corner - turns + 4) % 4]; };
+    draw->AddImageQuad(sprite.tex, min, ImVec2(max.x, min.y), max, ImVec2(min.x, max.y), at(0), at(1), at(2), at(3),
+                       theme::U32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), alpha));
+}
+
 // Draws one building over its footprint, whose top-left cell is at `min`
-// (cells of side `cell`). `kind` is nullopt for the bridge. `pos` is used to
-// join pipes to their neighbors; `alpha` fades the placement ghost.
+// (cells of side `cell`): its sprite, or a stand-in when it has none. `kind`
+// is nullopt for the bridge. `pos` is used to join pipes to their neighbors;
+// `alpha` fades the placement ghost.
 void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, float cell, GridSize size,
                   std::optional<ItemKind> kind, Direction facing, float alpha) {
     const float inset = cell * 0.12f;
@@ -226,16 +242,23 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
             }
     };
 
+    const sprites::Sprite* sprite = kind ? sprites::Building(*kind) : sprites::Bridge();
+    if (sprite && kind != ItemKind::Pipe) {
+        DrawSprite(draw, *sprite, min, max, kind && is_rotatable(*kind) ? facing : Direction::North, alpha);
+        return;
+    }
     if (!kind) {
         letter_tile(theme::kTileBridge, "Bridge");
         return;
     }
     switch (*kind) {
     case ItemKind::Pipe: {
-        // A hub plus a bar toward each neighbor that carries fluid.
+        // A hub (its sprite, when it has one) plus a bar toward each neighbor
+        // that carries fluid.
         const ImU32 color = theme::U32(theme::kTilePipe, alpha);
         const float half = cell * 0.14f;
-        draw->AddRectFilled(ImVec2(c.x - half, c.y - half), ImVec2(c.x + half, c.y + half), color);
+        if (!sprite)
+            draw->AddRectFilled(ImVec2(c.x - half, c.y - half), ImVec2(c.x + half, c.y + half), color);
         for (const Direction dir : {Direction::North, Direction::East, Direction::South, Direction::West}) {
             const ImVec2 v = DirectionVector(dir);
             const GridPos n{pos.x + static_cast<int>(v.x), pos.y + static_cast<int>(v.y)};
@@ -245,6 +268,8 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
             draw->AddRectFilled(ImVec2(std::min(c.x, edge.x) - half, std::min(c.y, edge.y) - half),
                                 ImVec2(std::max(c.x, edge.x) + half, std::max(c.y, edge.y) + half), color);
         }
+        if (sprite)
+            DrawSprite(draw, *sprite, min, max, Direction::North, alpha);
         break;
     }
     case ItemKind::Pump:
@@ -326,9 +351,15 @@ ImVec4 ItemColor(ItemKind kind) {
     }
 }
 
-// One item, centered on `c`, `r` across: chunks and raw resources as round
-// lumps, everything made from them as squares.
+// One item, centered on `c`, about `r` across: its sprite, or without one,
+// chunks and raw resources as round lumps, everything made from them as
+// squares.
 void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
+    if (const sprites::Sprite* sprite = sprites::Item(kind)) {
+        const float h = r * 1.3f;  // icons leave a margin around the item
+        DrawSprite(draw, *sprite, ImVec2(c.x - h, c.y - h), ImVec2(c.x + h, c.y + h));
+        return;
+    }
     const ImU32 fill = theme::U32(ItemColor(kind));
     const ImU32 outline = theme::U32(theme::kItemOutline, 0.7f);
     const ItemCategory category = item_category(kind);
@@ -372,6 +403,244 @@ void DrawSorterFilter(ImDrawList* draw, const Sorter& sorter, ImVec2 min, float 
         DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.2f), *filter);
 }
 
+// ---------------------------------------------------------------------------
+// Icons in the panels
+// ---------------------------------------------------------------------------
+
+// What an icon in a panel shows: an item, a fluid, a building as built, or
+// nothing ("None" in a picker).
+struct Icon {
+    enum class Type {
+        None,
+        Item,
+        Fluid,
+        Building,
+        Bridge,
+    };
+    Type type = Type::None;
+    ItemKind item = ItemKind::Hull;
+    FluidKind fluid = FluidKind::Water;
+};
+
+Icon ItemIcon(ItemKind kind) {
+    Icon icon;
+    icon.type = Icon::Type::Item;
+    icon.item = kind;
+    return icon;
+}
+
+Icon FluidIcon(FluidKind kind) {
+    Icon icon;
+    icon.type = Icon::Type::Fluid;
+    icon.fluid = kind;
+    return icon;
+}
+
+// A building as it looks built (the bridge has no item kind).
+Icon BuildingIcon(const Building& b) {
+    Icon icon;
+    icon.type = Icon::Type::Bridge;
+    if (const std::optional<ItemKind> kind = b.item_kind()) {
+        icon.type = Icon::Type::Building;
+        icon.item = *kind;
+    }
+    return icon;
+}
+
+// What a recipe is shown as: what it makes or, for the recipes named after
+// what they do ("Crush metallic chunk", "Split water"), what goes in.
+Icon RecipeIcon(const Recipe& r) {
+    if (!r.name && !r.outputs.empty())
+        return ItemIcon(r.outputs.front().kind);
+    if (!r.inputs.empty())
+        return ItemIcon(r.inputs.front().kind);
+    if (!r.fluid_inputs.empty())
+        return FluidIcon(r.fluid_inputs.front().kind);
+    if (!r.outputs.empty())
+        return ItemIcon(r.outputs.front().kind);
+    if (!r.fluid_outputs.empty())
+        return FluidIcon(r.fluid_outputs.front().kind);
+    return {};
+}
+
+const char* IconName(const Icon& icon) {
+    switch (icon.type) {
+    case Icon::Type::None:     return "None";
+    case Icon::Type::Item:
+    case Icon::Type::Building: return item_name(icon.item);
+    case Icon::Type::Fluid:    return fluid_name(icon.fluid);
+    case Icon::Type::Bridge:   return "Bridge";
+    }
+    return "?";
+}
+
+const char* CategoryName(ItemCategory category) {
+    switch (category) {
+    case ItemCategory::Placeable:     return "Buildings";
+    case ItemCategory::AsteroidChunk: return "Asteroid chunks";
+    case ItemCategory::RawResource:   return "Raw resources";
+    case ItemCategory::Material:      return "Materials";
+    case ItemCategory::Component:     return "Components";
+    }
+    return "?";
+}
+
+// `sprite` as large as fits in `min`..`max` without stretching, centered.
+void DrawSpriteFitted(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImVec2 max, float alpha) {
+    const float k = std::min((max.x - min.x) / static_cast<float>(sprite.w),
+                             (max.y - min.y) / static_cast<float>(sprite.h));
+    const ImVec2 size(static_cast<float>(sprite.w) * k, static_cast<float>(sprite.h) * k);
+    const ImVec2 a((min.x + max.x - size.x) * 0.5f, (min.y + max.y - size.y) * 0.5f);
+    DrawSprite(draw, sprite, a, ImVec2(a.x + size.x, a.y + size.y), Direction::North, alpha);
+}
+
+// An icon filling the square `min`..`max`: its sprite, or a stand-in when
+// that is missing.
+void DrawIcon(ImDrawList* draw, const Icon& icon, ImVec2 min, ImVec2 max, float alpha = 1.0f) {
+    const ImVec2 c((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+    const float r = (max.x - min.x) * 0.5f;
+    switch (icon.type) {
+    case Icon::Type::None: {
+        // A crossed-out circle.
+        const ImU32 color = theme::U32(theme::kInkDim, alpha);
+        const float t = std::max(1.5f, r * 0.12f);
+        draw->AddCircle(c, r * 0.6f, color, 0, t);
+        draw->AddLine(ImVec2(c.x - r * 0.42f, c.y + r * 0.42f), ImVec2(c.x + r * 0.42f, c.y - r * 0.42f), color, t);
+        return;
+    }
+    case Icon::Type::Item:
+        if (const sprites::Sprite* s = sprites::Item(icon.item))
+            DrawSprite(draw, *s, min, max, Direction::North, alpha);
+        else
+            DrawItem(draw, c, r * 0.6f, icon.item);
+        return;
+    case Icon::Type::Fluid:
+        if (const sprites::Sprite* s = sprites::Fluid(icon.fluid))
+            DrawSprite(draw, *s, min, max, Direction::North, alpha);
+        else
+            draw->AddCircleFilled(c, r * 0.6f, theme::U32(theme::kItemIce, alpha));
+        return;
+    case Icon::Type::Building:
+        if (const sprites::Sprite* s = sprites::Building(icon.item))
+            DrawSpriteFitted(draw, *s, min, max, alpha);
+        else
+            DrawIcon(draw, ItemIcon(icon.item), min, max, alpha);
+        return;
+    case Icon::Type::Bridge:
+        if (const sprites::Sprite* s = sprites::Bridge())
+            DrawSpriteFitted(draw, *s, min, max, alpha);
+        else
+            draw->AddRectFilled(min, max, theme::U32(theme::kTileBridge, alpha), r * 0.3f);
+        return;
+    }
+}
+
+// Small labels over an icon's corners (null: none).
+struct Badges {
+    const char* top_left = nullptr;
+    const char* bottom_right = nullptr;
+};
+
+// A square tile `size` across at `min`: `bg`, the icon over it (faded by
+// `alpha`) and its badges. Disabled widgets fade all of it.
+void DrawIconFrame(ImDrawList* draw, const Icon& icon, ImVec2 min, float size, ImVec4 bg, Badges badges,
+                   float alpha) {
+    const float style_alpha = ImGui::GetStyle().Alpha;
+    const ImVec2 max(min.x + size, min.y + size);
+    draw->AddRectFilled(min, max, theme::U32(bg, style_alpha), ImGui::GetStyle().FrameRounding);
+    const float pad = size * 0.08f;
+    DrawIcon(draw, icon, ImVec2(min.x + pad, min.y + pad), ImVec2(max.x - pad, max.y - pad), style_alpha * alpha);
+    if (!badges.top_left && !badges.bottom_right)
+        return;
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    const ImU32 ink = theme::U32(theme::kInk, style_alpha);
+    const ImU32 halo = theme::U32(theme::kPaperLight, style_alpha);
+    if (badges.top_left)
+        theme::DrawHaloText(draw, ImVec2(min.x + 3.0f, min.y + 1.0f), ink, halo, badges.top_left);
+    if (badges.bottom_right) {
+        const ImVec2 ts = ImGui::CalcTextSize(badges.bottom_right);
+        theme::DrawHaloText(draw, ImVec2(max.x - ts.x - 3.0f, max.y - ts.y - 1.0f), ink, halo, badges.bottom_right);
+    }
+    ImGui::PopFont();
+}
+
+// A square button `size` across showing `icon`, filled navy when selected
+// (like theme::SegmentedButton), with `badges` and the icon faded by `fade`.
+// Returns true when clicked.
+bool IconButton(const char* id, const Icon& icon, float size, bool selected, Badges badges = {},
+                float fade = 1.0f) {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(size, size));
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec4 bg = selected                 ? (hovered ? theme::kNavyHover : theme::kNavy)
+                      : ImGui::IsItemActive() ? theme::kPaper4
+                      : hovered               ? theme::kPaper3
+                                              : theme::kPaper2;
+    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, bg, badges, fade);
+    return pressed;
+}
+
+// An icon framed like IconButton, only to look at (and hover).
+void IconTile(const Icon& icon, float size, Badges badges = {}) {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(size, size));
+    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, theme::kPaper2, badges, 1.0f);
+}
+
+// An unframed icon `size` across; hovering it shows its name.
+void IconImage(const Icon& icon, float size) {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(size, size));
+    DrawIcon(ImGui::GetWindowDrawList(), icon, min, ImVec2(min.x + size, min.y + size), ImGui::GetStyle().Alpha);
+    ImGui::SetItemTooltip("%s", IconName(icon));
+}
+
+// Lays icons `size` across out in rows, wrapping at the right edge of the
+// space there was when Start() was called. Call Next() before each icon.
+struct IconFlow {
+    float size = 0.0f;
+    float right = 0.0f;       // where rows end, in screen space
+    float last_right = 0.0f;  // the previous icon's right edge
+    int placed = 0;
+
+    void Start(float icon_size) {
+        size = icon_size;
+        right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        placed = 0;
+    }
+
+    void Next() {
+        const float spacing = ImGui::GetStyle().ItemSpacing.y;
+        if (placed++ > 0 && last_right + spacing + size <= right)
+            ImGui::SameLine(0.0f, spacing);
+        last_right = ImGui::GetCursorScreenPos().x + size;
+    }
+};
+
+// A count short enough for a badge: 950, 12k, 3M.
+std::string ShortCount(int n) {
+    if (n < 10'000)
+        return std::to_string(n);
+    if (n < 10'000'000)
+        return std::to_string(n / 1'000) + "k";
+    return std::to_string(n / 1'000'000) + "M";
+}
+
+std::string Fraction(int have, int need) {
+    return std::to_string(have) + " / " + std::to_string(need);
+}
+
+// One line about an amount of an item or fluid: its icon, then `text` ("3",
+// "2 / 4") and `suffix`, in `color`. Hovering the icon shows its name;
+// `named` writes the name out after the text too, for tooltips, where
+// nothing can be hovered.
+void AmountLine(const Icon& icon, const std::string& text, ImVec4 color, bool named, const char* suffix = "") {
+    ImGui::AlignTextToFramePadding();
+    IconImage(icon, ImGui::GetFrameHeight());
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::TextColored(color, "%s%s%s%s", text.c_str(), named ? " " : "", named ? IconName(icon) : "", suffix);
+}
+
 // The placeable items in the build list: those in the inventory, plus the
 // selected one. The first nine get the number keys.
 std::vector<ItemKind> BuildList(const Ship& ship) {
@@ -384,9 +653,9 @@ std::vector<ItemKind> BuildList(const Ship& ship) {
     return list;
 }
 
-// The left panel: one button per placeable item in the inventory with its
-// count, the facing, the cargo (everything else in the inventory) and the
-// controls.
+// The left panel: an icon per placeable item in the inventory with its count,
+// what is selected and its facing, the cargo (everything else in the
+// inventory) and the controls.
 void DrawBuildPalette(const Ship& ship, float width) {
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
@@ -396,26 +665,33 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::BeginChild("##build_palette", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     theme::SectionHeading("Build");
 
-    const float button_w = ImGui::GetContentRegionAvail().x;
+    const float icon = ImGui::GetFrameHeight() * 1.9f;
     const std::vector<ItemKind> list = BuildList(ship);
+    IconFlow flow;
+    flow.Start(icon);
     for (std::size_t i = 0; i < list.size(); ++i) {
         const ItemKind kind = list[i];
         const int count = ship.inventory().count(kind);
-        char label[96];
-        if (i < 9)
-            std::snprintf(label, sizeof(label), "%zu  %s  x%d##item%d", i + 1, item_name(kind), count,
-                          static_cast<int>(kind));
-        else
-            std::snprintf(label, sizeof(label), "    %s  x%d##item%d", item_name(kind), count, static_cast<int>(kind));
-        if (count == 0)
-            ImGui::PushStyleColor(ImGuiCol_Text, theme::kInkDim);
-        if (theme::SegmentedButton(label, g_build.selected == kind, ImVec2(button_w, 0.0f)))
+        const std::string key = std::to_string(i + 1);
+        const std::string amount = ShortCount(count);
+        flow.Next();
+        ImGui::PushID(static_cast<int>(kind));
+        if (IconButton("##build", ItemIcon(kind), icon, g_build.selected == kind,
+                       {i < 9 ? key.c_str() : nullptr, amount.c_str()}, count == 0 ? 0.4f : 1.0f))
             g_build.selected = kind;
-        if (count == 0)
-            ImGui::PopStyleColor();
+        if (ImGui::BeginItemTooltip()) {
+            ImGui::TextUnformatted(item_name(kind));
+            const GridSize footprint = footprint_of(kind);
+            ImGui::TextColored(theme::kInkDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
+            if (i < 9)
+                ImGui::TextColored(theme::kInkDim, "Key %s", key.c_str());
+            ImGui::EndTooltip();
+        }
+        ImGui::PopID();
     }
 
     ImGui::Spacing();
+    ImGui::TextUnformatted(item_name(g_build.selected));
     if (is_rotatable(g_build.selected))
         ImGui::Text("Facing: %s  (R to rotate)", DirectionName(g_build.facing));
     else
@@ -428,21 +704,20 @@ void DrawBuildPalette(const Ship& ship, float width) {
         ImGui::TextUnformatted("");
 
     theme::SectionHeading("Cargo");
+    const float cargo_icon = ImGui::GetFrameHeight() * 1.6f;
+    IconFlow cargo;
+    cargo.Start(cargo_icon);
     bool any = false;
-    if (ImGui::BeginTable("##cargo", 2, ImGuiTableFlags_SizingStretchProp)) {
-        for (int i = 0; i < kItemKindCount; ++i) {
-            const ItemKind kind = static_cast<ItemKind>(i);
-            const int count = ship.inventory().count(kind);
-            if (is_placeable(kind) || count == 0)
-                continue;
-            any = true;
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(item_name(kind));
-            ImGui::TableNextColumn();
-            ImGui::TextColored(theme::kNavy, "%d", count);
-        }
-        ImGui::EndTable();
+    for (int i = 0; i < kItemKindCount; ++i) {
+        const ItemKind kind = static_cast<ItemKind>(i);
+        const int count = ship.inventory().count(kind);
+        if (is_placeable(kind) || count == 0)
+            continue;
+        any = true;
+        const std::string amount = ShortCount(count);
+        cargo.Next();
+        IconTile(ItemIcon(kind), cargo_icon, {nullptr, amount.c_str()});
+        ImGui::SetItemTooltip("%s: %d", item_name(kind), count);
     }
     if (!any)
         ImGui::TextColored(theme::kInkDim, "Empty");
@@ -461,59 +736,84 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::EndChild();
 }
 
-// Ingredient / product lines for a recipe tooltip. `inv` colors inputs by
-// whether the bridge has them; null leaves them plain.
+// What goes into a recipe and what it makes, item by item, for its tooltip.
+// `inv` colors inputs by whether the bridge has them; null leaves them plain.
 void RecipeDetails(const Recipe& recipe, const Inventory* inv) {
     ImGui::TextColored(theme::kInkDim, "%s, %.1f s", craft_category_name(recipe.category),
                        static_cast<double>(recipe.ticks) / static_cast<double>(kTicksPerSecond));
     for (const ItemStack& s : recipe.inputs) {
         if (inv) {
             const int have = inv->count(s.kind);
-            ImGui::TextColored(have >= s.count ? theme::kInk : theme::kBad, "  %d x %s  (have %d)", s.count,
-                               item_name(s.kind), have);
+            const std::string suffix = "  (have " + std::to_string(have) + ")";
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), have >= s.count ? theme::kInk : theme::kBad, true,
+                       suffix.c_str());
         } else {
-            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, true);
         }
     }
     for (const FluidStack& s : recipe.fluid_inputs)
-        ImGui::Text("  %d %s", s.amount, fluid_name(s.kind));
+        AmountLine(FluidIcon(s.kind), std::to_string(s.amount), theme::kInk, true);
     ImGui::TextColored(theme::kInkDim, "Makes");
     for (const ItemStack& s : recipe.outputs)
-        ImGui::TextColored(theme::kGood, "  %d x %s", s.count, item_name(s.kind));
+        AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, true);
     for (const FluidStack& s : recipe.fluid_outputs)
-        ImGui::TextColored(theme::kGood, "  %d %s", s.amount, fluid_name(s.kind));
+        AmountLine(FluidIcon(s.kind), std::to_string(s.amount), theme::kGood, true);
 }
 
-// One button per hand-craftable recipe whose main output is in `category`.
+// A recipe's tooltip, over the item just drawn: its name and details.
+void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint = nullptr) {
+    if (!ImGui::BeginItemTooltip())
+        return;
+    ImGui::TextUnformatted(recipe_name(recipe));
+    RecipeDetails(recipe, inv);
+    if (hint)
+        ImGui::TextColored(theme::kInkDim, "%s", hint);
+    ImGui::EndTooltip();
+}
+
+// One icon button per hand-craftable recipe whose main output is in
+// `category`.
 void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
-    const float button_w = ImGui::GetContentRegionAvail().x;
+    const float size = ImGui::GetFrameHeight() * 1.9f;
+    IconFlow flow;
+    flow.Start(size);
     const std::vector<Recipe>& recipes = all_recipes();
     for (std::size_t i = 0; i < recipes.size(); ++i) {
         const Recipe& r = recipes[i];
         if (!r.hand_craftable || item_category(r.outputs.front().kind) != category)
             continue;
         const bool craftable = bridge.can_hand_craft(r);
-        char label[96];
-        std::snprintf(label, sizeof(label), "%s##craft%zu", recipe_name(r), i);
+        const int makes = r.outputs.front().count;
+        const std::string badge = "x" + std::to_string(makes);
+        flow.Next();
+        ImGui::PushID(static_cast<int>(i));
         ImGui::BeginDisabled(!craftable);
-        if (ImGui::Button(label, ImVec2(button_w, 0.0f))) {
+        if (IconButton("##craft", RecipeIcon(r), size, false, {nullptr, makes > 1 ? badge.c_str() : nullptr})) {
             const int n = ImGui::GetIO().KeyShift ? 5 : 1;
             for (int k = 0; k < n && bridge.queue_craft(r); ++k) {
             }
         }
         ImGui::EndDisabled();
-        if (ImGui::BeginItemTooltip()) {
-            RecipeDetails(r, &bridge.get_inventory());
-            ImGui::EndTooltip();
-        }
+        RecipeTooltip(r, &bridge.get_inventory());
+        ImGui::PopID();
     }
 }
 
-// What a building is and what it's doing: for the grid's hover tooltip and
-// the inspector.
-void BuildingDetails(const Building& b) {
+// What a building is and what it's doing: for the grid's hover tooltip
+// (`in_tooltip`, which writes item names out) and the inspector (where
+// hovering an icon shows its name).
+void BuildingDetails(const Building& b, bool in_tooltip) {
     const std::optional<ItemKind> kind = b.item_kind();
+    // Its picture, and its name beside it.
+    const float picture = ImGui::GetFrameHeight() * 1.6f;
+    const ImVec2 picture_min = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(picture, picture));
+    DrawIcon(ImGui::GetWindowDrawList(), BuildingIcon(b), picture_min,
+             ImVec2(picture_min.x + picture, picture_min.y + picture));
+    ImGui::SameLine();
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
+
     const float bar_w = ImGui::GetFrameHeight() * 8.0f;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
         std::string crafts;
@@ -525,26 +825,28 @@ void BuildingDetails(const Building& b) {
         if (!recipe) {
             ImGui::TextColored(theme::kWarnText, "No recipe: click it to pick one");
         } else {
-            ImGui::Text("Recipe: %s  (%.1f / min)", recipe_name(*recipe), machine->crafts_per_minute());
+            char rate[32];
+            std::snprintf(rate, sizeof(rate), "  (%.1f / min)", machine->crafts_per_minute());
+            AmountLine(RecipeIcon(*recipe), recipe_name(*recipe), theme::kInk, false, rate);
             ImGui::ProgressBar(machine->craft_progress(), ImVec2(bar_w, 0.0f), machine->crafting() ? "" : "Waiting");
             ImGui::TextColored(theme::kInkDim, "Ingredients (per craft)");
             for (const ItemStack& s : recipe->inputs) {
                 const int have = machine->get_input().count(s.kind);
-                ImGui::TextColored(have >= s.count ? theme::kInk : theme::kInkDim, "  %d / %d  %s", have, s.count,
-                                   item_name(s.kind));
+                AmountLine(ItemIcon(s.kind), Fraction(have, s.count), have >= s.count ? theme::kInk : theme::kInkDim,
+                           in_tooltip);
             }
             for (const FluidStack& f : recipe->fluid_inputs)
-                ImGui::TextColored(theme::kInkDim, "  %d / %d  %s (no pipe flow yet)", machine->fluid_input(f.kind),
-                                   f.amount, fluid_name(f.kind));
+                AmountLine(FluidIcon(f.kind), Fraction(machine->fluid_input(f.kind), f.amount), theme::kInkDim,
+                           in_tooltip, "  (no pipe flow yet)");
             ImGui::TextColored(theme::kInkDim, "Waiting to go out");
             bool any = false;
             for (const ItemStack& s : machine->get_output().stacks()) {
-                ImGui::TextColored(theme::kGood, "  %d x %s", s.count, item_name(s.kind));
+                AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, in_tooltip);
                 any = true;
             }
             for (const FluidStack& f : recipe->fluid_outputs)
                 if (const int amount = machine->fluid_output(f.kind); amount > 0) {
-                    ImGui::TextColored(theme::kGood, "  %d %s", amount, fluid_name(f.kind));
+                    AmountLine(FluidIcon(f.kind), std::to_string(amount), theme::kGood, in_tooltip);
                     any = true;
                 }
             if (!any)
@@ -564,7 +866,7 @@ void BuildingDetails(const Building& b) {
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
         ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
         for (const ItemStack& s : collector->items().stacks())
-            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
     }
     if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
         if (!belt->moves_items()) {
@@ -576,18 +878,21 @@ void BuildingDetails(const Building& b) {
             for (const BeltItem& item : belt->get_items())
                 carried.add(item.kind);
             for (const ItemStack& s : carried.stacks())
-                ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+                AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
         }
     }
     if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
         const std::optional<ItemKind> filter = sorter->get_filter();
-        ImGui::Text("Filter: %s", filter ? item_name(*filter) : "none");
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Filter:");
+        ImGui::SameLine();
+        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kInk, false);
         ImGui::TextColored(theme::kInkDim, "Matching items go straight through;\nothers turn left or right");
     }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
         for (const ItemStack& s : hold->get_stored().stacks())
-            ImGui::Text("  %d x %s", s.count, item_name(s.kind));
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
     }
     if (!kind)
         ImGui::TextColored(theme::kInkDim, "Belts deliver into its inventory");
@@ -603,18 +908,41 @@ bool ContainsIgnoringCase(std::string_view text, std::string_view part) {
     return part.empty() || std::search(text.begin(), text.end(), part.begin(), part.end(), same) != text.end();
 }
 
+// A combo box whose closed frame shows `icon` and `text` as its value. Same
+// contract as ImGui::BeginCombo (EndCombo() when it returns true).
+bool BeginIconCombo(const char* id, const Icon& icon, const char* text) {
+    // The frame is drawn empty, then the value over it, in this window's
+    // draw list (once open, the popup is the current window).
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const float w = ImGui::CalcItemWidth();
+    const bool open = ImGui::BeginCombo(id, "", ImGuiComboFlags_HeightLargest);
+    const float fh = ImGui::GetFrameHeight();
+    const ImVec2 pad = ImGui::GetStyle().FramePadding;
+    const float s = fh - 4.0f;
+    draw->PushClipRect(min, ImVec2(min.x + w - fh, min.y + fh), true);  // short of the arrow
+    const ImVec2 icon_min(min.x + 2.0f, min.y + 2.0f);
+    DrawIcon(draw, icon, icon_min, ImVec2(icon_min.x + s, icon_min.y + s));
+    draw->AddText(ImVec2(icon_min.x + s + ImGui::GetStyle().ItemInnerSpacing.x, min.y + pad.y),
+                  ImGui::GetColorU32(ImGuiCol_Text), text);
+    draw->PopClipRect();
+    return open;
+}
+
 // Search for a combo's options: a box above them, emptied and focused as the
 // popup opens, that hides the options not containing what's typed (ignoring
-// case); once something is typed, Enter picks the first one left. Only one combo is open at a time,
-// so they all share this.
+// case); once something is typed, Enter picks the first one left. The
+// options are icon buttons in rows. Only one combo is open at a time, so they
+// all share this.
 struct ComboSearch {
     char text[64] = {};
     bool enter = false;  // Enter went down in the box this frame
     int shown = 0;       // options shown so far this frame
+    IconFlow flow;       // lays the options out
 };
 ComboSearch g_combo_search;
 
-// Call first thing once BeginCombo() returns true, and EndComboSearch()
+// Call first thing once BeginIconCombo() returns true, and EndComboSearch()
 // before EndCombo(). The options in between scroll under the box.
 void BeginComboSearch() {
     ComboSearch& search = g_combo_search;
@@ -631,23 +959,36 @@ void BeginComboSearch() {
     ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f),
                                         ImVec2(FLT_MAX, ImGui::GetTextLineHeightWithSpacing() * 14.0f));
     ImGui::BeginChild("##options", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
+    search.flow.Start(ImGui::GetFrameHeight() * 1.6f);
+}
+
+// Whether the option `label` matches what's typed.
+bool ComboSearchMatches(const char* label) {
+    return ContainsIgnoringCase(label, g_combo_search.text);
 }
 
 // Whether the option `label` matches the search. Each one that does must
 // then be drawn with ComboSearchOption().
 bool ComboSearchShows(const char* label) {
-    if (!ContainsIgnoringCase(label, g_combo_search.text))
+    if (!ComboSearchMatches(label))
         return false;
     ++g_combo_search.shown;
+    g_combo_search.flow.Next();
     return true;
 }
 
-// An option the search shows: true, closing the combo, when it is clicked,
-// or when it is the first one and Enter was pressed.
-bool ComboSearchOption(const char* label, bool selected) {
-    const bool picked =
-        ImGui::Selectable(label, selected) || (g_combo_search.enter && g_combo_search.shown == 1);
-    // The options' child window isn't the popup, so Selectable won't close it.
+// A heading over the options after it, which start a new row.
+void ComboSearchHeading(const char* text) {
+    ImGui::SeparatorText(text);
+    g_combo_search.flow.Start(g_combo_search.flow.size);
+}
+
+// An option the search shows, as an icon button: true, closing the combo,
+// when it is clicked, or when it is the first one and Enter was pressed.
+bool ComboSearchOption(const Icon& icon, bool selected) {
+    const bool picked = IconButton("##option", icon, g_combo_search.flow.size, selected) ||
+                        (g_combo_search.enter && g_combo_search.shown == 1);
+    // The options' child window isn't the popup, so the button won't close it.
     if (picked)
         ImGui::CloseCurrentPopup();
     return picked;
@@ -666,28 +1007,28 @@ void DrawInspector(Ship& ship) {
     if (!b)
         return;
     theme::SectionHeading("Inspect");
-    BuildingDetails(*b);
+    BuildingDetails(*b, false);
     if (const auto* machine = dynamic_cast<const Machine*>(b)) {
         const Recipe* current = machine->get_recipe();
         ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("##recipe", current ? recipe_name(*current) : "Pick a recipe",
-                              ImGuiComboFlags_HeightLargest)) {
+        if (BeginIconCombo("##recipe", current ? RecipeIcon(*current) : Icon{},
+                           current ? recipe_name(*current) : "Pick a recipe")) {
             BeginComboSearch();
-            if (ComboSearchShows("None") && ComboSearchOption("None", current == nullptr))
-                ship.set_recipe(*g_build.inspected, nullptr);
+            if (ComboSearchShows("None")) {
+                if (ComboSearchOption(Icon{}, current == nullptr))
+                    ship.set_recipe(*g_build.inspected, nullptr);
+                ImGui::SetItemTooltip("None");
+            }
             const std::vector<const Recipe*> recipes = machine_recipes(*machine->item_kind());
             for (std::size_t i = 0; i < recipes.size(); ++i) {
                 const Recipe* r = recipes[i];
                 if (!ComboSearchShows(recipe_name(*r)))
                     continue;
                 ImGui::PushID(static_cast<int>(i));
-                if (ComboSearchOption(recipe_name(*r), r == current) && r != current)
+                if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current)
                     ship.set_recipe(*g_build.inspected, r);
+                RecipeTooltip(*r, nullptr);
                 ImGui::PopID();
-                if (ImGui::BeginItemTooltip()) {
-                    RecipeDetails(*r, nullptr);
-                    ImGui::EndTooltip();
-                }
             }
             EndComboSearch();
             ImGui::EndCombo();
@@ -697,19 +1038,36 @@ void DrawInspector(Ship& ship) {
     if (const auto* sorter = dynamic_cast<const Sorter*>(b)) {
         const std::optional<ItemKind> current = sorter->get_filter();
         ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("##filter", current ? item_name(*current) : "Pick a filter",
-                              ImGuiComboFlags_HeightLargest)) {
+        if (BeginIconCombo("##filter", current ? ItemIcon(*current) : Icon{},
+                           current ? item_name(*current) : "Pick a filter")) {
             BeginComboSearch();
-            if (ComboSearchShows("None") && ComboSearchOption("None", !current))
-                ship.set_sort_filter(*g_build.inspected, std::nullopt);
-            for (int i = 0; i < kItemKindCount; ++i) {
-                const ItemKind kind = static_cast<ItemKind>(i);
-                if (!ComboSearchShows(item_name(kind)))
+            if (ComboSearchShows("None")) {
+                if (ComboSearchOption(Icon{}, !current))
+                    ship.set_sort_filter(*g_build.inspected, std::nullopt);
+                ImGui::SetItemTooltip("None");
+            }
+            // The items by category, each under a heading.
+            for (const ItemCategory category : {ItemCategory::Placeable, ItemCategory::AsteroidChunk,
+                                                ItemCategory::RawResource, ItemCategory::Material,
+                                                ItemCategory::Component}) {
+                bool any = false;
+                for (int i = 0; i < kItemKindCount && !any; ++i) {
+                    const ItemKind kind = static_cast<ItemKind>(i);
+                    any = item_category(kind) == category && ComboSearchMatches(item_name(kind));
+                }
+                if (!any)
                     continue;
-                ImGui::PushID(i);
-                if (ComboSearchOption(item_name(kind), current == kind))
-                    ship.set_sort_filter(*g_build.inspected, kind);
-                ImGui::PopID();
+                ComboSearchHeading(CategoryName(category));
+                for (int i = 0; i < kItemKindCount; ++i) {
+                    const ItemKind kind = static_cast<ItemKind>(i);
+                    if (item_category(kind) != category || !ComboSearchShows(item_name(kind)))
+                        continue;
+                    ImGui::PushID(i);
+                    if (ComboSearchOption(ItemIcon(kind), current == kind))
+                        ship.set_sort_filter(*g_build.inspected, kind);
+                    ImGui::SetItemTooltip("%s", item_name(kind));
+                    ImGui::PopID();
+                }
             }
             EndComboSearch();
             ImGui::EndCombo();
@@ -735,6 +1093,7 @@ void DrawCraftPanel(Ship& ship, float width) {
     DrawInspector(ship);
     ImGui::PopTextWrapPos();
 
+    const float icon = ImGui::GetFrameHeight() * 1.6f;
     theme::SectionHeading("Craft queue");
     const std::deque<CraftJob>& queue = bridge.craft_queue();
     if (queue.empty()) {
@@ -742,19 +1101,28 @@ void DrawCraftPanel(Ship& ship, float width) {
     } else {
         constexpr std::size_t kShown = 8;
         std::optional<std::size_t> cancel;
+        IconFlow flow;
+        flow.Start(icon);
         for (std::size_t i = 0; i < std::min(queue.size(), kShown); ++i) {
             const CraftJob& job = queue[i];
+            flow.Next();
             ImGui::PushID(static_cast<int>(i));
+            const ImVec2 job_min = ImGui::GetCursorScreenPos();
+            // The first one is being crafted: highlighted, with its progress
+            // along the bottom, and only a right click cancels it.
+            const bool clicked = IconButton("##job", RecipeIcon(*job.recipe), icon, i == 0);
             if (i == 0) {
                 const float progress = static_cast<float>(job.elapsed) / static_cast<float>(job.recipe->ticks);
-                ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f), recipe_name(*job.recipe));
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
-                    cancel = i;
-            } else if (ImGui::Selectable(recipe_name(*job.recipe)) ||
-                       ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                cancel = i;
+                const float h = std::max(3.0f, icon * 0.1f);
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    ImVec2(job_min.x + 2.0f, job_min.y + icon - h - 2.0f),
+                    ImVec2(job_min.x + 2.0f + (icon - 4.0f) * progress, job_min.y + icon - 2.0f),
+                    theme::U32(theme::kWarn));
             }
-            ImGui::SetItemTooltip("Click (right click on the bar) to cancel and refund");
+            if ((clicked && i > 0) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                cancel = i;
+            ImGui::SetItemTooltip("%s\n%s", recipe_name(*job.recipe),
+                                  i == 0 ? "Crafting: right click to cancel and refund" : "Click to cancel and refund");
             ImGui::PopID();
         }
         if (queue.size() > kShown)
@@ -779,19 +1147,31 @@ void DrawCraftPanel(Ship& ship, float width) {
         const CraftCategory category = static_cast<CraftCategory>(c);
         if (!ImGui::TreeNode(craft_category_name(category)))
             continue;
+        IconFlow flow;
+        flow.Start(icon);
         for (std::size_t i = 0; i < recipes.size(); ++i) {
             const Recipe& r = recipes[i];
             if (r.category != category || r.hand_craftable)
                 continue;
-            ImGui::BulletText("%s", recipe_name(r));
-            if (ImGui::BeginItemTooltip()) {
-                RecipeDetails(r, &bridge.get_inventory());
-                ImGui::EndTooltip();
-            }
+            flow.Next();
+            IconTile(RecipeIcon(r), icon);
+            RecipeTooltip(r, &bridge.get_inventory());
         }
         ImGui::TreePop();
     }
     ImGui::EndChild();
+}
+
+// A hull tile (`kind`: Hull or ReinforcedHull) over `min`..`max`: its sprite,
+// or flat `hull` / `reinforced`, also when zoomed out too far for the sprite
+// to read.
+void DrawHull(ImDrawList* draw, ItemKind kind, ImVec2 min, ImVec2 max, float cell, float alpha, ImU32 hull,
+              ImU32 reinforced) {
+    const sprites::Sprite* sprite = sprites::Building(kind);
+    if (sprite && cell >= 8.0f)
+        DrawSprite(draw, *sprite, min, max, Direction::North, alpha);
+    else
+        draw->AddRectFilled(min, max, kind == ItemKind::ReinforcedHull ? reinforced : hull);
 }
 
 // Pans and zooms the camera from this frame's input on the canvas (the
@@ -938,8 +1318,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
             const GridPos p{x, y};
             if (const std::optional<ItemKind> tile = ship.hull_at(p)) {
                 const ImVec2 min = CellMin(origin, cell, p);
-                draw->AddRectFilled(min, ImVec2(min.x + cell, min.y + cell),
-                                    *tile == ItemKind::ReinforcedHull ? reinforced : hull);
+                DrawHull(draw, *tile, min, ImVec2(min.x + cell, min.y + cell), cell, 1.0f, hull, reinforced);
             }
         }
     }
@@ -979,10 +1358,9 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         const BuildResult r = ship.can_place(g_build.selected, *hover_cell, g_build.facing);
         draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
         if (r == BuildResult::Ok) {
-            if (g_build.selected == ItemKind::Hull)
-                draw->AddRectFilled(min, max, theme::U32(theme::kTileHull, 0.6f));
-            else if (g_build.selected == ItemKind::ReinforcedHull)
-                draw->AddRectFilled(min, max, theme::U32(theme::kTileReinforcedHull, 0.6f));
+            if (g_build.selected == ItemKind::Hull || g_build.selected == ItemKind::ReinforcedHull)
+                DrawHull(draw, g_build.selected, min, max, cell, 0.6f, theme::U32(theme::kTileHull, 0.6f),
+                         theme::U32(theme::kTileReinforcedHull, 0.6f));
             else
                 DrawBuilding(draw, ship, *hover_cell, min, cell, size, g_build.selected, g_build.facing, 0.45f);
         }
@@ -992,7 +1370,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
             if (const Building* b = ship.building_at(*hover_cell)) {
                 ImGui::BeginTooltip();
-                BuildingDetails(*b);
+                BuildingDetails(*b, true);
                 ImGui::EndTooltip();
             }
     }

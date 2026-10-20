@@ -1,4 +1,5 @@
-// items.cpp — item and fluid names and item categories (see game_types.h).
+// items.cpp — item and fluid names and ids, and item categories (see
+// game_types.h).
 #include "sim/game_types.h"
 
 const char* item_name(ItemKind kind) {
@@ -67,6 +68,73 @@ const char* item_name(ItemKind kind) {
     return "?";
 }
 
+// No default case, so a new ItemKind without an id is a -Wswitch error.
+const char* item_id(ItemKind kind) {
+    switch (kind) {
+    case ItemKind::Hull:              return "Hull";
+    case ItemKind::ReinforcedHull:    return "ReinforcedHull";
+    case ItemKind::TransportBelt:     return "TransportBelt";
+    case ItemKind::ExpressBelt:       return "ExpressBelt";
+    case ItemKind::BeltTunnel:        return "BeltTunnel";
+    case ItemKind::Splitter:          return "Splitter";
+    case ItemKind::FilterSorter:      return "FilterSorter";
+    case ItemKind::CargoHold:         return "CargoHold";
+    case ItemKind::Pipe:              return "Pipe";
+    case ItemKind::Pump:              return "Pump";
+    case ItemKind::FluidTank:         return "FluidTank";
+    case ItemKind::AsteroidCollector: return "AsteroidCollector";
+    case ItemKind::TractorArray:      return "TractorArray";
+    case ItemKind::HydrogenCollector: return "HydrogenCollector";
+    case ItemKind::AsteroidCrusher:   return "AsteroidCrusher";
+    case ItemKind::SolarFurnace:      return "SolarFurnace";
+    case ItemKind::ArcFurnace:        return "ArcFurnace";
+    case ItemKind::IceMelter:         return "IceMelter";
+    case ItemKind::Electrolyzer:      return "Electrolyzer";
+    case ItemKind::ChemicalPlant:     return "ChemicalPlant";
+    case ItemKind::FabricatorMk1:     return "FabricatorMk1";
+    case ItemKind::FabricatorMk2:     return "FabricatorMk2";
+    case ItemKind::FabricatorMk3:     return "FabricatorMk3";
+    case ItemKind::SolarPanel:        return "SolarPanel";
+    case ItemKind::SolarArray:        return "SolarArray";
+    case ItemKind::FuelCellGenerator: return "FuelCellGenerator";
+    case ItemKind::BatteryBank:       return "BatteryBank";
+    case ItemKind::SurveyScanner:     return "SurveyScanner";
+    case ItemKind::IonThruster:       return "IonThruster";
+    case ItemKind::MetallicChunk:     return "MetallicChunk";
+    case ItemKind::SilicateChunk:     return "SilicateChunk";
+    case ItemKind::CarbonaceousChunk: return "CarbonaceousChunk";
+    case ItemKind::IceChunk:          return "IceChunk";
+    case ItemKind::ExoticChunk:       return "ExoticChunk";
+    case ItemKind::IronOre:           return "IronOre";
+    case ItemKind::NickelOre:         return "NickelOre";
+    case ItemKind::CopperOre:         return "CopperOre";
+    case ItemKind::Silica:            return "Silica";
+    case ItemKind::Carbon:            return "Carbon";
+    case ItemKind::WaterIce:          return "WaterIce";
+    case ItemKind::IridiumOre:        return "IridiumOre";
+    case ItemKind::IronPlate:         return "IronPlate";
+    case ItemKind::CopperPlate:       return "CopperPlate";
+    case ItemKind::NickelPlate:       return "NickelPlate";
+    case ItemKind::Glass:             return "Glass";
+    case ItemKind::Steel:             return "Steel";
+    case ItemKind::Silicon:           return "Silicon";
+    case ItemKind::IridiumPlate:      return "IridiumPlate";
+    case ItemKind::Plastic:           return "Plastic";
+    case ItemKind::Battery:           return "Battery";
+    case ItemKind::PropellantCell:    return "PropellantCell";
+    case ItemKind::Gear:              return "Gear";
+    case ItemKind::CopperWire:        return "CopperWire";
+    case ItemKind::Circuit:           return "Circuit";
+    case ItemKind::ServoMotor:        return "ServoMotor";
+    case ItemKind::StructuralFrame:   return "StructuralFrame";
+    case ItemKind::PhotovoltaicCell:  return "PhotovoltaicCell";
+    case ItemKind::AdvancedCircuit:   return "AdvancedCircuit";
+    case ItemKind::Processor:         return "Processor";
+    case ItemKind::Count:             break;
+    }
+    return "?";
+}
+
 ItemCategory item_category(ItemKind kind) {
     const int k = static_cast<int>(kind);
     if (is_placeable(kind))
@@ -81,6 +149,16 @@ ItemCategory item_category(ItemKind kind) {
 }
 
 const char* fluid_name(FluidKind kind) {
+    switch (kind) {
+    case FluidKind::Water:    return "Water";
+    case FluidKind::Hydrogen: return "Hydrogen";
+    case FluidKind::Oxygen:   return "Oxygen";
+    case FluidKind::Count:    break;
+    }
+    return "?";
+}
+
+const char* fluid_id(FluidKind kind) {
     switch (kind) {
     case FluidKind::Water:    return "Water";
     case FluidKind::Hydrogen: return "Hydrogen";
