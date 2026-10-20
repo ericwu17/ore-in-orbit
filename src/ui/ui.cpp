@@ -12,11 +12,14 @@
 #include "implot.h"  // ImPlot::ShowDemoWindow
 
 #include <algorithm>
+#include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -592,6 +595,70 @@ void BuildingDetails(const Building& b) {
         ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
 }
 
+// Whether `text` contains `part`, ignoring case.
+bool ContainsIgnoringCase(std::string_view text, std::string_view part) {
+    const auto same = [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+    };
+    return part.empty() || std::search(text.begin(), text.end(), part.begin(), part.end(), same) != text.end();
+}
+
+// Search for a combo's options: a box above them, emptied and focused as the
+// popup opens, that hides the options not containing what's typed (ignoring
+// case); once something is typed, Enter picks the first one left. Only one combo is open at a time,
+// so they all share this.
+struct ComboSearch {
+    char text[64] = {};
+    bool enter = false;  // Enter went down in the box this frame
+    int shown = 0;       // options shown so far this frame
+};
+ComboSearch g_combo_search;
+
+// Call first thing once BeginCombo() returns true, and EndComboSearch()
+// before EndCombo(). The options in between scroll under the box.
+void BeginComboSearch() {
+    ComboSearch& search = g_combo_search;
+    if (ImGui::IsWindowAppearing()) {
+        search.text[0] = '\0';
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    // Enter with nothing typed picks nothing (the first option is "None").
+    search.enter = ImGui::InputTextWithHint("##search", "Search", search.text, sizeof(search.text),
+                                            ImGuiInputTextFlags_EnterReturnsTrue) &&
+                   search.text[0] != '\0';
+    search.shown = 0;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f),
+                                        ImVec2(FLT_MAX, ImGui::GetTextLineHeightWithSpacing() * 14.0f));
+    ImGui::BeginChild("##options", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
+}
+
+// Whether the option `label` matches the search. Each one that does must
+// then be drawn with ComboSearchOption().
+bool ComboSearchShows(const char* label) {
+    if (!ContainsIgnoringCase(label, g_combo_search.text))
+        return false;
+    ++g_combo_search.shown;
+    return true;
+}
+
+// An option the search shows: true, closing the combo, when it is clicked,
+// or when it is the first one and Enter was pressed.
+bool ComboSearchOption(const char* label, bool selected) {
+    const bool picked =
+        ImGui::Selectable(label, selected) || (g_combo_search.enter && g_combo_search.shown == 1);
+    // The options' child window isn't the popup, so Selectable won't close it.
+    if (picked)
+        ImGui::CloseCurrentPopup();
+    return picked;
+}
+
+void EndComboSearch() {
+    if (g_combo_search.shown == 0)
+        ImGui::TextColored(theme::kInkDim, "No matches");
+    ImGui::EndChild();
+}
+
 // The inspected building (clicked on the grid): its details, and for a
 // machine, the recipe picker; for a sorter, the filter picker.
 void DrawInspector(Ship& ship) {
@@ -605,13 +672,16 @@ void DrawInspector(Ship& ship) {
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("##recipe", current ? recipe_name(*current) : "Pick a recipe",
                               ImGuiComboFlags_HeightLargest)) {
-            if (ImGui::Selectable("None", current == nullptr))
+            BeginComboSearch();
+            if (ComboSearchShows("None") && ComboSearchOption("None", current == nullptr))
                 ship.set_recipe(*g_build.inspected, nullptr);
             const std::vector<const Recipe*> recipes = machine_recipes(*machine->item_kind());
             for (std::size_t i = 0; i < recipes.size(); ++i) {
                 const Recipe* r = recipes[i];
+                if (!ComboSearchShows(recipe_name(*r)))
+                    continue;
                 ImGui::PushID(static_cast<int>(i));
-                if (ImGui::Selectable(recipe_name(*r), r == current) && r != current)
+                if (ComboSearchOption(recipe_name(*r), r == current) && r != current)
                     ship.set_recipe(*g_build.inspected, r);
                 ImGui::PopID();
                 if (ImGui::BeginItemTooltip()) {
@@ -619,6 +689,7 @@ void DrawInspector(Ship& ship) {
                     ImGui::EndTooltip();
                 }
             }
+            EndComboSearch();
             ImGui::EndCombo();
         }
         ImGui::TextColored(theme::kInkDim, "Changing it returns held ingredients to the bridge.");
@@ -628,15 +699,19 @@ void DrawInspector(Ship& ship) {
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("##filter", current ? item_name(*current) : "Pick a filter",
                               ImGuiComboFlags_HeightLargest)) {
-            if (ImGui::Selectable("None", !current))
+            BeginComboSearch();
+            if (ComboSearchShows("None") && ComboSearchOption("None", !current))
                 ship.set_sort_filter(*g_build.inspected, std::nullopt);
             for (int i = 0; i < kItemKindCount; ++i) {
                 const ItemKind kind = static_cast<ItemKind>(i);
+                if (!ComboSearchShows(item_name(kind)))
+                    continue;
                 ImGui::PushID(i);
-                if (ImGui::Selectable(item_name(kind), current == kind))
+                if (ComboSearchOption(item_name(kind), current == kind))
                     ship.set_sort_filter(*g_build.inspected, kind);
                 ImGui::PopID();
             }
+            EndComboSearch();
             ImGui::EndCombo();
         }
     }
