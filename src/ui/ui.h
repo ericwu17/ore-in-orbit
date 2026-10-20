@@ -48,6 +48,13 @@ void DrawCredits(Screen& screen);
 // main.cpp doesn't step the simulation then.
 void DrawPlaying(Screen& screen, World& world, bool& paused);
 
-// The ImGui / ImPlot demo windows, toggled with F1 / F2 on any screen. Kept
-// handy as a widget reference while developing.
-void DrawDevWindows();
+// What the debug menu asks of the frame loop, which steps the simulation.
+struct DebugControls {
+    bool sim_paused = false;  // don't step the simulation in real time
+    int ticks_to_step = 0;    // step this many ticks next frame, paused or not
+};
+
+// The developer windows, on any screen: F1 toggles the debug menu (shown
+// while playing: pause and single-step the simulation, give yourself items,
+// and the ImGui demo window), F2 the ImPlot demo window.
+void DrawDevWindows(Screen screen, World& world, DebugControls& debug);

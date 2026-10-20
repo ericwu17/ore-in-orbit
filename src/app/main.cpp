@@ -211,6 +211,7 @@ int main(int, char**)
     // one.
     Screen screen = Screen::MainMenu;
     bool paused = false;  // the pause menu is open over the game
+    DebugControls debug;  // the debug menu's (F1) own pause and single-stepping
     Session session;
     std::string save_list_message;  // why the last new game / load failed
     float tick_accumulator = 0.0f;
@@ -237,17 +238,21 @@ int main(int, char**)
         ImGui::NewFrame();
 
         // 2. Advance the simulation (fixed timestep, see step_world), and
-        //    autosave now and then.
+        //    autosave now and then. The debug menu can hold it still and
+        //    step it a tick at a time instead.
         if (screen == Screen::Playing && !paused)
         {
-            step_world(session.world, io.DeltaTime, tick_accumulator);
+            if (!debug.sim_paused)
+                step_world(session.world, io.DeltaTime, tick_accumulator);
+            for (; debug.ticks_to_step > 0; --debug.ticks_to_step)
+                session.world.advance_tick();
             session.unsaved_seconds += io.DeltaTime;
             if (session.unsaved_seconds >= kAutosaveSeconds)
                 save_session(session);
         }
 
-        // 3. Build this frame's UI: the current screen, then the demo windows
-        //    on top.
+        // 3. Build this frame's UI: the current screen, then the developer
+        //    windows on top.
         const Screen previous_screen = screen;
         switch (screen)
         {
@@ -268,9 +273,12 @@ int main(int, char**)
         case Screen::Playing:  DrawPlaying(screen, session.world, paused); break;
         case Screen::Credits:  DrawCredits(screen); break;
         }
-        DrawDevWindows();
+        DrawDevWindows(screen, session.world, debug);
         if (previous_screen == Screen::Playing && screen != Screen::Playing)
+        {
             save_session(session);
+            debug = {};  // the next game starts running
+        }
 
         // 4. Rendering
         ImGui::Render();

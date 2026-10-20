@@ -1,6 +1,6 @@
 // ui.cpp — the screens: main menu, save list, credits and the game screen
 // (the ship build grid, its build palette and the crafting panel), plus the
-// developer demo windows.
+// debug menu and the ImPlot demo window.
 #include "ui/ui.h"
 #include "ui/sprites.h"
 #include "ui/ui_theme.h"
@@ -1062,6 +1062,35 @@ void EndComboSearch() {
     ImGui::EndChild();
 }
 
+// Every item as a search option, by category, each under a heading; the
+// one picked, if any.
+std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current) {
+    std::optional<ItemKind> picked;
+    for (const ItemCategory category : {ItemCategory::Placeable, ItemCategory::AsteroidChunk,
+                                        ItemCategory::RawResource, ItemCategory::Material,
+                                        ItemCategory::Component}) {
+        bool any = false;
+        for (int i = 0; i < kItemKindCount && !any; ++i) {
+            const ItemKind kind = static_cast<ItemKind>(i);
+            any = item_category(kind) == category && ComboSearchMatches(item_name(kind));
+        }
+        if (!any)
+            continue;
+        ComboSearchHeading(CategoryName(category));
+        for (int i = 0; i < kItemKindCount; ++i) {
+            const ItemKind kind = static_cast<ItemKind>(i);
+            if (item_category(kind) != category || !ComboSearchShows(item_name(kind)))
+                continue;
+            ImGui::PushID(i);
+            if (ComboSearchOption(ItemIcon(kind), current == kind))
+                picked = kind;
+            ImGui::SetItemTooltip("%s", item_name(kind));
+            ImGui::PopID();
+        }
+    }
+    return picked;
+}
+
 // The inspected building (clicked on the grid): its details, and for a
 // machine, the recipe picker; for a sorter, the filter picker.
 void DrawInspector(Ship& ship) {
@@ -1108,29 +1137,8 @@ void DrawInspector(Ship& ship) {
                     ship.set_sort_filter(*g_build.inspected, std::nullopt);
                 ImGui::SetItemTooltip("None");
             }
-            // The items by category, each under a heading.
-            for (const ItemCategory category : {ItemCategory::Placeable, ItemCategory::AsteroidChunk,
-                                                ItemCategory::RawResource, ItemCategory::Material,
-                                                ItemCategory::Component}) {
-                bool any = false;
-                for (int i = 0; i < kItemKindCount && !any; ++i) {
-                    const ItemKind kind = static_cast<ItemKind>(i);
-                    any = item_category(kind) == category && ComboSearchMatches(item_name(kind));
-                }
-                if (!any)
-                    continue;
-                ComboSearchHeading(CategoryName(category));
-                for (int i = 0; i < kItemKindCount; ++i) {
-                    const ItemKind kind = static_cast<ItemKind>(i);
-                    if (item_category(kind) != category || !ComboSearchShows(item_name(kind)))
-                        continue;
-                    ImGui::PushID(i);
-                    if (ComboSearchOption(ItemIcon(kind), current == kind))
-                        ship.set_sort_filter(*g_build.inspected, kind);
-                    ImGui::SetItemTooltip("%s", item_name(kind));
-                    ImGui::PopID();
-                }
-            }
+            if (const std::optional<ItemKind> picked = ComboSearchItemOptions(current))
+                ship.set_sort_filter(*g_build.inspected, *picked);
             EndComboSearch();
             ImGui::EndCombo();
         }
@@ -1765,15 +1773,116 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
     ImGui::End();
 }
 
-void DrawDevWindows() {
-    static bool show_imgui_demo = false;
+namespace {
+
+// The debug menu's item cheat: what to give, and how many.
+struct DebugGiveState {
+    ItemKind kind = ItemKind::Hull;
+    int count = 100;
+    char search[64] = {};
+};
+DebugGiveState g_debug_give;
+
+// The debug menu, while a game is on: pause and single-step the simulation,
+// and give the bridge any items. It is a developer tool, so it is drawn in
+// stock Dear ImGui (dark colours, default sizes), not the game's theme.
+void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
+    // Swap the stock style in for this window (and the popups it opens),
+    // keeping the theme's font size and DPI scale so the text stays legible.
+    ImGuiStyle& style = ImGui::GetStyle();
+    const ImGuiStyle themed = style;
+    style = ImGuiStyle();
+    ImGui::StyleColorsDark(&style);
+    style.ScaleAllSizes(themed.FontScaleDpi);
+    style.FontSizeBase = themed.FontSizeBase;
+    style.FontScaleDpi = themed.FontScaleDpi;
+
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 14.0f, 0.0f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Debug", open)) {
+        ImGui::SeparatorText("Simulation");
+        const Tick tick = world.get_tick();
+        ImGui::Text("Tick %llu (%.1f s)", static_cast<unsigned long long>(tick),
+                    static_cast<double>(tick) / kTicksPerSecond);
+        if (ImGui::Button(debug.sim_paused ? "Resume" : "Pause", ImVec2(fh * 4.0f, 0.0f)))
+            debug.sim_paused = !debug.sim_paused;
+        ImGui::SameLine();
+        // Held down, the step buttons repeat.
+        ImGui::BeginDisabled(!debug.sim_paused);
+        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+        if (ImGui::Button("Step"))
+            debug.ticks_to_step += 1;
+        ImGui::SameLine();
+        if (ImGui::Button("Step 1 s"))
+            debug.ticks_to_step += static_cast<int>(kTicksPerSecond);
+        ImGui::PopItemFlag();
+        ImGui::EndDisabled();
+        if (debug.sim_paused)
+            ImGui::TextDisabled("Simulation paused");
+
+        ImGui::SeparatorText("Give items");
+        DebugGiveState& give = g_debug_give;
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::BeginCombo("##give_item", item_name(give.kind), ImGuiComboFlags_HeightLarge)) {
+            // A filter box, emptied and focused as it opens; Enter picks the
+            // first item left.
+            if (ImGui::IsWindowAppearing()) {
+                give.search[0] = '\0';
+                ImGui::SetKeyboardFocusHere();
+            }
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            const bool enter = ImGui::InputTextWithHint("##search", "Search", give.search, sizeof(give.search),
+                                                        ImGuiInputTextFlags_EnterReturnsTrue);
+            bool first = true;
+            for (int i = 0; i < kItemKindCount; ++i) {
+                const ItemKind kind = static_cast<ItemKind>(i);
+                if (!ContainsIgnoringCase(item_name(kind), give.search))
+                    continue;
+                ImGui::PushID(i);
+                if (ImGui::Selectable(item_name(kind), kind == give.kind) || (enter && first)) {
+                    give.kind = kind;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+                first = false;
+            }
+            if (first)
+                ImGui::TextDisabled("No matches");
+            ImGui::EndCombo();
+        }
+        ImGui::SetNextItemWidth(fh * 6.0f);
+        if (ImGui::InputInt("Count", &give.count, 1, 100))
+            give.count = std::max(give.count, 1);
+        Inventory& inventory = world.get_ship().inventory();
+        if (ImGui::Button("Give"))
+            inventory.add(give.kind, give.count);
+        ImGui::SameLine();
+        if (ImGui::Button("Give every item"))
+            for (int i = 0; i < kItemKindCount; ++i)
+                inventory.add(static_cast<ItemKind>(i), give.count);
+        ImGui::TextDisabled("In the bridge: %d", inventory.count(give.kind));
+
+        ImGui::SeparatorText("Widgets");
+        static bool show_imgui_demo = false;
+        ImGui::Checkbox("ImGui demo window", &show_imgui_demo);
+        if (show_imgui_demo)
+            ImGui::ShowDemoWindow(&show_imgui_demo);
+    }
+    ImGui::End();
+    style = themed;
+}
+
+}  // namespace
+
+void DrawDevWindows(Screen screen, World& world, DebugControls& debug) {
+    static bool show_debug = false;
     static bool show_implot_demo = false;
     if (ShortcutPressed(ImGuiKey_F1))
-        show_imgui_demo = !show_imgui_demo;
+        show_debug = !show_debug;
     if (ShortcutPressed(ImGuiKey_F2))
         show_implot_demo = !show_implot_demo;
-    if (show_imgui_demo)
-        ImGui::ShowDemoWindow(&show_imgui_demo);
+    if (show_debug && screen == Screen::Playing)
+        DrawDebugWindow(world, debug, &show_debug);
     if (show_implot_demo)
         ImPlot::ShowDemoWindow(&show_implot_demo);
 }
