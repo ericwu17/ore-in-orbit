@@ -4,18 +4,16 @@
 //
 //   Building (abstract)
 //   ├── Bridge       the ship's command tile; owns the inventory, hand-crafts
-//   ├── Collector    gathers from space: asteroid collector, tractor array,
-//   │                hydrogen collector
+//   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
 //   │                yet)
 //   ├── Sorter       routes items by kind (filter and reverse sorters)
 //   ├── Junction     lets two belt lines cross
 //   ├── Router       spreads items out to its neighbors
 //   ├── CargoHold    item storage
-//   ├── FluidPart    pipe, pump, fluid tank
-//   ├── Machine      runs recipes: crusher, furnaces, ice melter, electrolyzer,
-//   │                chemical plant, fabricators
-//   ├── PowerPlant   solar panel / array, fuel-cell generator, battery bank
+//   ├── Machine      runs recipes: crusher, furnaces, chemical plant,
+//   │                fabricators
+//   ├── PowerPlant   solar panel / array, battery bank
 //   └── ShipSystem   survey scanner, ion thruster
 //
 // One class per family, not per building: each building's footprint and
@@ -28,7 +26,7 @@
 // belts (or into the buildings) next to them. A building takes items in
 // through accepts() / receive() and offers what it makes from its
 // output_buffer(); the Ship moves them between neighbors each tick (see
-// Ship::tick). Pipes will do the same for fluids; they don't carry any yet.
+// Ship::tick).
 #pragma once
 
 #include "sim/game_types.h"
@@ -65,12 +63,10 @@ public:
 // (1x1 for hull). Rotatable buildings that aren't square turn with it: a
 // 2x1 one facing north or south would be 1x2 facing east or west.
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
-// Whether the player picks a direction when placing it (belts, pumps).
+// Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
 // The large late-game buildings that need reinforced hull under them.
 bool needs_reinforced_hull(ItemKind kind);
-// Whether pipes connect to it.
-bool handles_fluid(ItemKind kind);
 
 class Building {
 private:
@@ -156,17 +152,14 @@ public:
 // How a collector gathers: one catch every `interval` ticks into its
 // buffer, which holds up to `capacity`; it stalls while the buffer is full.
 // A catch is one asteroid chunk, picked by `chunk_weights` (indexed from
-// MetallicChunk), or `fluid_amount` units of `fluid`.
+// MetallicChunk).
 struct CollectorSpec {
     Tick interval = 0;
-    int capacity = 0;  // items, or fluid units
+    int capacity = 0;  // items
     std::array<int, kChunkKindCount> chunk_weights{};
-    std::optional<FluidKind> fluid{};
-    int fluid_amount = 0;
 };
 
-// The spec of a collector kind (asteroid collector, tractor array,
-// hydrogen collector).
+// The spec of a collector kind (asteroid collector, tractor array).
 const CollectorSpec& collector_spec(ItemKind kind);
 
 class Collector : public Building {
@@ -178,7 +171,6 @@ private:
     const CollectorSpec* spec;
     Tick progress = 0;  // ticks toward the next catch
     Inventory caught;   // chunks
-    int fluid = 0;      // units of spec->fluid
     // Smooth weighted round robin over the chunk kinds: spreads each kind's
     // share of the catches evenly, with no randomness.
     std::array<int, kChunkKindCount> chunk_turn{};
@@ -190,16 +182,15 @@ public:
     // Gathers, unless the buffer is full.
     void tick() override;
     std::vector<ItemStack> contents() const override { return caught.stacks(); }
-    Inventory* output_buffer() override { return spec->fluid ? nullptr : &caught; }
+    Inventory* output_buffer() override { return &caught; }
 
     const Inventory& items() const { return caught; }
     Inventory& items() { return caught; }
-    int fluid_amount() const { return fluid; }
-    // How much the buffer holds (items or fluid units), out of capacity().
-    int stored() const { return spec->fluid ? fluid : caught.total(); }
+    // How many items the buffer holds, out of capacity().
+    int stored() const { return caught.total(); }
     int capacity() const { return spec->capacity; }
     bool full() const { return stored() >= capacity(); }
-    // Items (or fluid units) gathered per second while not full.
+    // Items gathered per second while not full.
     double rate_per_second() const;
     // How far along the next catch is, 0 to 1.
     float catch_progress() const;
@@ -371,11 +362,6 @@ public:
     void receive(ItemKind kind) override { stored.add(kind); }
 };
 
-class FluidPart : public Building {
-public:
-    FluidPart(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
-};
-
 // A machine's buffers, in crafts of its recipe: it takes ingredients until
 // it holds kInputCrafts crafts' worth, and stops crafting while a product
 // has kOutputCrafts crafts' worth waiting to leave.
@@ -384,7 +370,7 @@ constexpr int kOutputCrafts = 4;
 
 // Runs the recipe the player picked (one of the categories it handles), at
 // its crafting speed: ingredients come in from belts and neighbors, a craft
-// starts once all of them (and its fluids) are there and there's room for
+// starts once all of them are there and there's room for
 // the products, which then wait in the output buffer to go out.
 class Machine : public Building {
 private:
@@ -395,8 +381,6 @@ private:
     const Recipe* recipe = nullptr;
     Inventory input;
     Inventory output;
-    std::array<int, kFluidKindCount> fluid_in{};
-    std::array<int, kFluidKindCount> fluid_out{};
     std::optional<Tick> work;  // while crafting: progress, in ticks at speed 1
 
     bool can_start() const;
@@ -424,8 +408,6 @@ public:
 
     const Inventory& get_input() const { return input; }
     const Inventory& get_output() const { return output; }
-    int fluid_input(FluidKind f) const { return fluid_in[static_cast<std::size_t>(f)]; }
-    int fluid_output(FluidKind f) const { return fluid_out[static_cast<std::size_t>(f)]; }
     bool crafting() const { return work.has_value(); }
     // How far along the current craft is, 0 to 1 (0 when idle).
     float craft_progress() const;

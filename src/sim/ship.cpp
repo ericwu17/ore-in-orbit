@@ -10,8 +10,8 @@ namespace {
 // production line right away: collectors feeding sorters, a crusher for each
 // chunk kind, a bank of furnaces and fabricators, with the belts, storage and
 // hull to join them up; one or two of each later building to try out; and
-// starter cargo so hand-crafting has something to work with). Fluid and
-// power buildings stay few until pipes and power work.
+// starter cargo so hand-crafting has something to work with). Power
+// buildings stay few until power works.
 constexpr ItemStack kStartInventory[] = {
     {ItemKind::Hull, 300},
     // Enough for several of the large buildings that need it.
@@ -24,24 +24,17 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::Junction, 16},
     {ItemKind::Router, 8},
     {ItemKind::CargoHold, 8},
-    {ItemKind::Pipe, 40},
-    {ItemKind::Pump, 2},
-    {ItemKind::FluidTank, 2},
     {ItemKind::AsteroidCollector, 4},
     {ItemKind::TractorArray, 1},
-    {ItemKind::HydrogenCollector, 2},
-    {ItemKind::AsteroidCrusher, 5},
+    {ItemKind::AsteroidCrusher, 4},
     {ItemKind::SolarFurnace, 8},
     {ItemKind::ArcFurnace, 2},
-    {ItemKind::IceMelter, 2},
-    {ItemKind::Electrolyzer, 1},
     {ItemKind::ChemicalPlant, 1},
     {ItemKind::FabricatorMk1, 4},
     {ItemKind::FabricatorMk2, 1},
     {ItemKind::FabricatorMk3, 1},
     {ItemKind::SolarPanel, 4},
     {ItemKind::SolarArray, 1},
-    {ItemKind::FuelCellGenerator, 1},
     {ItemKind::BatteryBank, 2},
     {ItemKind::SurveyScanner, 1},
     {ItemKind::IonThruster, 1},

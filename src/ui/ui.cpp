@@ -132,34 +132,21 @@ ImVec2 DirectionVector(Direction d) {
     return {0.0f, 0.0f};
 }
 
-// Pipes visually join up with neighbors that carry fluid.
-bool CarriesFluid(const Building* b) {
-    if (!b)
-        return false;
-    const std::optional<ItemKind> kind = b->item_kind();
-    return kind && handles_fluid(*kind);
-}
-
 // The short label on a building's tile, for the ones drawn as lettered tiles.
 const char* TileLabel(ItemKind kind) {
     switch (kind) {
     case ItemKind::AsteroidCollector: return "A";
     case ItemKind::TractorArray:      return "TA";
-    case ItemKind::HydrogenCollector: return "H";
     case ItemKind::CargoHold:         return "C";
-    case ItemKind::FluidTank:         return "FT";
     case ItemKind::AsteroidCrusher:   return "Cr";
     case ItemKind::SolarFurnace:      return "SF";
     case ItemKind::ArcFurnace:        return "AF";
-    case ItemKind::IceMelter:         return "IM";
-    case ItemKind::Electrolyzer:      return "El";
     case ItemKind::ChemicalPlant:     return "CP";
     case ItemKind::FabricatorMk1:     return "F1";
     case ItemKind::FabricatorMk2:     return "F2";
     case ItemKind::FabricatorMk3:     return "F3";
     case ItemKind::SolarPanel:        return "SP";
     case ItemKind::SolarArray:        return "SA";
-    case ItemKind::FuelCellGenerator: return "FC";
     case ItemKind::BatteryBank:       return "BB";
     case ItemKind::SurveyScanner:     return "SS";
     case ItemKind::IonThruster:       return "IT";
@@ -172,12 +159,9 @@ ImVec4 TileColor(ItemKind kind) {
     switch (kind) {
     case ItemKind::AsteroidCollector:
     case ItemKind::TractorArray:      return theme::kTileRockCollector;
-    case ItemKind::HydrogenCollector: return theme::kTileH2Collector;
-    case ItemKind::CargoHold:
-    case ItemKind::FluidTank:         return theme::kTileStorage;
+    case ItemKind::CargoHold:         return theme::kTileStorage;
     case ItemKind::SolarPanel:
     case ItemKind::SolarArray:
-    case ItemKind::FuelCellGenerator:
     case ItemKind::BatteryBank:       return theme::kTilePower;
     case ItemKind::SurveyScanner:
     case ItemKind::IonThruster:       return theme::kTileSystem;
@@ -220,9 +204,8 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 
 // Draws one building over its footprint, whose top-left cell is at `min`
 // (cells of side `cell`): its sprite, or a stand-in when it has none. `kind`
-// is nullopt for the bridge. `pos` is used to join pipes to their neighbors;
-// `alpha` fades the placement ghost.
-void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, float cell, GridSize size,
+// is nullopt for the bridge. `alpha` fades the placement ghost.
+void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
                   std::optional<ItemKind> kind, Direction facing, float alpha) {
     const float inset = cell * 0.12f;
     const ImVec2 max = FootprintMax(min, cell, size);
@@ -251,7 +234,7 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
     };
 
     const sprites::Sprite* sprite = kind ? sprites::Building(*kind) : sprites::Bridge();
-    if (sprite && kind != ItemKind::Pipe) {
+    if (sprite) {
         DrawSprite(draw, *sprite, min, max, kind && is_rotatable(*kind) ? facing : Direction::North, alpha);
         return;
     }
@@ -260,30 +243,6 @@ void DrawBuilding(ImDrawList* draw, const Ship& ship, GridPos pos, ImVec2 min, f
         return;
     }
     switch (*kind) {
-    case ItemKind::Pipe: {
-        // A hub (its sprite, when it has one) plus a bar toward each neighbor
-        // that carries fluid.
-        const ImU32 color = theme::U32(theme::kTilePipe, alpha);
-        const float half = cell * 0.14f;
-        if (!sprite)
-            draw->AddRectFilled(ImVec2(c.x - half, c.y - half), ImVec2(c.x + half, c.y + half), color);
-        for (const Direction dir : {Direction::North, Direction::East, Direction::South, Direction::West}) {
-            const ImVec2 v = DirectionVector(dir);
-            const GridPos n{pos.x + static_cast<int>(v.x), pos.y + static_cast<int>(v.y)};
-            if (!CarriesFluid(ship.building_at(n)))
-                continue;
-            const ImVec2 edge(c.x + v.x * cell * 0.5f, c.y + v.y * cell * 0.5f);
-            draw->AddRectFilled(ImVec2(std::min(c.x, edge.x) - half, std::min(c.y, edge.y) - half),
-                                ImVec2(std::max(c.x, edge.x) + half, std::max(c.y, edge.y) + half), color);
-        }
-        if (sprite)
-            DrawSprite(draw, *sprite, min, max, Direction::North, alpha);
-        break;
-    }
-    case ItemKind::Pump:
-        draw->AddRectFilled(a, b, theme::U32(theme::kTilePipe, alpha), rounding);
-        DrawArrow(draw, c, d, cell * 0.28f, glyph);
-        break;
     case ItemKind::TransportBelt:
         conveyor(theme::kTileBelt);
         break;
@@ -361,8 +320,6 @@ ImVec4 ItemColor(ItemKind kind) {
     case ItemKind::Silicon:         return theme::kItemSilica;
     case ItemKind::CarbonaceousChunk:
     case ItemKind::Carbon:          return theme::kItemCarbon;
-    case ItemKind::IceChunk:
-    case ItemKind::WaterIce:        return theme::kItemIce;
     case ItemKind::ExoticChunk:
     case ItemKind::IridiumOre:
     case ItemKind::IridiumPlate:    return theme::kItemExotic;
@@ -449,32 +406,23 @@ void DrawSorterFilter(ImDrawList* draw, const Sorter& sorter, ImVec2 min, float 
 // Icons in the panels
 // ---------------------------------------------------------------------------
 
-// What an icon in a panel shows: an item, a fluid, a building as built, or
+// What an icon in a panel shows: an item, a building as built, or
 // nothing ("None" in a picker).
 struct Icon {
     enum class Type {
         None,
         Item,
-        Fluid,
         Building,
         Bridge,
     };
     Type type = Type::None;
     ItemKind item = ItemKind::Hull;
-    FluidKind fluid = FluidKind::Water;
 };
 
 Icon ItemIcon(ItemKind kind) {
     Icon icon;
     icon.type = Icon::Type::Item;
     icon.item = kind;
-    return icon;
-}
-
-Icon FluidIcon(FluidKind kind) {
-    Icon icon;
-    icon.type = Icon::Type::Fluid;
-    icon.fluid = kind;
     return icon;
 }
 
@@ -490,18 +438,14 @@ Icon BuildingIcon(const Building& b) {
 }
 
 // What a recipe is shown as: what it makes or, for the recipes named after
-// what they do ("Crush metallic chunk", "Split water"), what goes in.
+// what they do ("Crush metallic chunk"), what goes in.
 Icon RecipeIcon(const Recipe& r) {
     if (!r.name && !r.outputs.empty())
         return ItemIcon(r.outputs.front().kind);
     if (!r.inputs.empty())
         return ItemIcon(r.inputs.front().kind);
-    if (!r.fluid_inputs.empty())
-        return FluidIcon(r.fluid_inputs.front().kind);
     if (!r.outputs.empty())
         return ItemIcon(r.outputs.front().kind);
-    if (!r.fluid_outputs.empty())
-        return FluidIcon(r.fluid_outputs.front().kind);
     return {};
 }
 
@@ -510,7 +454,6 @@ const char* IconName(const Icon& icon) {
     case Icon::Type::None:     return "None";
     case Icon::Type::Item:
     case Icon::Type::Building: return item_name(icon.item);
-    case Icon::Type::Fluid:    return fluid_name(icon.fluid);
     case Icon::Type::Bridge:   return "Bridge";
     }
     return "?";
@@ -555,12 +498,6 @@ void DrawIcon(ImDrawList* draw, const Icon& icon, ImVec2 min, ImVec2 max, float 
             DrawSprite(draw, *s, min, max, Direction::North, alpha);
         else
             DrawItem(draw, c, r * 0.6f, icon.item);
-        return;
-    case Icon::Type::Fluid:
-        if (const sprites::Sprite* s = sprites::Fluid(icon.fluid))
-            DrawSprite(draw, *s, min, max, Direction::North, alpha);
-        else
-            draw->AddCircleFilled(c, r * 0.6f, theme::U32(theme::kItemIce, alpha));
         return;
     case Icon::Type::Building:
         if (const sprites::Sprite* s = sprites::Building(icon.item))
@@ -672,7 +609,7 @@ std::string Fraction(int have, int need) {
     return std::to_string(have) + " / " + std::to_string(need);
 }
 
-// One line about an amount of an item or fluid: its icon, then `text` ("3",
+// One line about an amount of an item: its icon, then `text` ("3",
 // "2 / 4") and `suffix`, in `color`. Hovering the icon shows its name;
 // `named` writes the name out after the text too, for tooltips, where
 // nothing can be hovered.
@@ -796,13 +733,9 @@ void RecipeDetails(const Recipe& recipe, const Inventory* inv) {
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, true);
         }
     }
-    for (const FluidStack& s : recipe.fluid_inputs)
-        AmountLine(FluidIcon(s.kind), std::to_string(s.amount), theme::kInk, true);
     ImGui::TextColored(theme::kInkDim, "Makes");
     for (const ItemStack& s : recipe.outputs)
         AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, true);
-    for (const FluidStack& s : recipe.fluid_outputs)
-        AmountLine(FluidIcon(s.kind), std::to_string(s.amount), theme::kGood, true);
 }
 
 // A recipe's tooltip, over the item just drawn: its name and details.
@@ -880,20 +813,12 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                 AmountLine(ItemIcon(s.kind), Fraction(have, s.count), have >= s.count ? theme::kInk : theme::kInkDim,
                            in_tooltip);
             }
-            for (const FluidStack& f : recipe->fluid_inputs)
-                AmountLine(FluidIcon(f.kind), Fraction(machine->fluid_input(f.kind), f.amount), theme::kInkDim,
-                           in_tooltip, "  (no pipe flow yet)");
             ImGui::TextColored(theme::kInkDim, "Waiting to go out");
             bool any = false;
             for (const ItemStack& s : machine->get_output().stacks()) {
                 AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, in_tooltip);
                 any = true;
             }
-            for (const FluidStack& f : recipe->fluid_outputs)
-                if (const int amount = machine->fluid_output(f.kind); amount > 0) {
-                    AmountLine(FluidIcon(f.kind), std::to_string(amount), theme::kGood, in_tooltip);
-                    any = true;
-                }
             if (!any)
                 ImGui::TextColored(theme::kInkDim, "  -");
         }
@@ -901,12 +826,8 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         const CollectorSpec& spec = collector->get_spec();
         const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
-        if (spec.fluid)
-            ImGui::TextColored(theme::kInkDim, "%d %s every %.1f s  (%.0f / s)", spec.fluid_amount,
-                               fluid_name(*spec.fluid), seconds, collector->rate_per_second());
-        else
-            ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
-                               collector->rate_per_second() * 60.0);
+        ImGui::TextColored(theme::kInkDim, "1 chunk every %.1f s  (%.0f / min)", seconds,
+                           collector->rate_per_second() * 60.0);
         const bool full = collector->full();
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
         ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
@@ -1403,7 +1324,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         for (int x = std::max(0, lo.x - (kMaxFootprint - 1)); x <= hi.x; ++x)
             if (const Building* b = ship.building_anchored_at({x, y})) {
                 const ImVec2 min = CellMin(origin, cell, {x, y});
-                DrawBuilding(draw, ship, {x, y}, min, cell, b->footprint(), b->item_kind(), b->facing(), 1.0f);
+                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), 1.0f);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 if (const auto* collector = dynamic_cast<const Collector*>(b))
                     DrawBufferGauge(draw, min, max, cell,
@@ -1444,7 +1365,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                     DrawHull(draw, *selected, min, max, cell, 0.6f, theme::U32(theme::kTileHull, 0.6f),
                              theme::U32(theme::kTileReinforcedHull, 0.6f));
                 else
-                    DrawBuilding(draw, ship, *hover_cell, min, cell, size, *selected, g_build.facing, 0.45f);
+                    DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f);
             }
             draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
             draw->PopClipRect();

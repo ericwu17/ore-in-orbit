@@ -198,7 +198,7 @@ int main(int, char**)
 
     // Setup the font, Dear ImGui / ImPlot styles and DPI scaling (ui_theme.h)
     ui::theme::ApplyTheme(main_scale);
-    // The item, building and fluid sprites (ui/sprites.h)
+    // The item and building sprites (ui/sprites.h)
     ui::sprites::Load();
 
     // Setup Platform/Renderer backends

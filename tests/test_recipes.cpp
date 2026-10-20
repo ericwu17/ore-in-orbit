@@ -19,8 +19,6 @@ ItemKind item(int i) { return static_cast<ItemKind>(i); }
 void test_names_and_categories() {
     for (int i = 0; i < kItemKindCount; ++i)
         assert(std::strcmp(item_name(item(i)), "?") != 0);
-    for (int i = 0; i < kFluidKindCount; ++i)
-        assert(std::strcmp(fluid_name(static_cast<FluidKind>(i)), "?") != 0);
     for (int i = 0; i < kCraftCategoryCount; ++i)
         assert(std::strcmp(craft_category_name(static_cast<CraftCategory>(i)), "?") != 0);
     for (const Recipe& r : all_recipes())
@@ -34,14 +32,12 @@ void test_names_and_categories() {
     assert(item_category(ItemKind::Processor) == ItemCategory::Component);
 }
 
-// Every item and fluid can be made, starting from what comes from space
-// (asteroid chunks and hydrogen).
+// Every item can be made, starting from what comes from space (asteroid
+// chunks).
 void test_everything_reachable() {
     std::array<bool, kItemKindCount> have{};
-    std::array<bool, kFluidKindCount> have_fluid{};
     for (int i = 0; i < kItemKindCount; ++i)
         have[static_cast<std::size_t>(i)] = item_category(item(i)) == ItemCategory::AsteroidChunk;
-    have_fluid[static_cast<std::size_t>(FluidKind::Hydrogen)] = true;
 
     for (bool changed = true; changed;) {
         changed = false;
@@ -49,16 +45,11 @@ void test_everything_reachable() {
             bool ready = true;
             for (const ItemStack& s : r.inputs)
                 ready = ready && have[static_cast<std::size_t>(s.kind)];
-            for (const FluidStack& s : r.fluid_inputs)
-                ready = ready && have_fluid[static_cast<std::size_t>(s.kind)];
             if (!ready)
                 continue;
             for (const ItemStack& s : r.outputs)
                 if (!have[static_cast<std::size_t>(s.kind)])
                     have[static_cast<std::size_t>(s.kind)] = changed = true;
-            for (const FluidStack& s : r.fluid_outputs)
-                if (!have_fluid[static_cast<std::size_t>(s.kind)])
-                    have_fluid[static_cast<std::size_t>(s.kind)] = changed = true;
         }
     }
     for (int i = 0; i < kItemKindCount; ++i) {
@@ -66,8 +57,6 @@ void test_everything_reachable() {
             std::printf("unreachable: %s\n", item_name(item(i)));
         assert(have[static_cast<std::size_t>(i)]);
     }
-    for (const bool f : have_fluid)
-        assert(f);
 }
 
 // Every placeable item has a cost (an Assembly recipe), and every recipe
@@ -104,7 +93,7 @@ bool all_bootstrappable(const Recipe& r, int depth) {
     for (const ItemStack& s : r.inputs)
         if (!bootstrappable(s.kind, depth + 1))
             return false;
-    return r.fluid_inputs.empty();
+    return true;
 }
 
 // Obtainable with only a crusher, a solar furnace and hand-crafting.
@@ -152,7 +141,7 @@ void test_machines() {
     assert(arc_m->can_run(silicon) && arc_m->can_run(iron));
     assert(!solar_m->can_run(silicon) && solar_m->can_run(iron));
     assert(arc_m->crafting_speed() == 2 && solar_m->crafting_speed() == 1);
-    assert(dynamic_cast<const Machine*>(make_building(ItemKind::Pipe, Direction::North).get()) == nullptr);
+    assert(dynamic_cast<const Machine*>(make_building(ItemKind::Junction, Direction::North).get()) == nullptr);
 
     // Every placeable building kind can be made.
     for (int i = 0; i < kItemKindCount; ++i) {

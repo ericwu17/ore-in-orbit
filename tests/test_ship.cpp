@@ -47,26 +47,26 @@ void test_new_game() {
 
 void test_needs_hull() {
     Ship ship = Ship::new_game();
-    const int pipes = ship.inventory().count(ItemKind::Pipe);
+    const int junctions = ship.inventory().count(ItemKind::Junction);
     const int hull = ship.inventory().count(ItemKind::Hull);
 
-    assert(ship.place(ItemKind::Pipe, kOffHull) == BuildResult::NoHull);
-    assert(ship.inventory().count(ItemKind::Pipe) == pipes);
+    assert(ship.place(ItemKind::Junction, kOffHull) == BuildResult::NoHull);
+    assert(ship.inventory().count(ItemKind::Junction) == junctions);
 
     assert(ship.place(ItemKind::Hull, kOffHull) == BuildResult::Ok);
     assert(ship.has_hull(kOffHull));
     assert(ship.inventory().count(ItemKind::Hull) == hull - 1);
 
-    assert(ship.place(ItemKind::Pipe, kOffHull) == BuildResult::Ok);
-    assert(ship.building_at(kOffHull)->item_kind() == ItemKind::Pipe);
-    assert(ship.inventory().count(ItemKind::Pipe) == pipes - 1);
+    assert(ship.place(ItemKind::Junction, kOffHull) == BuildResult::Ok);
+    assert(ship.building_at(kOffHull)->item_kind() == ItemKind::Junction);
+    assert(ship.inventory().count(ItemKind::Junction) == junctions - 1);
 }
 
 void test_rejections() {
     Ship ship = Ship::new_game();
     assert(ship.place(ItemKind::TransportBelt, kCenter) == BuildResult::Occupied);
     assert(ship.place(ItemKind::TransportBelt, kOnHull) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Pipe, kOnHull) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::Junction, kOnHull) == BuildResult::Occupied);
     assert(ship.place(ItemKind::Hull, kOnHull) == BuildResult::HullAlreadyThere);
     assert(ship.place(ItemKind::Hull, {-1, 0}) == BuildResult::OutOfBounds);
     assert(ship.place(ItemKind::Hull, {0, kShipGridSize}) == BuildResult::OutOfBounds);
@@ -86,10 +86,10 @@ void test_empty_inventory() {
 
 void test_remove_refunds() {
     Ship ship = Ship::new_game();
-    const int collectors = ship.inventory().count(ItemKind::HydrogenCollector);
+    const int collectors = ship.inventory().count(ItemKind::AsteroidCollector);
     const int hull = ship.inventory().count(ItemKind::Hull);
 
-    assert(ship.place(ItemKind::HydrogenCollector, kOnHull) == BuildResult::Ok);
+    assert(ship.place(ItemKind::AsteroidCollector, kOnHull) == BuildResult::Ok);
     // Hull can't come out from under a building.
     assert(ship.remove_hull(kOnHull) == BuildResult::HullNotEmpty);
     assert(ship.has_hull(kOnHull));
@@ -97,7 +97,7 @@ void test_remove_refunds() {
     assert(ship.remove_building(kOnHull) == BuildResult::Ok);
     assert(ship.building_at(kOnHull) == nullptr);
     assert(ship.has_hull(kOnHull));
-    assert(ship.inventory().count(ItemKind::HydrogenCollector) == collectors);
+    assert(ship.inventory().count(ItemKind::AsteroidCollector) == collectors);
     assert(ship.inventory().count(ItemKind::Hull) == hull);
     assert(ship.remove_building(kOnHull) == BuildResult::NothingThere);
     // ...then the bare hull.
@@ -128,7 +128,7 @@ void test_belt_direction() {
 void test_footprints() {
     Ship ship = Ship::new_game();
     assert(footprint_of(ItemKind::AsteroidCollector) == (GridSize{2, 2}));
-    assert(footprint_of(ItemKind::Pipe) == (GridSize{1, 1}));
+    assert(footprint_of(ItemKind::Junction) == (GridSize{1, 1}));
 
     // On the starting hull's last column, a collector would stick out past it.
     const GridPos edge{kHullEnd, kCenter.y};
@@ -151,7 +151,7 @@ void test_footprints() {
     assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == collector);
     assert(ship.building_at({kOnHull.x + 1, kOnHull.y + 1}) == collector);
     assert(ship.building_at({kOnHull.x, kOnHull.y - 1}) == nullptr);
-    assert(ship.place(ItemKind::Pipe, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::Junction, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Occupied);
 
     // Removing from any covered cell removes the whole thing, once.
     assert(ship.remove_building({kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
@@ -162,20 +162,19 @@ void test_footprints() {
             assert(ship.building_at({kOnHull.x + x, kOnHull.y + y}) == nullptr);
             assert(ship.has_hull({kOnHull.x + x, kOnHull.y + y}));
         }
-    assert(ship.place(ItemKind::Pipe, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Junction, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
 }
 
 void test_hierarchy() {
-    for (const ItemKind kind :
-         {ItemKind::HydrogenCollector, ItemKind::AsteroidCollector, ItemKind::TractorArray}) {
+    for (const ItemKind kind : {ItemKind::AsteroidCollector, ItemKind::TractorArray}) {
         const auto b = make_building(kind, Direction::North);
         assert(dynamic_cast<const Collector*>(b.get()) != nullptr);
         assert(b->item_kind() == kind);
         assert(b->footprint() == footprint_of(kind));
     }
-    const auto pipe = make_building(ItemKind::Pipe, Direction::East);
-    assert(dynamic_cast<const Collector*>(pipe.get()) == nullptr);
-    assert(!pipe->rotatable());
+    const auto junction = make_building(ItemKind::Junction, Direction::East);
+    assert(dynamic_cast<const Collector*>(junction.get()) == nullptr);
+    assert(!junction->rotatable());
 }
 
 void test_rotated_footprint() {
@@ -221,7 +220,7 @@ void test_reinforced_hull() {
 
     // Smaller buildings stand on it too, and it refunds as reinforced.
     assert(ship.remove_building(corner) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Pipe, corner) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Junction, corner) == BuildResult::Ok);
     assert(ship.remove_building(corner) == BuildResult::Ok);
     const int reinforced = ship.inventory().count(ItemKind::ReinforcedHull);
     assert(ship.remove_hull(corner) == BuildResult::Ok);

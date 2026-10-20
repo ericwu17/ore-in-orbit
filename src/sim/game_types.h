@@ -1,5 +1,5 @@
 // game_types.h — pure simulation layer: shared primitive types and constants
-// (time, grid positions and sizes, directions, item and fluid kinds).
+// (time, grid positions and sizes, directions, item kinds).
 //
 // Simulation headers must NOT include imgui/SDL/OpenGL headers: the game rules
 // are completely independent of rendering, so the simulation can be tested or
@@ -72,7 +72,7 @@ constexpr Direction direction_to(GridPos from, GridPos to) {
 // come first: hull tiles plus one entry per building (the bridge itself is not
 // an item: it is placed once, at the start of a game). After them come the
 // asteroid chunks, the raw resources crushed out of them, and what is made
-// from those. Fluids are not items: see FluidKind.
+// from those.
 enum class ItemKind {
     // Placeable: floor.
     Hull,
@@ -86,19 +86,13 @@ enum class ItemKind {
     Junction,
     Router,
     CargoHold,
-    Pipe,
-    Pump,
-    FluidTank,
     // Placeable: collectors.
     AsteroidCollector,
     TractorArray,
-    HydrogenCollector,
     // Placeable: machines.
     AsteroidCrusher,
     SolarFurnace,
     ArcFurnace,
-    IceMelter,
-    Electrolyzer,
     ChemicalPlant,
     FabricatorMk1,
     FabricatorMk2,
@@ -106,7 +100,6 @@ enum class ItemKind {
     // Placeable: power.
     SolarPanel,
     SolarArray,
-    FuelCellGenerator,
     BatteryBank,
     // Placeable: ship systems.
     SurveyScanner,
@@ -115,7 +108,6 @@ enum class ItemKind {
     MetallicChunk,
     SilicateChunk,
     CarbonaceousChunk,
-    IceChunk,
     ExoticChunk,
     // Raw resources (what the crusher gets out of a chunk).
     IronOre,
@@ -123,7 +115,6 @@ enum class ItemKind {
     CopperOre,
     Silica,
     Carbon,
-    WaterIce,
     IridiumOre,
     // Smelted and processed materials.
     IronPlate,
@@ -172,18 +163,3 @@ const char* item_name(ItemKind kind);
 // An item's stable id: its enumerator's name ("Hull", "IronPlate", ...).
 // Saves write items by it, and sprite files are named after it.
 const char* item_id(ItemKind kind);
-
-// What pipes carry. Collectors, melters and electrolyzers make them;
-// chemical plants and generators use them up.
-enum class FluidKind {
-    Water,
-    Hydrogen,
-    Oxygen,
-    Count,  // not a kind: the number of kinds
-};
-
-constexpr int kFluidKindCount = static_cast<int>(FluidKind::Count);
-
-const char* fluid_name(FluidKind kind);
-// A fluid's stable id: its enumerator's name (sprite files are named after it).
-const char* fluid_id(FluidKind kind);

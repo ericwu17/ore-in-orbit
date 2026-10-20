@@ -37,7 +37,6 @@ struct Atlas {
     std::array<std::optional<Sprite>, kItemKindCount> items;
     std::array<std::optional<Sprite>, kItemKindCount> buildings;
     std::optional<Sprite> bridge;
-    std::array<std::optional<Sprite>, kFluidKindCount> fluids;
 };
 Atlas g_atlas;
 
@@ -139,9 +138,6 @@ void Load() {
                    footprint_of(kind));
     }
     Decode(decoded, g_atlas.bridge, "buildings/Bridge.png", {kBridgeSize, kBridgeSize});
-    for (int i = 0; i < kFluidKindCount; ++i)
-        Decode(decoded, g_atlas.fluids[static_cast<std::size_t>(i)],
-               std::string("fluids/") + fluid_id(static_cast<FluidKind>(i)) + ".png", {1, 1});
     if (decoded.empty())
         return;
 
@@ -186,11 +182,6 @@ const Sprite* Building(ItemKind kind) {
 
 const Sprite* Bridge() {
     return g_atlas.bridge ? &*g_atlas.bridge : nullptr;
-}
-
-const Sprite* Fluid(FluidKind kind) {
-    const std::optional<Sprite>& s = g_atlas.fluids[static_cast<std::size_t>(kind)];
-    return s ? &*s : nullptr;
 }
 
 }  // namespace ui::sprites

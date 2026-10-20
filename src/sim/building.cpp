@@ -65,15 +65,10 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     GridSize size{1, 1};
     switch (kind) {
     case ItemKind::CargoHold:
-    case ItemKind::FluidTank:
     case ItemKind::AsteroidCollector:
-    case ItemKind::HydrogenCollector:
     case ItemKind::AsteroidCrusher:
     case ItemKind::SolarFurnace:
-    case ItemKind::IceMelter:
-    case ItemKind::Electrolyzer:
     case ItemKind::SolarPanel:
-    case ItemKind::FuelCellGenerator:
     case ItemKind::BatteryBank:
     case ItemKind::SurveyScanner:
         size = {2, 2};
@@ -103,7 +98,6 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
-    case ItemKind::Pump:
         return true;
     default:
         return false;
@@ -124,30 +118,12 @@ bool needs_reinforced_hull(ItemKind kind) {
     }
 }
 
-bool handles_fluid(ItemKind kind) {
-    switch (kind) {
-    case ItemKind::Pipe:
-    case ItemKind::Pump:
-    case ItemKind::FluidTank:
-    case ItemKind::HydrogenCollector:
-    case ItemKind::IceMelter:
-    case ItemKind::Electrolyzer:
-    case ItemKind::ChemicalPlant:
-    case ItemKind::FuelCellGenerator:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool machine_crafts(ItemKind kind, CraftCategory category) {
     switch (kind) {
     case ItemKind::AsteroidCrusher: return category == CraftCategory::Crushing;
     case ItemKind::SolarFurnace:    return category == CraftCategory::Smelting;
     case ItemKind::ArcFurnace:
         return category == CraftCategory::Smelting || category == CraftCategory::ArcSmelting;
-    case ItemKind::IceMelter:       return category == CraftCategory::Melting;
-    case ItemKind::Electrolyzer:    return category == CraftCategory::Electrolysis;
     case ItemKind::ChemicalPlant:   return category == CraftCategory::Chemistry;
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
@@ -200,17 +176,14 @@ void Bridge::tick() {
 }
 
 const CollectorSpec& collector_spec(ItemKind kind) {
-    // Chunk weights: metallic, silicate, carbonaceous, ice, exotic.
+    // Chunk weights: metallic, silicate, carbonaceous, exotic.
     static const CollectorSpec asteroid{
-        .interval = 2 * kTicksPerSecond, .capacity = 10, .chunk_weights = {7, 5, 4, 3, 1}};
+        .interval = 2 * kTicksPerSecond, .capacity = 10, .chunk_weights = {7, 5, 4, 1}};
     static const CollectorSpec tractor{
-        .interval = kTicksPerSecond / 2, .capacity = 20, .chunk_weights = {6, 4, 4, 3, 3}};
-    static const CollectorSpec hydrogen{
-        .interval = kTicksPerSecond / 2, .capacity = 100, .fluid = FluidKind::Hydrogen, .fluid_amount = 5};
+        .interval = kTicksPerSecond / 2, .capacity = 20, .chunk_weights = {6, 4, 4, 3}};
     switch (kind) {
     case ItemKind::AsteroidCollector: return asteroid;
     case ItemKind::TractorArray:      return tractor;
-    case ItemKind::HydrogenCollector: return hydrogen;
     default:                          break;
     }
     assert(false && "collector_spec: not a collector");
@@ -226,10 +199,6 @@ void Collector::tick() {
     if (++progress < spec->interval)
         return;
     progress = 0;
-    if (spec->fluid) {
-        fluid = std::min(fluid + spec->fluid_amount, spec->capacity);
-        return;
-    }
     // Smooth weighted round robin: every kind gains its weight, the one
     // furthest ahead is caught and pays back the total.
     int total = 0;
@@ -245,8 +214,7 @@ void Collector::tick() {
 }
 
 double Collector::rate_per_second() const {
-    const double per_catch = spec->fluid ? spec->fluid_amount : 1.0;
-    return per_catch * static_cast<double>(kTicksPerSecond) / static_cast<double>(spec->interval);
+    return static_cast<double>(kTicksPerSecond) / static_cast<double>(spec->interval);
 }
 
 float Collector::catch_progress() const {
@@ -378,7 +346,6 @@ std::vector<ItemStack> Machine::set_recipe(const Recipe* r) {
     if (work)
         refund.insert(refund.end(), recipe->inputs.begin(), recipe->inputs.end());
     input = Inventory{};
-    fluid_in = {};
     work.reset();
     recipe = r;
     return refund;
@@ -387,14 +354,8 @@ std::vector<ItemStack> Machine::set_recipe(const Recipe* r) {
 bool Machine::can_start() const {
     if (!recipe || !input.has(recipe->inputs))
         return false;
-    for (const FluidStack& f : recipe->fluid_inputs)
-        if (fluid_input(f.kind) < f.amount)
-            return false;
     for (const ItemStack& s : recipe->outputs)
         if (output.count(s.kind) + s.count > s.count * kOutputCrafts)
-            return false;
-    for (const FluidStack& f : recipe->fluid_outputs)
-        if (fluid_output(f.kind) + f.amount > f.amount * kOutputCrafts)
             return false;
     return true;
 }
@@ -406,16 +367,12 @@ void Machine::tick() {
         const bool taken = input.take(recipe->inputs);
         assert(taken);
         (void)taken;
-        for (const FluidStack& f : recipe->fluid_inputs)
-            fluid_in[static_cast<std::size_t>(f.kind)] -= f.amount;
         work = 0;
     }
     *work += static_cast<Tick>(crafting_speed());
     if (*work < recipe->ticks)
         return;
     output.add(recipe->outputs);
-    for (const FluidStack& f : recipe->fluid_outputs)
-        fluid_out[static_cast<std::size_t>(f.kind)] += f.amount;
     work.reset();
 }
 
@@ -459,7 +416,6 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     switch (kind) {
     case ItemKind::AsteroidCollector:
     case ItemKind::TractorArray:
-    case ItemKind::HydrogenCollector:
         return std::make_unique<Collector>(kind);
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
@@ -474,15 +430,9 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Router>();
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
-    case ItemKind::Pipe:
-    case ItemKind::Pump:
-    case ItemKind::FluidTank:
-        return std::make_unique<FluidPart>(kind, facing);
     case ItemKind::AsteroidCrusher:
     case ItemKind::SolarFurnace:
     case ItemKind::ArcFurnace:
-    case ItemKind::IceMelter:
-    case ItemKind::Electrolyzer:
     case ItemKind::ChemicalPlant:
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
@@ -490,7 +440,6 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Machine>(kind);
     case ItemKind::SolarPanel:
     case ItemKind::SolarArray:
-    case ItemKind::FuelCellGenerator:
     case ItemKind::BatteryBank:
         return std::make_unique<PowerPlant>(kind);
     case ItemKind::SurveyScanner:

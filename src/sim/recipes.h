@@ -4,10 +4,9 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // The production chain:
-//   asteroid chunk --Crushing--> ores, silica, carbon, water ice
+//   asteroid chunk --Crushing--> ores, silica, carbon
 //   ore, silica   --Smelting--> plates, glass, steel (ArcSmelting: silicon, iridium)
-//   water ice     --Melting--> water --Electrolysis--> hydrogen + oxygen
-//   carbon, fluids --Chemistry--> plastic, batteries, propellant
+//   carbon, plates, steel --Chemistry--> plastic, batteries, propellant
 //   plates        --Assembly--> components --Assembly--> buildings
 #pragma once
 
@@ -22,8 +21,6 @@ enum class CraftCategory {
     Crushing,      // Asteroid crusher
     Smelting,      // Solar furnace, Arc furnace
     ArcSmelting,   // Arc furnace only
-    Melting,       // Ice melter
-    Electrolysis,  // Electrolyzer
     Chemistry,     // Chemical plant
     Assembly,      // Fabricators (and the bridge, for hand-craftable recipes)
     Count,         // not a category: the number of categories
@@ -38,19 +35,12 @@ struct ItemStack {
     int count = 1;
 };
 
-struct FluidStack {
-    FluidKind kind;
-    int amount = 0;
-};
-
 struct Recipe {
     const char* name = nullptr;  // null: named after its first output (see recipe_name)
     CraftCategory category = CraftCategory::Assembly;
     Tick ticks = 0;              // crafting time at speed 1
     std::vector<ItemStack> inputs;
-    std::vector<FluidStack> fluid_inputs;
     std::vector<ItemStack> outputs;
-    std::vector<FluidStack> fluid_outputs;
     bool hand_craftable = false;  // the bridge can make it too
 };
 

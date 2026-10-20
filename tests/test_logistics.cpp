@@ -601,7 +601,7 @@ void test_machine_recipes() {
     for (const Recipe* r : machine_recipes(ItemKind::FabricatorMk1))
         assert(r->category == CraftCategory::Assembly);
     assert(machine_recipes(ItemKind::ArcFurnace).size() > machine_recipes(ItemKind::SolarFurnace).size());
-    assert(machine_recipes(ItemKind::Pipe).empty());
+    assert(machine_recipes(ItemKind::Junction).empty());
 }
 
 }  // namespace

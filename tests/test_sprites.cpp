@@ -1,5 +1,5 @@
 // test_sprites.cpp — headless checks of assets/sprites/ (see src/ui/sprites.h):
-// every item and fluid has a square icon, and every placeable and the bridge
+// every item has a square icon, and every placeable and the bridge
 // a built sprite with its footprint's shape. Catches an ItemKind added
 // without art, and a footprint changed without its sprite. Runs from the
 // repo root, like every test.
@@ -63,17 +63,11 @@ void test_building_sprites() {
     check_sprite("buildings/Bridge.png", {kBridgeSize, kBridgeSize});
 }
 
-void test_fluid_icons() {
-    for (int i = 0; i < kFluidKindCount; ++i)
-        check_sprite(std::string("fluids/") + fluid_id(static_cast<FluidKind>(i)) + ".png", {1, 1});
-}
-
 }  // namespace
 
 int main() {
     test_item_icons();
     test_building_sprites();
-    test_fluid_icons();
     if (g_failures > 0)
         std::printf("test_sprites: %d sprites missing or misshapen "
                     "(python3 tools/make_placeholder_sprites.py makes stand-ins)\n",

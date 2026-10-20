@@ -85,19 +85,6 @@ void test_chunk_mix() {
            make_collector(ItemKind::AsteroidCollector)->rate_per_second());
 }
 
-void test_hydrogen() {
-    const auto c = make_collector(ItemKind::HydrogenCollector);
-    const CollectorSpec& spec = c->get_spec();
-    assert(spec.fluid == FluidKind::Hydrogen);
-    assert(c->rate_per_second() == 10.0);
-    tick(*c, spec.interval);
-    assert(c->fluid_amount() == spec.fluid_amount);
-    assert(c->items().total() == 0);
-    tick(*c, spec.interval * 100);
-    assert(c->full() && c->fluid_amount() == c->capacity());
-    assert(c->contents().empty());  // fluid isn't refunded as items
-}
-
 // Placed on the ship, collectors run with the world; with no neighbor to
 // take its catch, removing one refunds it along with the building.
 void test_on_ship() {
@@ -122,7 +109,6 @@ void test_on_ship() {
 int main() {
     test_asteroid_rate_and_buffer();
     test_chunk_mix();
-    test_hydrogen();
     test_on_ship();
     std::puts("test_production: all passed");
     return 0;

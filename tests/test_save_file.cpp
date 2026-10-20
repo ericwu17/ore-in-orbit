@@ -50,10 +50,10 @@ const Recipe& recipe_named(const char* name) {
 }
 
 // A ship with one of everything that holds state, part way through running:
-// a collector feeding belts into a cargo hold, a hydrogen collector, a
-// filter sorter with items queued on the belt into it, two machines mid-craft
-// (one on reinforced hull), a west-facing express belt and a pipe, a
-// junction and a router holding items, and the bridge hand-crafting.
+// a collector feeding belts into a cargo hold, a solar panel, a filter sorter
+// with items queued on the belt into it, two machines mid-craft (one on
+// reinforced hull), a west-facing express belt, a junction and a router
+// holding items, and the bridge hand-crafting.
 World busy_world() {
     World world;
     Ship& ship = world.get_ship();
@@ -68,7 +68,7 @@ World busy_world() {
     for (int x = x0 + 2; x <= x0 + 4; ++x)
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::HydrogenCollector, {x0 + 8, c - 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::SolarPanel, {x0 + 8, c - 6}) == BuildResult::Ok);
 
     assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
@@ -90,7 +90,6 @@ World busy_world() {
 
     assert(ship.place(ItemKind::ExpressBelt, {x0 + 3, c + 4}, Direction::West) == BuildResult::Ok);
     assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 4, c + 4}, ItemKind::Glass));
-    assert(ship.place(ItemKind::Pipe, {x0 + 2, c + 6}) == BuildResult::Ok);
 
     // A junction into a router, which has nowhere to pass its item on: both
     // keep what they hold.
@@ -327,14 +326,12 @@ void test_machine_refused() {
             hull(save).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
     buildings(save).push_back(Json::parse(R"({
         "kind": "SolarFurnace", "x": 65, "y": 60, "facing": "North", "output_side": 0,
-        "recipe": "Iron plate", "work": 10, "input": {}, "output": {"IronPlate": 2},
-        "fluid_in": {}, "fluid_out": {}})"));
+        "recipe": "Iron plate", "work": 10, "input": {}, "output": {"IronPlate": 2}})"));
     assert(loads(save.dump()));
     auto furnace = [](Json& j) -> Json& { return buildings(j)[1]; };
     refused_after(save, "a recipe the machine can't run", [&](Json& j) { furnace(j)["recipe"] = "Gear"; });
     refused_after(save, "crafting without a recipe", [&](Json& j) { furnace(j)["recipe"] = nullptr; });
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
-    refused_after(save, "an unknown fluid", [&](Json& j) { furnace(j)["fluid_in"] = {{"Lava", 5}}; });
     refused_after(save, "no output buffer", [&](Json& j) { furnace(j).erase("output"); });
 
     // An arc furnace needs reinforced hull, on load as when placing.
@@ -344,7 +341,7 @@ void test_machine_refused() {
             hull(arc).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
     buildings(arc).push_back(Json::parse(R"({
         "kind": "ArcFurnace", "x": 65, "y": 60, "facing": "North", "output_side": 0,
-        "recipe": null, "work": null, "input": {}, "output": {}, "fluid_in": {}, "fluid_out": {}})"));
+        "recipe": null, "work": null, "input": {}, "output": {}})"));
     refused(arc.dump(), "an arc furnace on plain hull");
     for (std::size_t i = 1; i < hull(arc).size(); ++i)
         hull(arc)[i]["kind"] = "ReinforcedHull";

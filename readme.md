@@ -6,11 +6,11 @@ there is a main menu (Play, Credits); Play opens the list of saved games,
 to start a new one or carry on with one. A game is a ship built on a
 128x128 square grid, starting as a 24x24 hull patch in its middle with the
 6x6 bridge at its center. Hull tiles go down first, and every building
-(hydrogen and asteroid collectors, pipes, transport belts) needs a hull
-tile under it. Everything placed comes out of the
+(asteroid collectors, transport belts, machines) needs a hull tile under
+it. Everything placed comes out of the
 bridge's inventory, and removing it gives it back (with anything stored
-inside it). Collectors gather at a set rate into an internal buffer (asteroid
-chunks, or hydrogen) and stall when it is full. As in Mindustry there are no
+inside it). Collectors gather asteroid chunks at a set rate into an
+internal buffer and stall when it is full. As in Mindustry there are no
 inserters: buildings put their output straight onto neighboring belts (or
 into neighboring buildings that take it), and belts carry items into
 whatever they point at, the bridge included. Machines craft the recipe the
@@ -19,8 +19,7 @@ Mindustry: filter sorters route items by kind (the one picked for it goes
 straight through, the rest turn left or right), and reverse sorters the
 other way round (the one picked turns, the rest go straight); junctions let
 two belt lines cross, each item leaving by the side opposite the one it came
-in by; routers pass each item on to their other three sides in turn. Pipes
-don't carry fluid yet.
+in by; routers pass each item on to their other three sides in turn.
 
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot, and nlohmann::json (vendored in
 `third_party/nlohmann/`, for save files). Runs on macOS, Linux and Windows.
@@ -61,17 +60,14 @@ mingw32-make && ./ore-in-orbit.exe
 
 ## Sprites
 
-Every building, item and fluid is drawn from a PNG in `assets/sprites/`:
+Every building and item is drawn from a PNG in `assets/sprites/`:
 
 - `items/<ItemId>.png` — the icon of every item, buildings included
   (square), shown in the palette, cargo, crafting panels and pickers.
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
   plus `buildings/Bridge.png`. Its shape is the building's footprint (2:3
   for the 2x3 ion thruster, 1:1 for a 2x2 collector), drawn facing
-  **North**; the game turns belts and pumps to face the way they point.
-  The pipe's sprite is just its hub: the joins to its neighbors are drawn
-  by the game.
-- `fluids/<FluidId>.png` — the icon of every fluid (square).
+  **North**; the game turns belts to face the way they point.
 
 `<ItemId>` is the item's enumerator in `src/sim/game_types.h`, as saves
 write it (`IronPlate`, `AsteroidCollector`). Any resolution works as long
@@ -130,7 +126,7 @@ One directory per layer under `src/`; includes name their layer
     `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory
     holds) with each item's name and id (`items.cpp`).
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
-    `Collector` → hydrogen / asteroid, `Pipe`, `TransportBelt`),
+    `Collector`, `Conveyor`, `Machine`, ...),
     each kind's footprint (`footprint_of`, e.g. 2x2 collectors), the
     collectors' rates and buffers (`CollectorSpec`), belts (`Conveyor`),
     machines and their recipes, the `make_building` factory and
@@ -144,8 +140,8 @@ One directory per layer under `src/`; includes name their layer
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
   - `save_file.h/.cpp` — the save format, a JSON document: a header (name,
-    when, play time) and the whole `World`, with items, directions, fluids
-    and recipes written by name, and loading that checks everything (a bad
+    when, play time) and the whole `World`, with items, directions and
+    recipes written by name, and loading that checks everything (a bad
     save is refused with a reason, never trusted).
   - `save_slots.h/.cpp` — the saves folder: listing, writing (atomically,
     via a temporary file), loading, renaming, copying and deleting saves.
@@ -158,7 +154,7 @@ One directory per layer under `src/`; includes name their layer
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
   - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into
-    one atlas texture at startup and looked up by item, building or fluid.
+    one atlas texture at startup and looked up by item or building.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
   fixed-timestep loop, the game being played and when it is saved), the
   embedded app icon, and the macOS-only startup tweak.

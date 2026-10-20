@@ -11,14 +11,13 @@ readme's "Sprites" section):
     buildings/<ItemId>.png   built look of every placeable, 64 px per cell,
                              facing North
     buildings/Bridge.png     the 6x6 bridge
-    fluids/<FluidId>.png     64x64 icon for every fluid
 
 Without --force, files that already exist are left alone, so real art is
 never overwritten. The look copies the game's old procedural drawing
 (lettered tiles, arrows on belts, round lumps and square plates) and its
 colors (src/ui/ui_theme.h).
 
-The tables below must match ItemKind / FluidKind (src/sim/game_types.h) and
+The tables below must match ItemKind (src/sim/game_types.h) and
 footprint_of (src/sim/building.cpp); tests/test_sprites.cpp fails when a
 sprite is missing or has the wrong shape.
 """
@@ -47,7 +46,6 @@ NAVY_HOVER = (62, 88, 140)
 GOOD = (58, 135, 88)
 WARN = (214, 158, 46)
 WARN_TEXT = (160, 110, 18)
-TEAL = (52, 128, 140)
 PLUM = (120, 72, 110)
 HULL = (204, 189, 162)
 REINFORCED_HULL = (168, 150, 120)
@@ -58,14 +56,12 @@ ITEM_COPPER = (196, 112, 52)
 ITEM_NICKEL = (146, 160, 112)
 ITEM_SILICA = (224, 198, 140)
 ITEM_CARBON = (62, 56, 52)
-ITEM_ICE = (150, 200, 230)
 ITEM_EXOTIC = PLUM
 ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = NAVY
 
 # Placeables: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, pipe,
-# pump, tile.
+# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, tile.
 BUILDINGS = {
     "Hull":              (1, 1, "hull", HULL, ""),
     "ReinforcedHull":    (1, 1, "hull", REINFORCED_HULL, ""),
@@ -77,24 +73,17 @@ BUILDINGS = {
     "Junction":          (1, 1, "junction", INK_DIM, ""),
     "Router":            (1, 1, "router", INK_DIM, ""),
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
-    "Pipe":              (1, 1, "pipe", NAVY, ""),
-    "Pump":              (1, 1, "pump", NAVY, ""),
-    "FluidTank":         (2, 2, "tile", STORAGE, "FT"),
     "AsteroidCollector": (2, 2, "tile", PLUM, "A"),
     "TractorArray":      (3, 3, "tile", PLUM, "TA"),
-    "HydrogenCollector": (2, 2, "tile", TEAL, "H"),
     "AsteroidCrusher":   (2, 2, "tile", NAVY_HOVER, "Cr"),
     "SolarFurnace":      (2, 2, "tile", NAVY_HOVER, "SF"),
     "ArcFurnace":        (3, 3, "tile", NAVY_HOVER, "AF"),
-    "IceMelter":         (2, 2, "tile", NAVY_HOVER, "IM"),
-    "Electrolyzer":      (2, 2, "tile", NAVY_HOVER, "El"),
     "ChemicalPlant":     (3, 3, "tile", NAVY_HOVER, "CP"),
     "FabricatorMk1":     (3, 3, "tile", NAVY_HOVER, "F1"),
     "FabricatorMk2":     (3, 3, "tile", NAVY_HOVER, "F2"),
     "FabricatorMk3":     (3, 3, "tile", NAVY_HOVER, "F3"),
     "SolarPanel":        (2, 2, "tile", GOOD, "SP"),
     "SolarArray":        (3, 3, "tile", GOOD, "SA"),
-    "FuelCellGenerator": (2, 2, "tile", GOOD, "FC"),
     "BatteryBank":       (2, 2, "tile", GOOD, "BB"),
     "SurveyScanner":     (2, 2, "tile", RED_ACTIVE, "SS"),
     "IonThruster":       (2, 3, "tile", RED_ACTIVE, "IT"),
@@ -107,14 +96,12 @@ ITEMS = {
     "MetallicChunk":     ("chunk", ITEM_IRON, "Me"),
     "SilicateChunk":     ("chunk", ITEM_SILICA, "Si"),
     "CarbonaceousChunk": ("chunk", ITEM_CARBON, "Ca"),
-    "IceChunk":          ("chunk", ITEM_ICE, "Ic"),
     "ExoticChunk":       ("chunk", ITEM_EXOTIC, "Ex"),
     "IronOre":           ("lump", ITEM_IRON, "Fe"),
     "NickelOre":         ("lump", ITEM_NICKEL, "Ni"),
     "CopperOre":         ("lump", ITEM_COPPER, "Cu"),
     "Silica":            ("lump", ITEM_SILICA, "SiO"),
     "Carbon":            ("lump", ITEM_CARBON, "C"),
-    "WaterIce":          ("lump", ITEM_ICE, "H2O"),
     "IridiumOre":        ("lump", ITEM_EXOTIC, "Ir"),
     "IronPlate":         ("plate", ITEM_IRON, "Fe"),
     "CopperPlate":       ("plate", ITEM_COPPER, "Cu"),
@@ -136,11 +123,6 @@ ITEMS = {
     "Processor":         ("plate", ITEM_COMPONENT, "CPU"),
 }
 
-FLUIDS = {
-    "Water":    ((70, 140, 210), "H2O"),
-    "Hydrogen": (TEAL, "H2"),
-    "Oxygen":   (RED, "O2"),
-}
 
 
 def darker(color, k=0.65):
@@ -235,14 +217,6 @@ def building_image(w, h, look, color, label):
             arrow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             arrow_up(ImageDraw.Draw(arrow), W / 2, H / 2 - s * 0.25, s * 0.13, PAPER_LIGHT)
             img.alpha_composite(arrow.rotate(-90 * i))
-    elif look == "pipe":
-        # Just the hub: the game draws the joins to neighboring pipes.
-        half = s * 0.14
-        d.rectangle((W / 2 - half, H / 2 - half, W / 2 + half, H / 2 + half), fill=color,
-                    outline=darker(color), width=edge // 2)
-    elif look == "pump":
-        d.rounded_rectangle(box, radius=s * 0.15, fill=color, outline=darker(color), width=edge)
-        arrow_up(d, W / 2, H / 2, s * 0.28, PAPER_LIGHT)
     else:  # tile
         d.rounded_rectangle(box, radius=s * 0.15, fill=color, outline=darker(color), width=edge)
         d.rounded_rectangle((box[0] + edge * 2, box[1] + edge * 2, box[2] - edge * 2, box[3] - edge * 2),
@@ -254,15 +228,6 @@ def building_image(w, h, look, color, label):
 def placeable_icon(item_id):
     """A placeable's item icon: its building, shrunk to fit a square."""
     w, h, look, color, label = BUILDINGS[item_id]
-    if look == "pipe":
-        # A lone hub reads as nothing at icon size: draw a pipe cross.
-        s = CELL * SS
-        img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        half = s * 0.12
-        for rect in ((s * 0.1, s / 2 - half, s * 0.9, s / 2 + half), (s / 2 - half, s * 0.1, s / 2 + half, s * 0.9)):
-            d.rectangle(rect, fill=color, outline=darker(color), width=SS * 2)
-        return finish(img)
     if look == "tile":
         # Shrunk, a big building's label is unreadable: one tile instead.
         return building_image(1, 1, look, color, label)
@@ -299,19 +264,6 @@ def item_image(shape, color, label):
     return finish(img)
 
 
-def fluid_image(color, label):
-    s = CELL * SS
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    # A droplet: a circle with a point on top.
-    cx, cy, r = s / 2, s * 0.6, s * 0.3
-    d.polygon([(cx, s * 0.08), (cx - r * 0.92, cy - r * 0.4), (cx + r * 0.92, cy - r * 0.4)], fill=color)
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
-    text = INK if sum(color) > 450 else PAPER_LIGHT
-    centered_text(d, (cx - r, cy - r * 0.8, cx + r, cy + r * 0.8), label, text, int(s * 0.3))
-    return finish(img)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--force", action="store_true", help="overwrite sprites that already exist")
@@ -336,8 +288,6 @@ def main():
     write("buildings/Bridge.png", lambda: building_image(*BRIDGE))
     for item_id, spec in ITEMS.items():
         write(f"items/{item_id}.png", lambda spec=spec: item_image(*spec))
-    for fluid_id, spec in FLUIDS.items():
-        write(f"fluids/{fluid_id}.png", lambda spec=spec: fluid_image(*spec))
 
     print(f"{written} written, {skipped} already there (kept; --force to overwrite)")
     return 0

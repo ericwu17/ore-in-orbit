@@ -1,4 +1,4 @@
-// sprites.h — the game's pictures: an icon for every item and fluid, and the
+// sprites.h — the game's pictures: an icon for every item, and the
 // built look of every building, drawn by the UI instead of plain text and
 // shapes.
 //
@@ -10,9 +10,8 @@
 //   buildings/<ItemId>.png   built look of every placeable, facing North,
 //                            with its footprint's aspect ratio
 //   buildings/Bridge.png     the bridge
-//   fluids/<FluidId>.png     square icon of every fluid
 //
-// (<ItemId> / <FluidId>: item_id / fluid_id, e.g. "IronPlate".) A sprite
+// (<ItemId>: item_id, e.g. "IronPlate".) A sprite
 // that is missing, can't be decoded or has the wrong shape is reported once
 // at startup and looked up as null: the UI then draws its old stand-in.
 #pragma once
@@ -46,6 +45,5 @@ void Unload();
 const Sprite* Item(ItemKind kind);       // an item's icon
 const Sprite* Building(ItemKind kind);   // a placeable, built (facing North)
 const Sprite* Bridge();                  // the bridge, built
-const Sprite* Fluid(FluidKind kind);     // a fluid's icon
 
 }  // namespace ui::sprites

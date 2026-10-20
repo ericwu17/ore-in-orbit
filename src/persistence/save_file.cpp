@@ -6,9 +6,8 @@
 // the bottom, is the one struct the simulation classes open their private
 // state to (their `friend struct SaveAccess`).
 //
-// Items and directions are written by their enumerator's name, fluids by
-// fluid_name and recipes by recipe_name, never by number, so reordering an
-// enum or the recipe table doesn't break old saves. (The makefile sets
+// Items and directions are written by their enumerator's name and recipes
+// by recipe_name, never by number, so reordering an enum or the recipe table doesn't break old saves. (The makefile sets
 // JSON_DISABLE_ENUM_SERIALIZATION, so an enum can't be written as a number
 // by mistake.)
 //
@@ -26,7 +25,6 @@
 
 #include "nlohmann/json.hpp"
 
-#include <array>
 #include <istream>
 #include <limits>
 #include <memory>
@@ -49,10 +47,8 @@ constexpr const char* kBridgeId = "Bridge";
 // The most of one item a saved inventory may hold: little enough that a
 // whole inventory's total() can't overflow.
 constexpr int kMaxSavedCount = std::numeric_limits<int>::max() / kItemKindCount;
-// The most fluid a saved buffer may hold, and the longest saved craft queue:
-// far beyond play, but they keep a damaged save from asking for absurd
-// amounts.
-constexpr int kMaxSavedFluid = 1'000'000'000;
+// The longest saved craft queue: far beyond play, but it keeps a damaged
+// save from asking for an absurd amount.
 constexpr std::size_t kMaxSavedQueue = 100'000;
 
 class LoadError : public std::runtime_error {
@@ -148,13 +144,6 @@ Direction load_direction(const Json& j) {
     throw LoadError("unknown direction \"" + id + "\"");
 }
 
-FluidKind load_fluid(const std::string& name) {
-    for (int i = 0; i < kFluidKindCount; ++i)
-        if (name == fluid_name(static_cast<FluidKind>(i)))
-            return static_cast<FluidKind>(i);
-    throw LoadError("unknown fluid \"" + name + "\"");
-}
-
 Json save_recipe(const Recipe* recipe) {
     return recipe ? Json(recipe_name(*recipe)) : Json(nullptr);
 }
@@ -187,24 +176,6 @@ Inventory load_inventory(const Json& j) {
     return inv;
 }
 
-// Fluid buffers: an object of amounts by fluid, the ones held only.
-Json save_fluids(const std::array<int, kFluidKindCount>& amounts) {
-    Json j = Json::object();
-    for (std::size_t i = 0; i < amounts.size(); ++i)
-        if (amounts[i] > 0)
-            j[fluid_name(static_cast<FluidKind>(i))] = amounts[i];
-    return j;
-}
-
-std::array<int, kFluidKindCount> load_fluids(const Json& j) {
-    if (!j.is_object())
-        throw LoadError("expected an object of fluid amounts, not " + j.dump());
-    std::array<int, kFluidKindCount> amounts{};
-    for (const auto& [name, amount] : j.items())
-        amounts[static_cast<std::size_t>(load_fluid(name))] = static_cast<int>(load_int(amount, 0, kMaxSavedFluid));
-    return amounts;
-}
-
 const Json& load_array(const Json& j, const char* what) {
     if (!j.is_array())
         throw LoadError(std::string("expected a list of ") + what + ", not " + j.dump());
@@ -231,7 +202,6 @@ struct SaveAccess {
             j["queue"] = std::move(jobs);
         } else if (const auto* c = dynamic_cast<const Collector*>(&b)) {
             j["progress"] = c->progress;
-            j["fluid"] = c->fluid;
             j["chunk_turn"] = c->chunk_turn;
             j["caught"] = save_inventory(c->caught);
         } else if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
@@ -265,10 +235,8 @@ struct SaveAccess {
             j["work"] = m->work ? Json(*m->work) : Json(nullptr);
             j["input"] = save_inventory(m->input);
             j["output"] = save_inventory(m->output);
-            j["fluid_in"] = save_fluids(m->fluid_in);
-            j["fluid_out"] = save_fluids(m->fluid_out);
         }
-        // Pipes, pumps, tanks, power and ship systems hold no state yet.
+        // Power and ship systems hold no state yet.
     }
 
     // Reads a building's own state from `j` into the new building `b`.
@@ -289,7 +257,6 @@ struct SaveAccess {
         } else if (auto* c = dynamic_cast<Collector*>(&b)) {
             // Progress goes back to 0 when it reaches the interval.
             c->progress = load_progress(j.at("progress"), c->spec->interval);
-            c->fluid = static_cast<int>(load_int(j.at("fluid"), 0, c->spec->capacity));
             const Json& turns = load_array(j.at("chunk_turn"), "chunk turns");
             if (turns.size() != c->chunk_turn.size())
                 throw LoadError("expected " + std::to_string(c->chunk_turn.size()) + " chunk turns");
@@ -338,8 +305,6 @@ struct SaveAccess {
             }
             m->input = load_inventory(j.at("input"));
             m->output = load_inventory(j.at("output"));
-            m->fluid_in = load_fluids(j.at("fluid_in"));
-            m->fluid_out = load_fluids(j.at("fluid_out"));
         }
     }
 
