@@ -14,14 +14,15 @@
 #   PLATFORM_SOURCES  extra app sources (.cpp, or Objective-C++ .mm)
 #
 # Layout mirrors imgui/examples/example_sdl2_opengl3/Makefile, with our own
-# sources under src/ (one subdirectory per layer: sim/, ui/, app/) and all
-# object files under $(BUILD_DIR), mirroring that tree (keeping the imgui
-# submodule pristine).
+# sources under src/ (one subdirectory per layer: sim/, persistence/, ui/,
+# app/) and all object files under $(BUILD_DIR), mirroring that tree
+# (keeping the imgui submodule pristine).
 
 IMGUI_DIR = imgui
 # ImPlot (charts), a submodule built against imgui.
 IMPLOT_DIR = implot
-# Vendored single-header libraries: stb_image (app icon)
+# Vendored single-header libraries: stb_image (app icon), nlohmann::json
+# (save files)
 THIRD_PARTY_DIR = third_party
 
 CXXFLAGS = -std=c++20 -g
@@ -32,6 +33,10 @@ CXXFLAGS += -Isrc
 CXXFLAGS += -isystem $(IMGUI_DIR) -isystem $(IMGUI_DIR)/backends -isystem $(IMPLOT_DIR) -isystem $(THIRD_PARTY_DIR)
 CXXFLAGS += $(shell sdl2-config --cflags)
 CXXFLAGS += $(PLATFORM_CXXFLAGS)
+# Saves are JSON (vendored nlohmann::json): never write an enum as a number
+# by mistake; src/persistence/save_file.cpp writes each one by name. Set for
+# every file, so all of them see the same json.
+CXXFLAGS += -DJSON_DISABLE_ENUM_SERIALIZATION=1
 CXXFLAGS += -MMD -MP   # header dependency tracking
 # Build-time generated headers (logo_png.h, see the embed rule below).
 GENERATED_DIR = $(BUILD_DIR)/generated
@@ -46,16 +51,16 @@ WARNINGS += -Wcast-align -Wnull-dereference -Wimplicit-fallthrough
 WARNINGS += -Wformat=2
 WARNINGS += -Wconversion   # implicit narrowing (double->float, int64->int, ...) needs a cast
 
-# One list per layer (src/<layer>/). The simulation is pure logic, no
-# SDL/imgui/OpenGL: the headless tests link against exactly those objects.
-# Keep presentation code out of it. (A persistence/ layer for save files
-# would join HEADLESS_SOURCES the same way.)
+# One list per layer (src/<layer>/). The simulation and the save files are
+# pure logic, no SDL/imgui/OpenGL: the headless tests link against exactly
+# those objects. Keep presentation code out of them.
 SIM_SOURCES         = $(wildcard src/sim/*.cpp)
+PERSISTENCE_SOURCES = $(wildcard src/persistence/*.cpp)
 UI_SOURCES          = $(wildcard src/ui/*.cpp)
 # main.cpp is shared by all platforms; platform-only files (the macOS .mm)
 # come in through PLATFORM_SOURCES.
 SHELL_SOURCES       = src/app/main.cpp src/app/app_icon.cpp $(PLATFORM_SOURCES)
-HEADLESS_SOURCES    = $(SIM_SOURCES)
+HEADLESS_SOURCES    = $(SIM_SOURCES) $(PERSISTENCE_SOURCES)
 APP_SOURCES         = $(HEADLESS_SOURCES) $(UI_SOURCES) $(SHELL_SOURCES)
 # One headless test binary per tests/test_*.cpp file (see the test rules below).
 TEST_SOURCES := $(wildcard tests/*.cpp)

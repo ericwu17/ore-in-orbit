@@ -51,6 +51,10 @@ const char* describe(BuildResult result);
 
 class Ship {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     template <typename T>
     using Grid = std::vector<std::vector<T>>;
 

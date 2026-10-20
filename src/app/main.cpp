@@ -8,6 +8,10 @@
 //   3. build UI             (immediate mode: re-describe every frame)
 //   4. render               (ImGui draw data -> OpenGL)
 //
+// The game being played is saved to its file (persistence/save_slots.h)
+// when leaving it for the menu, when the window closes, and every
+// kAutosaveSeconds of play.
+//
 // This file is shared by all platforms (macOS, Linux, Windows). The only
 // platform-specific piece is the macOS key press-and-hold tweak, which lives
 // in platform_macos.mm behind ApplyMacOSTweaks().
@@ -22,13 +26,17 @@
 #include "implot.h"
 
 #include "app/app_icon.h"
+#include "persistence/save_slots.h"
 #include "sim/game_types.h"
 #include "sim/world.h"
 #include "ui/ui.h"
 #include "ui/ui_theme.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <optional>
 #include <string>
+#include <utility>
 
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -53,6 +61,53 @@ static void step_world(World& world, float delta_time, float& tick_accumulator)
         world.advance_tick();
         tick_accumulator -= kSecondsPerTick;
     }
+}
+
+// Seconds of play between autosaves.
+constexpr float kAutosaveSeconds = 60.0f;
+
+// The game being played, and the save file it goes to.
+struct Session
+{
+    World world;
+    std::filesystem::path save_path;
+    std::string name;
+    float unsaved_seconds = 0.0f;  // of play since the last save
+};
+
+static void save_session(Session& session)
+{
+    std::string error;
+    if (!write_save_file(session.save_path, session.name, session.world, error))
+        printf("Error: saving \"%s\": %s\n", session.name.c_str(), error.c_str());
+    session.unsaved_seconds = 0.0f;
+}
+
+// Starts the game the save list asked for: a new one (saved at once, so it
+// is in the list from now on) or a saved one. On failure, `error` says why
+// and `session` is unchanged.
+static bool start_session(Session& session, const SaveSelectResult& request, const std::filesystem::path& saves_dir,
+                          std::string& error)
+{
+    if (request.action == SaveSelectResult::Action::NewGame)
+    {
+        const std::optional<std::filesystem::path> path = new_save_path(saves_dir, error);
+        if (!path)
+            return false;
+        Session fresh{World{}, *path, next_default_name(list_saves(saves_dir))};
+        if (!write_save_file(fresh.save_path, fresh.name, fresh.world, error))
+            return false;
+        session = std::move(fresh);
+        return true;
+    }
+    std::optional<LoadedSave> loaded = load_save_file(request.path, error);
+    if (!loaded)
+    {
+        error = "Couldn't load " + request.path.filename().string() + ": " + error;
+        return false;
+    }
+    session = Session{std::move(loaded->world), request.path, std::move(loaded->header.name)};
+    return true;
 }
 
 // The app takes no command-line arguments, but main keeps this signature:
@@ -117,9 +172,9 @@ int main(int, char**)
     SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(1);  // enable vsync
 
-    // Persistence: the window layout (imgui.ini) lives in SDL's per-user
-    // app-data directory (SDL_GetPrefPath takes an org and an app name —
-    // created if needed), which is also the place for save files:
+    // Persistence: the window layout (imgui.ini) and the saves/ folder live
+    // in SDL's per-user app-data directory (SDL_GetPrefPath takes an org and
+    // an app name — created if needed):
     //   macOS:   ~/Library/Application Support/OreInOrbit/OreInOrbit/
     //   Linux:   ~/.local/share/OreInOrbit/OreInOrbit/
     //   Windows: %APPDATA%\OreInOrbit\OreInOrbit
@@ -128,6 +183,7 @@ int main(int, char**)
     const std::string pref_dir = pref_path ? pref_path : "";
     SDL_free(pref_path);
     const std::string ini_path = pref_dir + "imgui.ini";  // must outlive the ImGui context
+    const std::filesystem::path saves_dir = std::filesystem::path(pref_dir) / "saves";
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -146,11 +202,13 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(nullptr);
 
-    // Our state: which screen is up, and the whole simulation, which the
-    // frame loop below steps forward at a fixed tick rate while playing.
-    // Pressing Play from the menu starts a fresh World.
+    // Our state: which screen is up, and the game being played (the whole
+    // simulation, which the frame loop below steps forward at a fixed tick
+    // rate while playing, and its save file). The save list starts or loads
+    // one.
     Screen screen = Screen::MainMenu;
-    World world;
+    Session session;
+    std::string save_list_message;  // why the last new game / load failed
     float tick_accumulator = 0.0f;
     const ImVec4 clear_color = ui::theme::kMap;  // the parchment background behind every screen
 
@@ -174,9 +232,15 @@ int main(int, char**)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // 2. Advance the simulation (fixed timestep, see step_world).
+        // 2. Advance the simulation (fixed timestep, see step_world), and
+        //    autosave now and then.
         if (screen == Screen::Playing)
-            step_world(world, io.DeltaTime, tick_accumulator);
+        {
+            step_world(session.world, io.DeltaTime, tick_accumulator);
+            session.unsaved_seconds += io.DeltaTime;
+            if (session.unsaved_seconds >= kAutosaveSeconds)
+                save_session(session);
+        }
 
         // 3. Build this frame's UI: the current screen, then the demo windows
         //    on top.
@@ -184,15 +248,25 @@ int main(int, char**)
         switch (screen)
         {
         case Screen::MainMenu: DrawMainMenu(screen); break;
-        case Screen::Playing:  DrawPlaying(screen, world); break;
+        case Screen::SaveSelect:
+        {
+            const SaveSelectResult request = DrawSaveSelect(screen, saves_dir, save_list_message);
+            if (request.action != SaveSelectResult::Action::None)
+            {
+                if (start_session(session, request, saves_dir, save_list_message))
+                {
+                    screen = Screen::Playing;
+                    tick_accumulator = 0.0f;
+                }
+            }
+            break;
+        }
+        case Screen::Playing:  DrawPlaying(screen, session.world); break;
         case Screen::Credits:  DrawCredits(screen); break;
         }
         DrawDevWindows();
-        if (screen == Screen::Playing && previous_screen == Screen::MainMenu)
-        {
-            world = World{};
-            tick_accumulator = 0.0f;
-        }
+        if (previous_screen == Screen::Playing && screen != Screen::Playing)
+            save_session(session);
 
         // 4. Rendering
         ImGui::Render();
@@ -204,6 +278,10 @@ int main(int, char**)
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
+
+    // Closing the window mid-game keeps it.
+    if (screen == Screen::Playing)
+        save_session(session);
 
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();

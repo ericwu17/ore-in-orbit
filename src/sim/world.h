@@ -7,6 +7,10 @@
 
 class World {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     Tick current_tick = 0;
     Ship ship = Ship::new_game();
 

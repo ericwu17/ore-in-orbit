@@ -117,6 +117,10 @@ struct CraftJob {
 
 class Bridge : public Building {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     Inventory inventory;
     std::deque<CraftJob> queue;  // front is in progress
 
@@ -162,6 +166,10 @@ const CollectorSpec& collector_spec(ItemKind kind);
 
 class Collector : public Building {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     const CollectorSpec* spec;
     Tick progress = 0;  // ticks toward the next catch
     Inventory caught;   // chunks
@@ -254,6 +262,10 @@ constexpr int kCargoCapacity = 100;
 
 class CargoHold : public Building {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     Inventory stored;
 
 public:
@@ -282,6 +294,10 @@ constexpr int kOutputCrafts = 4;
 // the products, which then wait in the output buffer to go out.
 class Machine : public Building {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     const Recipe* recipe = nullptr;
     Inventory input;
     Inventory output;
