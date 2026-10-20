@@ -111,6 +111,8 @@ read stays in the list, greyed out, with the reason in its tooltip.
 - **Mouse wheel**: zoom the grid (about the cursor).
 - **Middle drag, or hold Space and move the mouse**: pan the grid.
 - **1–9**: pick the item to build. **R**: rotate the transport belt.
+- **Q**, or the selected item's key or icon again: build nothing, so left
+  clicks only inspect.
 - **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
 
 ## Layout

@@ -61,7 +61,7 @@ bool ShortcutPressed(ImGuiKey key) {
 
 // What the player is about to build. UI-only: the simulation never sees it.
 struct BuildUiState {
-    ItemKind selected = ItemKind::Hull;
+    std::optional<ItemKind> selected = ItemKind::Hull;  // nullopt: nothing, clicks only inspect
     Direction facing = Direction::North;  // for rotatable buildings
     bool erase_hull = false;              // this right-drag removes hull, not buildings
     std::string message;                  // why the last click did nothing
@@ -97,6 +97,14 @@ Camera g_camera;
 
 // Mouse-wheel zoom steps multiply the cell size by this.
 constexpr float kZoomStep = 1.2f;
+
+// Pick `kind` to build, or put it away if it is already picked.
+void ToggleSelected(ItemKind kind) {
+    if (g_build.selected == kind)
+        g_build.selected.reset();
+    else
+        g_build.selected = kind;
+}
 
 void SetBuildMessage(BuildResult result) {
     g_build.message = describe(result);
@@ -678,7 +686,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
         ImGui::PushID(static_cast<int>(kind));
         if (IconButton("##build", ItemIcon(kind), icon, g_build.selected == kind,
                        {i < 9 ? key.c_str() : nullptr, amount.c_str()}, count == 0 ? 0.4f : 1.0f))
-            g_build.selected = kind;
+            ToggleSelected(kind);
         if (ImGui::BeginItemTooltip()) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
@@ -691,8 +699,11 @@ void DrawBuildPalette(const Ship& ship, float width) {
     }
 
     ImGui::Spacing();
-    ImGui::TextUnformatted(item_name(g_build.selected));
-    if (is_rotatable(g_build.selected))
+    if (g_build.selected)
+        ImGui::TextUnformatted(item_name(*g_build.selected));
+    else
+        ImGui::TextColored(theme::kInkDim, "Nothing selected");
+    if (g_build.selected && is_rotatable(*g_build.selected))
         ImGui::Text("Facing: %s  (R to rotate)", DirectionName(g_build.facing));
     else
         ImGui::TextColored(theme::kInkDim, "Facing: -");
@@ -729,7 +740,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
                        "(pick a machine's recipe or a sorter's filter)\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
-                       "1-9: pick item   R: rotate\nEsc: main menu\n\n"
+                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: main menu\n\n"
                        "Everything but hull needs a hull tile under it; the largest buildings need "
                        "reinforced hull.");
     ImGui::PopTextWrapPos();
@@ -1261,14 +1272,17 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     // Only while the press started on the grid (the button is active).
     if (hover_cell && ImGui::IsItemActive()) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            const BuildResult r = ship.place(g_build.selected, *hover_cell, g_build.facing);
+            // With nothing selected, nothing gets built: a click only inspects.
+            const std::optional<BuildResult> r =
+                g_build.selected ? std::optional(ship.place(*g_build.selected, *hover_cell, g_build.facing))
+                                 : std::nullopt;
             if (r != BuildResult::Ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 // Clicking a building (rather than building on it) inspects it.
                 if (const Building* b = ship.building_at(*hover_cell)) {
                     g_build.inspected = ship.anchor_of(*hover_cell);
                     g_build.inspected_building = b;
-                } else {
-                    SetBuildMessage(r);
+                } else if (r) {
+                    SetBuildMessage(*r);
                 }
             }
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -1352,20 +1366,22 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     // Hover preview: a ghost of what would be built (its footprint starting
     // at the hovered cell), outlined in good / bad. Clipped to the grid.
     if (hover_cell) {
-        const GridSize size = footprint_of(g_build.selected, g_build.facing);
-        const ImVec2 min = CellMin(origin, cell, *hover_cell);
-        const ImVec2 max = FootprintMax(min, cell, size);
-        const BuildResult r = ship.can_place(g_build.selected, *hover_cell, g_build.facing);
-        draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
-        if (r == BuildResult::Ok) {
-            if (g_build.selected == ItemKind::Hull || g_build.selected == ItemKind::ReinforcedHull)
-                DrawHull(draw, g_build.selected, min, max, cell, 0.6f, theme::U32(theme::kTileHull, 0.6f),
-                         theme::U32(theme::kTileReinforcedHull, 0.6f));
-            else
-                DrawBuilding(draw, ship, *hover_cell, min, cell, size, g_build.selected, g_build.facing, 0.45f);
+        if (const std::optional<ItemKind> selected = g_build.selected) {
+            const GridSize size = footprint_of(*selected, g_build.facing);
+            const ImVec2 min = CellMin(origin, cell, *hover_cell);
+            const ImVec2 max = FootprintMax(min, cell, size);
+            const BuildResult r = ship.can_place(*selected, *hover_cell, g_build.facing);
+            draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
+            if (r == BuildResult::Ok) {
+                if (*selected == ItemKind::Hull || *selected == ItemKind::ReinforcedHull)
+                    DrawHull(draw, *selected, min, max, cell, 0.6f, theme::U32(theme::kTileHull, 0.6f),
+                             theme::U32(theme::kTileReinforcedHull, 0.6f));
+                else
+                    DrawBuilding(draw, ship, *hover_cell, min, cell, size, *selected, g_build.facing, 0.45f);
+            }
+            draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
+            draw->PopClipRect();
         }
-        draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
-        draw->PopClipRect();
 
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
             if (const Building* b = ship.building_at(*hover_cell)) {
@@ -1640,7 +1656,9 @@ void DrawPlaying(Screen& screen, World& world) {
     const std::vector<ItemKind> list = BuildList(ship);
     for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
         if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
-            g_build.selected = list[i];
+            ToggleSelected(list[i]);
+    if (ShortcutPressed(ImGuiKey_Q))
+        g_build.selected.reset();
     if (ShortcutPressed(ImGuiKey_R))
         g_build.facing = rotated_cw(g_build.facing);
 
