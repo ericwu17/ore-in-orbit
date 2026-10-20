@@ -22,15 +22,15 @@ namespace {
 namespace theme = ui::theme;
 
 // A borderless, transparent window covering the whole display, for a screen's
-// contents. Pair with ImGui::End().
-void BeginFullscreenPage(const char* id) {
+// contents, plus any `extra` window flags. Pair with ImGui::End().
+void BeginFullscreenPage(const char* id, ImGuiWindowFlags extra = 0) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     ImGui::Begin(id, nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground |
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                     ImGuiWindowFlags_NoDocking);
+                     ImGuiWindowFlags_NoDocking | extra);
 }
 
 // Text centered horizontally in the current window, at the cursor's height.
@@ -63,6 +63,19 @@ struct BuildUiState {
 BuildUiState g_build;
 
 constexpr double kMessageSeconds = 3.0;
+
+// The view onto the build grid: how far in it is zoomed and where it has
+// been panned to. UI-only, like BuildUiState.
+struct Camera {
+    bool placed = false;  // false: centre on the bridge at the default zoom, next frame
+    float cell = 0.0f;    // screen pixels per grid cell
+    ImVec2 offset;        // the grid's top-left corner, relative to the canvas's
+    bool left_pans = false;  // the current left drag started with Space held: it pans
+};
+Camera g_camera;
+
+// Mouse-wheel zoom steps multiply the cell size by this.
+constexpr float kZoomStep = 1.2f;
 
 void SetBuildMessage(BuildResult result) {
     g_build.message = describe(result);
@@ -337,6 +350,7 @@ void DrawBuildPalette(const Ship& ship, float width) {
     ImGui::TextColored(theme::kInkDim,
                        "Left click / drag: build\nRight click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
+                       "Scroll: zoom\nMiddle drag / Space + drag: pan\n"
                        "1-9: pick item   R: rotate\nEsc: main menu\n\n"
                        "Everything but hull needs a hull tile under it; the largest buildings need "
                        "reinforced hull.");
@@ -477,22 +491,72 @@ void BuildingTooltip(const Building& b) {
         ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
 }
 
-// The build grid, fitted to `avail`, with click / drag to build and remove.
+// Pans and zooms the camera from this frame's input on the canvas (the
+// InvisibleButton just submitted, `canvas_size` at `canvas_min`), keeping it
+// within bounds. Returns whether the canvas is being panned.
+bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
+    const ImGuiIO& io = ImGui::GetIO();
+    Camera& cam = g_camera;
+    // Zoomed out, the whole ship fits; zoomed in, a few dozen cells do.
+    const float min_cell = std::min(canvas_size.x, canvas_size.y) / static_cast<float>(n);
+    const float max_cell = std::max(min_cell, ImGui::GetFrameHeight() * 3.0f);
+    if (!cam.placed) {
+        // The bridge sits in the middle of the grid.
+        cam.cell = std::clamp(ImGui::GetFrameHeight(), min_cell, max_cell);
+        const float center = (static_cast<float>(n / 2) + 0.5f) * cam.cell;
+        cam.offset = ImVec2(canvas_size.x * 0.5f - center, canvas_size.y * 0.5f - center);
+        cam.placed = true;
+    }
+
+    // Zoom about the mouse: the point under it stays put.
+    float new_cell = cam.cell;
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+        new_cell = cam.cell * std::pow(kZoomStep, io.MouseWheel);
+    new_cell = std::clamp(new_cell, min_cell, max_cell);  // also after a window resize
+    if (new_cell != cam.cell) {
+        const ImVec2 m(io.MousePos.x - canvas_min.x, io.MousePos.y - canvas_min.y);
+        const float k = new_cell / cam.cell;
+        cam.offset = ImVec2(m.x - (m.x - cam.offset.x) * k, m.y - (m.y - cam.offset.y) * k);
+        cam.cell = new_cell;
+    }
+
+    // Pan: middle drag, or left drag with Space held (for trackpads).
+    const bool space = ImGui::IsKeyDown(ImGuiKey_Space) && !io.WantTextInput;
+    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        cam.left_pans = space;
+    const bool panning = ImGui::IsItemActive() && (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
+                                                   (cam.left_pans && ImGui::IsMouseDown(ImGuiMouseButton_Left)));
+    if (panning) {
+        cam.offset.x += io.MouseDelta.x;
+        cam.offset.y += io.MouseDelta.y;
+    }
+    if (panning || (space && ImGui::IsItemHovered()))
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+
+    // Keep the middle of the view over the grid.
+    const float side = cam.cell * static_cast<float>(n);
+    cam.offset.x = std::clamp(cam.offset.x, canvas_size.x * 0.5f - side, canvas_size.x * 0.5f);
+    cam.offset.y = std::clamp(cam.offset.y, canvas_size.y * 0.5f - side, canvas_size.y * 0.5f);
+    return panning || space;
+}
+
+// The build grid on a canvas filling `avail`: click / drag to build and
+// remove, scroll to zoom, middle drag (or Space + drag) to pan.
 void DrawShipGrid(Ship& ship, ImVec2 avail) {
     const int n = ship.size();
-    const float cell = std::max(4.0f, std::floor(std::min(avail.x, avail.y) / static_cast<float>(n)));
+    const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
+    const ImVec2 canvas_size(std::max(avail.x, 1.0f), std::max(avail.y, 1.0f));
+    const ImVec2 canvas_max(canvas_min.x + canvas_size.x, canvas_min.y + canvas_size.y);
+    ImGui::InvisibleButton("##ship_grid", canvas_size,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
+    const bool panning = UpdateCamera(n, canvas_min, canvas_size);
+    const float cell = g_camera.cell;
     const float side = cell * static_cast<float>(n);
-    // Center the grid in the space between the panels.
-    const ImVec2 cursor = ImGui::GetCursorScreenPos();
-    const ImVec2 origin(std::floor(cursor.x + std::max(0.0f, (avail.x - side) * 0.5f)),
-                        std::floor(cursor.y + std::max(0.0f, (avail.y - side) * 0.5f)));
-    ImGui::SetCursorScreenPos(origin);
-    ImGui::InvisibleButton("##ship_grid", ImVec2(side, side),
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 origin(std::floor(canvas_min.x + g_camera.offset.x), std::floor(canvas_min.y + g_camera.offset.y));
 
     std::optional<GridPos> hover_cell;
-    if (hovered) {
+    if (ImGui::IsItemHovered() && !panning) {
         const ImVec2 m = ImGui::GetMousePos();
         const GridPos p{static_cast<int>(std::floor((m.x - origin.x) / cell)),
                         static_cast<int>(std::floor((m.y - origin.y) / cell))};
@@ -521,19 +585,37 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         }
     }
 
+    // Only the cells in view get drawn: [lo, hi] on each axis.
+    const auto first_visible = [&](float canvas_edge, float grid_edge) {
+        return std::clamp(static_cast<int>(std::floor((canvas_edge - grid_edge) / cell)), 0, n - 1);
+    };
+    const GridPos lo{first_visible(canvas_min.x, origin.x), first_visible(canvas_min.y, origin.y)};
+    const GridPos hi{first_visible(canvas_max.x, origin.x), first_visible(canvas_max.y, origin.y)};
+
     ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->PushClipRect(canvas_min, canvas_max, true);
     const ImU32 grid_line = theme::U32(theme::kGridLine);
     const ImU32 hull = theme::U32(theme::kTileHull);
     const ImU32 reinforced = theme::U32(theme::kTileReinforcedHull);
     // The grid as whole lines (one per row / column, not an outline per
-    // cell: the grid is large), then the hull filled over it.
-    for (int i = 0; i <= n; ++i) {
-        const float t = static_cast<float>(i) * cell;
-        draw->AddLine(ImVec2(origin.x + t, origin.y), ImVec2(origin.x + t, origin.y + side), grid_line);
-        draw->AddLine(ImVec2(origin.x, origin.y + t), ImVec2(origin.x + side, origin.y + t), grid_line);
+    // cell: the grid is large), then the hull filled over it. Zoomed far
+    // out, only the grid's border.
+    if (cell >= 4.0f) {
+        const ImVec2 top_left = CellMin(origin, cell, lo);
+        const ImVec2 bottom_right = CellMin(origin, cell, {hi.x + 1, hi.y + 1});
+        for (int x = lo.x; x <= hi.x + 1; ++x) {
+            const float t = origin.x + static_cast<float>(x) * cell;
+            draw->AddLine(ImVec2(t, top_left.y), ImVec2(t, bottom_right.y), grid_line);
+        }
+        for (int y = lo.y; y <= hi.y + 1; ++y) {
+            const float t = origin.y + static_cast<float>(y) * cell;
+            draw->AddLine(ImVec2(top_left.x, t), ImVec2(bottom_right.x, t), grid_line);
+        }
+    } else {
+        draw->AddRect(origin, ImVec2(origin.x + side, origin.y + side), grid_line);
     }
-    for (int y = 0; y < n; ++y) {
-        for (int x = 0; x < n; ++x) {
+    for (int y = lo.y; y <= hi.y; ++y) {
+        for (int x = lo.x; x <= hi.x; ++x) {
             const GridPos p{x, y};
             if (const std::optional<ItemKind> tile = ship.hull_at(p)) {
                 const ImVec2 min = CellMin(origin, cell, p);
@@ -543,8 +625,11 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         }
     }
     // Buildings after all the hull, since larger ones overlap later cells.
-    for (int y = 0; y < n; ++y)
-        for (int x = 0; x < n; ++x)
+    // Ones anchored up to kMaxFootprint - 1 cells above / left of the view
+    // still reach into it.
+    constexpr int kMaxFootprint = 3;
+    for (int y = std::max(0, lo.y - (kMaxFootprint - 1)); y <= hi.y; ++y)
+        for (int x = std::max(0, lo.x - (kMaxFootprint - 1)); x <= hi.x; ++x)
             if (const Building* b = ship.building_anchored_at({x, y}))
                 DrawBuilding(draw, ship, {x, y}, CellMin(origin, cell, {x, y}), cell, b->footprint(),
                              b->item_kind(), b->facing(), 1.0f);
@@ -556,7 +641,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
         const ImVec2 min = CellMin(origin, cell, *hover_cell);
         const ImVec2 max = FootprintMax(min, cell, size);
         const BuildResult r = ship.can_place(g_build.selected, *hover_cell, g_build.facing);
-        draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);
+        draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
         if (r == BuildResult::Ok) {
             if (g_build.selected == ItemKind::Hull)
                 draw->AddRectFilled(min, max, theme::U32(theme::kTileHull, 0.6f));
@@ -575,6 +660,7 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                 ImGui::EndTooltip();
             }
     }
+    draw->PopClipRect();
 }
 
 }  // namespace
@@ -618,8 +704,10 @@ void DrawCredits(Screen& screen) {
 }
 
 void DrawPlaying(Screen& screen, World& world) {
-    if (ShortcutPressed(ImGuiKey_Escape))
+    if (ShortcutPressed(ImGuiKey_Escape)) {
         screen = Screen::MainMenu;
+        g_camera = {};  // the next game starts centred on its bridge
+    }
 
     Ship& ship = world.get_ship();
     const std::vector<ItemKind> list = BuildList(ship);
@@ -629,7 +717,8 @@ void DrawPlaying(Screen& screen, World& world) {
     if (ShortcutPressed(ImGuiKey_R))
         g_build.facing = rotated_cw(g_build.facing);
 
-    BeginFullscreenPage("##playing");
+    // The mouse wheel zooms the grid; it never scrolls the page.
+    BeginFullscreenPage("##playing", ImGuiWindowFlags_NoScrollWithMouse);
     const float fh = ImGui::GetFrameHeight();
     const float gap = ImGui::GetStyle().WindowPadding.x * 2.0f;
     const float palette_w = fh * 11.0f;

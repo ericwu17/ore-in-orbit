@@ -52,7 +52,9 @@ mingw32-make && ./ore-in-orbit.exe
 - **Left click / drag**: build the selected item on the grid.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
-- **1–5**: pick the item to build. **R**: rotate the transport belt.
+- **Mouse wheel**: zoom the grid (about the cursor).
+- **Middle drag, or Space + left drag**: pan the grid.
+- **1–9**: pick the item to build. **R**: rotate the transport belt.
 - **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
 
 ## Layout
@@ -76,7 +78,7 @@ One directory per layer under `src/`; includes name their layer
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
   - `ui.cpp` — the main menu, credits and game screens (the build grid and
-    palette), and the F1 / F2 demo windows.
+    palette, with its zoom / pan camera), and the F1 / F2 demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
