@@ -6,44 +6,8 @@
 // run headless without a window.
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-
-// ---------------------------------------------------------------------------
-// Time
-// ---------------------------------------------------------------------------
 
 using Tick = std::uint64_t;
 
 constexpr Tick kTicksPerSecond = 60;
-constexpr Tick kTicksPerDay    = 3 * 60 * kTicksPerSecond;  // one in-game day = 3 real minutes = 10800 ticks
-constexpr Tick kTicksPerHour   = kTicksPerDay / 24;         // 450 ticks; one in-game minute = 7.5 ticks
-
-// HH:MM on a 24-hour clock. The simulation stores and computes exclusively in
-// ticks; these helpers convert at the edges (UI display, player input).
-struct ClockTime {
-    int hour = 0;
-    int minute = 0;
-};
-
-// Time of day (00:00-23:59) of an absolute tick.
-constexpr ClockTime tick_to_time_of_day(Tick tick) {
-    const Tick time_of_day = tick % kTicksPerDay;
-    return {static_cast<int>(time_of_day / kTicksPerHour),
-            static_cast<int>(time_of_day % kTicksPerHour * 60 / kTicksPerHour)};
-}
-
-// Length of a tick duration in whole hours and minutes. Hours are NOT wrapped
-// at 24, so a 30-hour duration formats as {30, 0}.
-constexpr ClockTime duration_to_hours_minutes(Tick duration) {
-    return {static_cast<int>(duration / kTicksPerHour),
-            static_cast<int>(duration % kTicksPerHour * 60 / kTicksPerHour)};
-}
-
-// HH:MM (a time of day, or a duration expressed in hours and minutes) to
-// ticks. One in-game minute is kTicksPerHour / 60 = 7.5 ticks, so the minute
-// part is rounded to the nearest tick.
-constexpr Tick hours_minutes_to_ticks(int hour, int minute) {
-    return static_cast<Tick>(hour) * kTicksPerHour
-         + (static_cast<Tick>(minute) * kTicksPerHour + 30) / 60;
-}

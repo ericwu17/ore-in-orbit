@@ -1,4 +1,4 @@
-# Sim Template — top-level makefile: plain `make` on any platform.
+# Ore in Orbit — top-level makefile: plain `make` on any platform.
 #
 # Detects the host OS and includes the matching per-platform makefile
 # (Makefile.macos / Makefile.linux / Makefile.windows), which hold all the

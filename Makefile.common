@@ -1,4 +1,4 @@
-# Sim Template — build rules shared by every platform.
+# Ore in Orbit — build rules shared by every platform.
 #
 # Not used on its own: Makefile.macos / Makefile.linux / Makefile.windows set
 # the platform-specific variables below and then include this file. The
@@ -14,11 +14,12 @@
 #   PLATFORM_SOURCES  extra app sources (.cpp, or Objective-C++ .mm)
 #
 # Layout mirrors imgui/examples/example_sdl2_opengl3/Makefile, with our own
-# sources under src/ (one subdirectory per layer: sim/, ui/, app/) and all object files under $(BUILD_DIR), mirroring that tree (keeping
-# the imgui submodule pristine).
+# sources under src/ (one subdirectory per layer: sim/, ui/, app/) and all
+# object files under $(BUILD_DIR), mirroring that tree (keeping the imgui
+# submodule pristine).
 
 IMGUI_DIR = imgui
-# ImPlot (charts in the stats window), a submodule built against imgui.
+# ImPlot (charts), a submodule built against imgui.
 IMPLOT_DIR = implot
 # Vendored single-header libraries: stb_image (app icon)
 THIRD_PARTY_DIR = third_party

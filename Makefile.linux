@@ -1,4 +1,4 @@
-# Sim Template — SDL2 + OpenGL3 + Dear ImGui (Linux)
+# Ore in Orbit — SDL2 + OpenGL3 + Dear ImGui (Linux)
 #
 # Requires SDL2 dev files and a GL implementation:
 #   Debian/Ubuntu:  sudo apt install build-essential libsdl2-dev libgl-dev
@@ -7,12 +7,12 @@
 #
 # Included by the top-level Makefile on Linux, so bare `make` just works
 # (equivalent: make -f Makefile.linux).
-# Build & run:    make && ./sim-template
+# Build & run:    make && ./ore-in-orbit
 #
 # Only the Linux-specific settings live here; every rule is in
 # Makefile.common. The macOS-only platform_macos.mm is NOT built here.
 
-EXE       = sim-template
+EXE       = ore-in-orbit
 # Separate build dir per platform so artifacts never collide across makefiles.
 BUILD_DIR = build-linux
 

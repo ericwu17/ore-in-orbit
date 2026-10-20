@@ -87,8 +87,7 @@ void HelpMarker(const char* text);
 // A larger heading underlined with a thin rule and a short red accent.
 void SectionHeading(const char* text);
 
-// A paper card with a soft drop shadow, drawn straight into a draw list (the
-// transport bar and the HUD card).
+// A paper card with a soft drop shadow, drawn straight into a draw list.
 void DrawShadowedPanel(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding);
 
 // Text with a one-pixel halo all around, so labels drawn over busy

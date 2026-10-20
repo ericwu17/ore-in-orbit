@@ -3,7 +3,8 @@
 // Structure copied from imgui/examples/example_sdl2_opengl3, with the
 // simulation and UI calls plugged into the frame loop:
 //   1. poll events          (SDL -> ImGui backends)
-//   2. advance simulation   (fixed timestep: exactly kTicksPerSecond per second)
+//   2. advance simulation   (while playing; fixed timestep: exactly
+//                            kTicksPerSecond per second)
 //   3. build UI             (immediate mode: re-describe every frame)
 //   4. render               (ImGui draw data -> OpenGL)
 //
@@ -38,24 +39,15 @@
 
 // Advance the simulation at a FIXED timestep: the game ticks 60 times per
 // second no matter what the display refresh rate is (60/120/144 Hz all work).
-// Real time since the last frame goes into an accumulator, scaled by the
-// world's fast-forward multiplier; whole ticks are drained from it.
+// Real time since the last frame goes into an accumulator; whole ticks are
+// drained from it.
 static void step_world(World& world, float delta_time, float& tick_accumulator)
 {
     constexpr float kSecondsPerTick = 1.0f / (float)kTicksPerSecond;
-    if (world.is_paused())
-    {
-        tick_accumulator = 0.0f;
-        return;
-    }
-    tick_accumulator += delta_time * world.get_speed_multiplier();
-    // After a long hitch, don't try to catch up forever. The cap is a quarter
-    // second of *real* time, so it scales with the multiplier — a fixed cap
-    // would silently throttle high speeds (one 60 Hz frame at 32x is already
-    // over half a second of game time).
-    const float max_accumulated = 0.25f * world.get_speed_multiplier();
-    if (tick_accumulator > max_accumulated)
-        tick_accumulator = max_accumulated;
+    tick_accumulator += delta_time;
+    // After a long hitch, don't try to catch up forever.
+    if (tick_accumulator > 0.25f)
+        tick_accumulator = 0.25f;
     while (tick_accumulator >= kSecondsPerTick)
     {
         world.advance_tick();
@@ -102,7 +94,7 @@ int main(int, char**)
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     float main_scale = ImGui_ImplSDL2_GetContentScaleForDisplay(0);
     const Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
-    SDL_Window* window = SDL_CreateWindow("Sim Template", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, (int)(1280 * main_scale), (int)(800 * main_scale), window_flags);
+    SDL_Window* window = SDL_CreateWindow("Ore in Orbit", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, (int)(1280 * main_scale), (int)(800 * main_scale), window_flags);
     if (window == nullptr)
     {
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
@@ -128,11 +120,11 @@ int main(int, char**)
     // Persistence: the window layout (imgui.ini) lives in SDL's per-user
     // app-data directory (SDL_GetPrefPath takes an org and an app name —
     // created if needed), which is also the place for save files:
-    //   macOS:   ~/Library/Application Support/SimTemplate/SimTemplate/
-    //   Linux:   ~/.local/share/SimTemplate/SimTemplate/
-    //   Windows: %APPDATA%\SimTemplate\SimTemplate
+    //   macOS:   ~/Library/Application Support/OreInOrbit/OreInOrbit/
+    //   Linux:   ~/.local/share/OreInOrbit/OreInOrbit/
+    //   Windows: %APPDATA%\OreInOrbit\OreInOrbit
     // ImGui's default IniFilename is relative to the working directory, which we don't want.
-    char* pref_path = SDL_GetPrefPath("SimTemplate", "SimTemplate");
+    char* pref_path = SDL_GetPrefPath("OreInOrbit", "OreInOrbit");
     const std::string pref_dir = pref_path ? pref_path : "";
     SDL_free(pref_path);
     const std::string ini_path = pref_dir + "imgui.ini";  // must outlive the ImGui context
@@ -140,7 +132,7 @@ int main(int, char**)
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImPlot::CreateContext();  // charts in the stats window
+    ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = ini_path.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -154,11 +146,13 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(nullptr);
 
-    // Our state: the whole simulation. The UI layer reads/mutates it, and
-    // the frame loop below steps it forward at a fixed tick rate.
+    // Our state: which screen is up, and the whole simulation, which the
+    // frame loop below steps forward at a fixed tick rate while playing.
+    // Pressing Play from the menu starts a fresh World.
+    Screen screen = Screen::MainMenu;
     World world;
     float tick_accumulator = 0.0f;
-    const ImVec4 clear_color = ui::theme::kMap;  // the main area's parchment background
+    const ImVec4 clear_color = ui::theme::kMap;  // the parchment background behind every screen
 
     // Main loop
     bool done = false;
@@ -181,17 +175,24 @@ int main(int, char**)
         ImGui::NewFrame();
 
         // 2. Advance the simulation (fixed timestep, see step_world).
-        step_world(world, io.DeltaTime, tick_accumulator);
+        if (screen == Screen::Playing)
+            step_world(world, io.DeltaTime, tick_accumulator);
 
-        // 3. Build this frame's UI. Order matters: the dockspace hosts the
-        //    windows, the transport bar goes into the background draw list
-        //    (under the windows), then the HUD, inspector and statistics
-        //    windows.
-        DrawDockspace();
-        DrawTransportBar(world);
-        DrawHUD(world);
-        DrawInspector(world);
-        DrawStatsWindow(world);
+        // 3. Build this frame's UI: the current screen, then the demo windows
+        //    on top.
+        const Screen previous_screen = screen;
+        switch (screen)
+        {
+        case Screen::MainMenu: DrawMainMenu(screen); break;
+        case Screen::Playing:  DrawPlaying(screen); break;
+        case Screen::Credits:  DrawCredits(screen); break;
+        }
+        DrawDevWindows();
+        if (screen == Screen::Playing && previous_screen == Screen::MainMenu)
+        {
+            world = World{};
+            tick_accumulator = 0.0f;
+        }
 
         // 4. Rendering
         ImGui::Render();

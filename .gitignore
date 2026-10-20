@@ -4,8 +4,8 @@
 build/
 build-linux/
 build-windows/
-/sim-template
-/sim-template.exe
+/ore-in-orbit
+/ore-in-orbit.exe
 *.o
 *.d
 

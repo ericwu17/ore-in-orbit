@@ -1,105 +1,95 @@
-// ui.cpp — the presentation layer's shared core: the per-game UI state and
-// its reset, time formatting, and the dockspace that hosts the inspector
-// beside the main area. The HUD, inspector and statistics each live in their
-// own ui_*.cpp.
+// ui.cpp — the screens: main menu, credits and the (empty) game screen, plus
+// the developer demo windows.
 #include "ui/ui.h"
-#include "ui/ui_internal.h"
+#include "ui/ui_theme.h"
 
-#include "sim/game_types.h"
 #include "imgui.h"
-#include "imgui_internal.h"  // DockBuilder* (imgui 'docking' branch)
-
-#include <cstdio>
-
-ui::GameUiState ui::g_game;
+#include "implot.h"  // ImPlot::ShowDemoWindow
 
 namespace {
 
-ImGuiID MainDockSpaceId() { return ImGui::GetID("MainDockSpace"); }
+namespace theme = ui::theme;
 
-// The left dock node the inspector is pinned into; set by DrawDockspace on
-// the first frame and used by DrawInspector to re-dock it every frame. Part
-// of the window layout rather than of one game, so ResetGameUi keeps it.
-ImGuiID g_inspector_dock_id = 0;
+// A borderless, transparent window covering the whole display, for a screen's
+// contents. Pair with ImGui::End().
+void BeginFullscreenPage(const char* id) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::Begin(id, nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                     ImGuiWindowFlags_NoDocking);
+}
+
+// Text centered horizontally in the current window, at the cursor's height.
+void CenteredText(const char* text, ImVec4 color) {
+    const float width = ImGui::CalcTextSize(text).x;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+    ImGui::TextColored(color, "%s", text);
+}
+
+// A shortcut key went down this frame, unless the player is typing in a text
+// field. (Not WantCaptureKeyboard: with keyboard navigation on, that is set
+// whenever any ImGui window has focus, and the screens are ImGui windows.)
+bool ShortcutPressed(ImGuiKey key) {
+    return !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(key, false);
+}
 
 }  // namespace
 
-void ResetGameUi() {
-    ui::g_game = ui::GameUiState{};
+void DrawMainMenu(Screen& screen) {
+    BeginFullscreenPage("##main_menu");
+
+    const float fh = ImGui::GetFrameHeight();  // follows font size / DPI scaling
+    const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
+    const float spacing = ImGui::GetStyle().ItemSpacing.y;
+
+    // Title plus two buttons, as one block centered vertically.
+    ImGui::PushFont(nullptr, theme::kFontHuge);
+    const float title_h = ImGui::GetTextLineHeight();
+    ImGui::PopFont();
+    const float block_h = title_h + fh * 1.5f + 2.0f * button_size.y + spacing;
+    ImGui::SetCursorPosY((ImGui::GetWindowHeight() - block_h) * 0.5f);
+
+    ImGui::PushFont(nullptr, theme::kFontHuge);
+    CenteredText("ORE IN ORBIT", theme::kInk);
+    ImGui::PopFont();
+    ImGui::Dummy({0.0f, fh * 1.5f - spacing});
+
+    const float button_x = (ImGui::GetWindowWidth() - button_size.x) * 0.5f;
+    ImGui::SetCursorPosX(button_x);
+    if (theme::PrimaryButton("Play", button_size))
+        screen = Screen::Playing;
+    ImGui::SetCursorPosX(button_x);
+    if (ImGui::Button("Credits", button_size))
+        screen = Screen::Credits;
+
+    ImGui::End();
 }
 
-// ---------------------------------------------------------------------------
-// Tick -> 24-hour clock formatting. Every time shown to the player goes
-// through these helpers; internally the simulation only ever uses ticks.
-// ---------------------------------------------------------------------------
-
-// Format an absolute tick as "Day N HH:MM".
-void ui::FormatDayTime(Tick tick, char* buf, std::size_t buf_len) {
-    const ClockTime t = tick_to_time_of_day(tick);
-    std::snprintf(buf, buf_len, "Day %llu  %02d:%02d",
-                  static_cast<unsigned long long>(tick / kTicksPerDay) + 1, t.hour, t.minute);
+void DrawCredits(Screen& screen) {
+    BeginFullscreenPage("##credits");
+    theme::SectionHeading("Credits");
+    if (ImGui::Button("Back") || ShortcutPressed(ImGuiKey_Escape))
+        screen = Screen::MainMenu;
+    ImGui::End();
 }
 
-// Format a tick duration as "HH:MM" (hours may exceed 23).
-void ui::FormatDuration(Tick duration, char* buf, std::size_t buf_len) {
-    const ClockTime t = duration_to_hours_minutes(duration);
-    std::snprintf(buf, buf_len, "%02d:%02d", t.hour, t.minute);
+void DrawPlaying(Screen& screen) {
+    if (ShortcutPressed(ImGuiKey_Escape))
+        screen = Screen::MainMenu;
 }
 
-ImGuiID ui::InspectorDockId() { return g_inspector_dock_id; }
-
-void ui::GetMainArea(ImVec2& min, ImVec2& size) {
-    min = {0.0f, 0.0f};
-    size = ImGui::GetIO().DisplaySize;
-    if (const ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(MainDockSpaceId())) {
-        min = central->Pos;
-        size = central->Size;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Dockspace: a fullscreen docking area over the main viewport.
-//
-// The central node is passthrough (ImGuiDockNodeFlags_PassthruCentralNode), so
-// anything drawn into the background draw list stays visible and clickable
-// through it. The layout is fixed: the inspector ("###Inspector") is pinned
-// into a left split (DrawInspector re-docks it every frame and its node
-// can't be undocked), and no other window can dock anywhere. Only the split
-// width is user-adjustable, and it persists in imgui.ini.
-// ---------------------------------------------------------------------------
-
-void DrawDockspace() {
-    const ImGuiID dockspace_id = MainDockSpaceId();
-
-    // Decided once, on the first frame (imgui.ini is loaded by then). An ini
-    // layout with a left split is reused to keep the user's panel width;
-    // anything else (first run, an ini from an older build) is rebuilt.
-    if (g_inspector_dock_id == 0) {
-        const ImGuiDockNode* root = ImGui::DockBuilderGetNode(dockspace_id);
-        if (root != nullptr && root->SplitAxis == ImGuiAxis_X && root->ChildNodes[0] != nullptr &&
-            !root->ChildNodes[0]->IsCentralNode() && root->ChildNodes[1] != nullptr &&
-            root->ChildNodes[1]->IsCentralNode())
-            g_inspector_dock_id = root->ChildNodes[0]->ID;
-    }
-
-    // DockBuilder* must run before the dockspace node is submitted this frame.
-    if (g_inspector_dock_id == 0) {
-        ImGui::DockBuilderRemoveNode(dockspace_id);  // drops any stale layout; no-op on a fresh node
-        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
-
-        // Split off the left third for the inspector; the remainder stays
-        // as the passthrough central node.
-        ImGuiID central_id = dockspace_id;
-        g_inspector_dock_id =
-            ImGui::DockBuilderSplitNode(central_id, ImGuiDir_Left, 0.35f, nullptr, &central_id);
-        ImGui::DockBuilderFinish(dockspace_id);
-    }
-
-    // NoDockingSplit / NoDockingOverCentralNode: nothing can dock into the
-    // main area or split off new nodes.
-    ImGui::DockSpaceOverViewport(dockspace_id, nullptr,
-                                 ImGuiDockNodeFlags_PassthruCentralNode |
-                                     ImGuiDockNodeFlags_NoDockingSplit |
-                                     ImGuiDockNodeFlags_NoDockingOverCentralNode);
+void DrawDevWindows() {
+    static bool show_imgui_demo = false;
+    static bool show_implot_demo = false;
+    if (ShortcutPressed(ImGuiKey_F1))
+        show_imgui_demo = !show_imgui_demo;
+    if (ShortcutPressed(ImGuiKey_F2))
+        show_implot_demo = !show_implot_demo;
+    if (show_imgui_demo)
+        ImGui::ShowDemoWindow(&show_imgui_demo);
+    if (show_implot_demo)
+        ImPlot::ShowDemoWindow(&show_implot_demo);
 }

@@ -1,13 +1,13 @@
-# Sim Template — SDL2 + OpenGL3 + Dear ImGui (macOS)
+# Ore in Orbit — SDL2 + OpenGL3 + Dear ImGui (macOS)
 #
 # Included by the top-level Makefile on macOS; bare `make` just works.
 # Requires SDL2:  brew install sdl2
-# Build & run:    make && ./sim-template
+# Build & run:    make && ./ore-in-orbit
 #
 # Only the macOS-specific settings live here (platform_macos.mm, the OpenGL
 # framework, GL deprecation silencing); every rule is in Makefile.common.
 
-EXE       = sim-template
+EXE       = ore-in-orbit
 BUILD_DIR = build
 
 CXX ?= clang++

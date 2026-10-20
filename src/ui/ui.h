@@ -1,36 +1,25 @@
 // ui.h — the only place that knows Dear ImGui exists.
 //
-// These functions read the World (and let the player mutate it through its
-// public API), once per frame. The simulation layer knows nothing about them.
+// These functions draw one screen each, once per frame. The simulation layer
+// knows nothing about them.
 #pragma once
 
-#include "sim/world.h"
+// Which screen the app is showing. main.cpp owns it; the screens switch it.
+enum class Screen {
+    MainMenu,
+    Playing,
+    Credits,
+};
 
-// Forgets the UI state that belongs to one game (the statistics window and
-// anything else in ui::GameUiState), so the next game starts clean.
-void ResetGameUi();
+// The title screen: the game's name and the Play / Credits buttons.
+void DrawMainMenu(Screen& screen);
 
-// Fullscreen dockspace over the main viewport, hosting the dockable windows.
-// The central node is passthrough (transparent and click-through) so anything
-// drawn into the background draw list stays visible and interactive. On first
-// run builds the default layout: the inspector docked into a left split;
-// afterwards the user's own arrangement is loaded from imgui.ini untouched.
-void DrawDockspace();
+// The credits page (empty for now). Back or Escape returns to the menu.
+void DrawCredits(Screen& screen);
 
-// Top-center transport bar: play/pause, slow-down/speed-up and the day/time
-// readout, drawn into the background draw list. Laid out from the display
-// size each frame, so it survives window resizes.
-void DrawTransportBar(World& world);
+// The game itself (nothing drawn yet). Escape returns to the menu.
+void DrawPlaying(Screen& screen);
 
-// Status card pinned to the top-right of the main area: a headline number, a
-// few stat rows and the statistics button. Also toggles the ImGui / ImPlot
-// demo windows (F1 / F2).
-void DrawHUD(const World& world);
-
-// The side panel docked on the left (ui_inspector.cpp). A placeholder: put
-// whatever the player inspects or edits here.
-void DrawInspector(World& world);
-
-// The statistics window (toggled with L or the HUD button): charts of the
-// World's statistics over a chosen time range.
-void DrawStatsWindow(const World& world);
+// The ImGui / ImPlot demo windows, toggled with F1 / F2 on any screen. Kept
+// handy as a widget reference while developing.
+void DrawDevWindows();

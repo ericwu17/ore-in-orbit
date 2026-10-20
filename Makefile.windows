@@ -1,10 +1,10 @@
-# Sim Template — SDL2 + OpenGL3 + Dear ImGui (Windows, MinGW-w64 / MSYS2)
+# Ore in Orbit — SDL2 + OpenGL3 + Dear ImGui (Windows, MinGW-w64 / MSYS2)
 #
 # Setup (from https://www.msys2.org):
 #   1. Install MSYS2, then from the "MSYS2 MinGW 64-bit" shell:
 #        pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-SDL2 mingw-w64-x86_64-make
 #   2. Build & run (from the repo root, same shell):
-#        mingw32-make && ./sim-template.exe
+#        mingw32-make && ./ore-in-orbit.exe
 #      (the top-level Makefile detects Windows and includes this file;
 #      equivalent: mingw32-make -f Makefile.windows)
 #
@@ -14,7 +14,7 @@
 # Only the Windows-specific settings live here; every rule is in
 # Makefile.common. The macOS-only platform_macos.mm is NOT built here.
 
-EXE       = sim-template.exe
+EXE       = ore-in-orbit.exe
 # Separate build dir per platform so artifacts never collide across makefiles.
 BUILD_DIR = build-windows
 
