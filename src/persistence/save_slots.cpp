@@ -1,6 +1,8 @@
 // save_slots.cpp — the saves folder (see save_slots.h).
 #include "persistence/save_slots.h"
 
+#include "persistence/files.h"
+
 #include <algorithm>
 #include <ctime>
 #include <fstream>
@@ -15,10 +17,6 @@ constexpr const char* kExtension = ".sav";
 
 std::int64_t now() {
     return static_cast<std::int64_t>(std::time(nullptr));
-}
-
-std::string describe(const fs::path& path, const std::error_code& ec) {
-    return path.filename().string() + ": " + ec.message();
 }
 
 }  // namespace
@@ -48,21 +46,7 @@ std::vector<SaveSlot> list_saves(const fs::path& dir) {
 }
 
 std::optional<fs::path> new_save_path(const fs::path& dir, std::string& error) {
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-    if (ec) {
-        error = "can't create the saves folder: " + ec.message();
-        return std::nullopt;
-    }
-    for (int n = 1;; ++n) {
-        fs::path path = dir / ("save-" + std::to_string(n) + kExtension);
-        if (!fs::exists(path, ec) && !ec)
-            return path;
-        if (ec) {
-            error = describe(path, ec);
-            return std::nullopt;
-        }
-    }
+    return new_numbered_path(dir, "save", kExtension, "saves", error);
 }
 
 std::string next_default_name(const std::vector<SaveSlot>& slots) {
@@ -77,34 +61,8 @@ std::string next_default_name(const std::vector<SaveSlot>& slots) {
 
 bool write_save_file(const fs::path& path, const std::string& name, const World& world, std::string& error,
                      std::optional<std::int64_t> saved_at) {
-    fs::path tmp = path;
-    tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (out)
-            write_save(out, name, saved_at.value_or(now()), world);
-        out.close();
-        if (!out) {
-            error = "can't write " + tmp.filename().string();
-            std::error_code ignored;
-            fs::remove(tmp, ignored);
-            return false;
-        }
-    }
-    std::error_code ec;
-    fs::rename(tmp, path, ec);
-    if (ec) {
-        // Some platforms won't rename over an existing file.
-        ec.clear();
-        fs::remove(path, ec);
-        if (!ec)
-            fs::rename(tmp, path, ec);
-    }
-    if (ec) {
-        error = describe(path, ec);
-        return false;
-    }
-    return true;
+    return write_file_atomically(
+        path, [&](std::ostream& out) { write_save(out, name, saved_at.value_or(now()), world); }, error);
 }
 
 std::optional<LoadedSave> load_save_file(const fs::path& path, std::string& error) {
@@ -132,10 +90,5 @@ std::optional<fs::path> copy_save(const fs::path& dir, const fs::path& path, std
 }
 
 bool delete_save(const fs::path& path, std::string& error) {
-    std::error_code ec;
-    if (!fs::remove(path, ec)) {
-        error = ec ? describe(path, ec) : path.filename().string() + " is already gone";
-        return false;
-    }
-    return true;
+    return delete_file(path, error);
 }

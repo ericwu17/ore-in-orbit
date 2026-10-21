@@ -173,7 +173,8 @@ int main(int, char**)
     SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(1);  // enable vsync
 
-    // Persistence: the window layout (imgui.ini) and the saves/ folder live
+    // Persistence: the window layout (imgui.ini), the saves/ folder and the
+    // blueprints/ folder (the blueprint library, shared by every game) live
     // in SDL's per-user app-data directory (SDL_GetPrefPath takes an org and
     // an app name — created if needed):
     //   macOS:   ~/Library/Application Support/OreInOrbit/OreInOrbit/
@@ -185,6 +186,7 @@ int main(int, char**)
     SDL_free(pref_path);
     const std::string ini_path = pref_dir + "imgui.ini";  // must outlive the ImGui context
     const std::filesystem::path saves_dir = std::filesystem::path(pref_dir) / "saves";
+    const std::filesystem::path blueprints_dir = std::filesystem::path(pref_dir) / "blueprints";
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -270,7 +272,7 @@ int main(int, char**)
             }
             break;
         }
-        case Screen::Playing:  DrawPlaying(screen, session.world, paused); break;
+        case Screen::Playing:  DrawPlaying(screen, session.world, paused, blueprints_dir); break;
         case Screen::Credits:  DrawCredits(screen); break;
         }
         DrawDevWindows(screen, session.world, debug);

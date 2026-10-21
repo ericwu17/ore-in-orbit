@@ -43,10 +43,11 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const std::filesystem::path& sav
 // The credits page (empty for now). Back or Escape returns to the menu.
 void DrawCredits(Screen& screen);
 
-// The game itself: the ship build grid and the build palette. Escape opens
-// the pause menu (Resume, or Main menu), and sets `paused` while it is open:
-// main.cpp doesn't step the simulation then.
-void DrawPlaying(Screen& screen, World& world, bool& paused);
+// The game itself: the ship build grid and the build palette, copying and
+// pasting, and the blueprint library (kept in the folder `blueprints_dir`).
+// Escape opens the pause menu (Resume, or Main menu), and sets `paused`
+// while it is open: main.cpp doesn't step the simulation then.
+void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir);
 
 // What the debug menu asks of the frame loop, which steps the simulation.
 struct DebugControls {

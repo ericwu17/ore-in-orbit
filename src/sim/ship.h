@@ -27,6 +27,8 @@
 
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Side of the square build grid, in cells. The starting ship is a small
@@ -54,6 +56,17 @@ enum class BuildResult {
 
 // A short player-facing explanation ("Needs hull under every tile", ...).
 const char* describe(BuildResult result);
+
+// Placements not made yet, which a batch of them (a blueprint paste) checks
+// each later one against: the hull to be laid, the cells to be built on, and
+// the inventory as it will be by then. Cells are keyed by cell_key().
+struct PlannedChanges {
+    std::unordered_map<int, ItemKind> hull;
+    std::unordered_set<int> occupied;
+    Inventory inventory;
+
+    static constexpr int cell_key(GridPos p) { return p.y * kShipGridSize + p.x; }
+};
 
 class Ship {
 private:
@@ -110,6 +123,8 @@ public:
     // The building whose top-left cell is `p`, or null (also null on the
     // other cells of a larger building).
     const Building* building_anchored_at(GridPos p) const;
+    // Every building's top-left cell, oldest first (the order they tick in).
+    const std::vector<GridPos>& placement_order() const { return placed; }
 
     Bridge& get_bridge() { return *bridge; }
     const Bridge& get_bridge() const { return *bridge; }
@@ -118,6 +133,9 @@ public:
 
     // Whether place() would succeed, without changing anything.
     BuildResult can_place(ItemKind kind, GridPos p, Direction facing = Direction::North) const;
+    // can_place() as if the `planned` changes had been made first, with
+    // their inventory instead of the bridge's.
+    BuildResult can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const;
     // Places one hull tile or building, taking it from the inventory. `p` is
     // the top-left cell of the building's footprint. `facing` is used by
     // rotatable buildings only (and turns a non-square one's footprint).

@@ -105,10 +105,35 @@ or double-click it), renames it (the pencil), copies it, or deletes it
 (after asking). Saves are JSON, so you can read them; one the game can't
 read stays in the list, greyed out, with the reason in its tooltip.
 
+## Blueprints
+
+Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
+and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
+A copy holds the hull in the box (plain and reinforced) and the buildings
+on it with their settings — machine recipes, collector targets and sorter
+filters — but never the items in them. A building partly inside the box
+comes whole, with the hull under it; the bridge never comes. R turns a
+copy while pasting (not one with an ion thruster in it, which doesn't
+turn).
+
+Pasting is all or nothing: hull goes down first, then the buildings, and
+only if every piece fits and the bridge has everything it takes; otherwise
+nothing changes, the pieces in the way show red, and the message says
+what's missing. Hull or an identical building already in place counts as
+done and costs nothing; reinforced hull pasted over plain hull upgrades it.
+A recipe not unlocked yet is left unset.
+
+The Blueprints window (B) keeps copies by name, in a library every game
+shares, in the `blueprints/` folder next to `saves/` (see Saves). Each
+blueprint can be copied to the system clipboard as text — one line of JSON,
+in the save format's style — to share, and "Import text" adds one from the
+clipboard. A library file holds exactly that text.
+
 ## Controls
 
 - **Escape**: back to the main menu (from the game, the save list or the
-  credits), saving the game.
+  credits), saving the game. In the game it opens the pause menu, after
+  putting away the copy / paste tool and closing the Blueprints window.
 - **Left click / drag**: build the selected item on the grid.
 - **Left click a building**: inspect it; pick a machine's recipe, a
   collector's target or a sorter's item.
@@ -119,6 +144,11 @@ read stays in the list, greyed out, with the reason in its tooltip.
 - **1–9**: pick the item to build. **R**: rotate the transport belt.
 - **Q**, or the selected item's key or icon again: build nothing, so left
   clicks only inspect.
+- **Ctrl+C** (Cmd+C on macOS): copy; drag a box over what to copy, and the
+  copy is picked up to paste. **Ctrl+V** (Cmd+V): pick up the last copy.
+  While pasting: **left click** pastes, **R** turns it, **right click**,
+  **Escape** or **Q** puts it away (see Blueprints).
+- **B**: the Blueprints window (saved blueprints, import and export).
 - **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
 
 ## Layout
@@ -140,6 +170,10 @@ One directory per layer under `src/`; includes name their layer
   - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
     their top-left cell), placement / removal rules, the starting ship, and
     moving items between neighboring buildings each tick.
+  - `blueprint.h/.cpp` — `Blueprint`: copying part of a ship (hull,
+    buildings and their settings), turning it, and pasting it all or
+    nothing (each piece checked by `Ship::can_place` against the ones
+    before it, `PlannedChanges`).
   - `milestones.h/.cpp` — the milestones (what to deliver, what each
     unlocks) and `Progress`, the bridge's way through them, which gates
     hand-crafting and machine recipes.
@@ -154,12 +188,18 @@ One directory per layer under `src/`; includes name their layer
     save is refused with a reason, never trusted).
   - `save_slots.h/.cpp` — the saves folder: listing, writing (atomically,
     via a temporary file), loading, renaming, copying and deleting saves.
+  - `blueprint_file.h/.cpp` — blueprints as one-line JSON strings (checked
+    like saves) and the blueprint library folder.
+  - `json_io.h/.cpp` — the JSON pieces saves and blueprints share: items,
+    directions and recipes by name, and checked reading.
+  - `files.h/.cpp` — atomic writes, numbered file names and deleting, for
+    both folders.
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
   - `ui.cpp` — the main menu, save list, credits and game screens (the build grid and
-    palette, with its zoom / pan camera, and the inspector), and the F1 / F2
-    demo windows.
+    palette, with its zoom / pan camera, the inspector, copy and paste and
+    the Blueprints window), and the F1 / F2 demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
   - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into

@@ -120,15 +120,31 @@ Building* Ship::building_at_mut(GridPos p) {
 }
 
 BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing) const {
+    return can_place(kind, p, facing, PlannedChanges{{}, {}, inventory()});
+}
+
+BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const {
     assert(is_placeable(kind));
+    // The grid as it will be once the planned changes are made.
+    const auto hull_will_be = [&](GridPos q) -> std::optional<ItemKind> {
+        if (!in_bounds(q))
+            return std::nullopt;
+        if (const auto it = planned.hull.find(PlannedChanges::cell_key(q)); it != planned.hull.end())
+            return it->second;
+        return at(hull, q);
+    };
+    const auto occupied = [&](GridPos q) {
+        return anchor_of(q).has_value() || planned.occupied.contains(PlannedChanges::cell_key(q));
+    };
+
     if (!in_bounds(p))
         return BuildResult::OutOfBounds;
     if (kind == ItemKind::Hull) {
-        if (has_hull(p))
+        if (hull_will_be(p))
             return BuildResult::HullAlreadyThere;
     } else if (kind == ItemKind::ReinforcedHull) {
         // Plain hull can be upgraded in place.
-        if (hull_at(p) == ItemKind::ReinforcedHull)
+        if (hull_will_be(p) == ItemKind::ReinforcedHull)
             return BuildResult::HullAlreadyThere;
     } else {
         const GridSize size = footprint_of(kind, facing);
@@ -137,19 +153,19 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing) const {
         // Missing hull is reported before overlap: it's the first rule.
         for (int y = p.y; y < p.y + size.h; ++y)
             for (int x = p.x; x < p.x + size.w; ++x)
-                if (!has_hull({x, y}))
+                if (!hull_will_be({x, y}))
                     return BuildResult::NoHull;
         if (needs_reinforced_hull(kind))
             for (int y = p.y; y < p.y + size.h; ++y)
                 for (int x = p.x; x < p.x + size.w; ++x)
-                    if (hull_at({x, y}) != ItemKind::ReinforcedHull)
+                    if (hull_will_be({x, y}) != ItemKind::ReinforcedHull)
                         return BuildResult::NeedsReinforcedHull;
         for (int y = p.y; y < p.y + size.h; ++y)
             for (int x = p.x; x < p.x + size.w; ++x)
-                if (anchor_of({x, y}))
+                if (occupied({x, y}))
                     return BuildResult::Occupied;
     }
-    if (inventory().count(kind) <= 0)
+    if (planned.inventory.count(kind) <= 0)
         return BuildResult::NoneInInventory;
     return BuildResult::Ok;
 }

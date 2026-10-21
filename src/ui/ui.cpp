@@ -1,11 +1,14 @@
 // ui.cpp — the screens: main menu, save list, credits and the game screen
-// (the ship build grid, its build palette and the crafting panel), plus the
-// debug menu and the ImPlot demo window.
+// (the ship build grid, its build palette and the crafting panel, copying
+// and pasting, and the blueprint library), plus the debug menu and the
+// ImPlot demo window.
 #include "ui/ui.h"
 #include "ui/sprites.h"
 #include "ui/ui_theme.h"
 
+#include "persistence/blueprint_file.h"
 #include "persistence/save_slots.h"
+#include "sim/blueprint.h"
 #include "sim/ship.h"
 #include "sim/world.h"
 
@@ -21,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -54,6 +58,12 @@ bool ShortcutPressed(ImGuiKey key) {
     return !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(key, false);
 }
 
+// ShortcutPressed() for a key with modifiers (ImGuiMod_Ctrl | ImGuiKey_C).
+// ImGuiMod_Ctrl is Cmd on macOS.
+bool ChordPressed(ImGuiKeyChord chord) {
+    return !ImGui::GetIO().WantTextInput && ImGui::IsKeyChordPressed(chord);
+}
+
 
 // ---------------------------------------------------------------------------
 // Game screen
@@ -65,6 +75,7 @@ struct BuildUiState {
     Direction facing = Direction::North;  // for rotatable buildings
     bool erase_hull = false;              // this right-drag removes hull, not buildings
     std::string message;                  // why the last click did nothing
+    ImVec4 message_color = theme::kBad;
     double message_time = -1.0e9;         // ImGui::GetTime() when it was set
     // The building shown in the inspector (clicked on the grid): its
     // top-left cell, and the building itself, to notice it went away.
@@ -98,17 +109,83 @@ Camera g_camera;
 // Mouse-wheel zoom steps multiply the cell size by this.
 constexpr float kZoomStep = 1.2f;
 
+// What a left click on the grid does: build (the selected item), or copy and
+// paste with blueprints.
+enum class Tool {
+    Build,
+    Copy,   // drag a box to copy what's in it
+    Paste,  // click to paste the held blueprint
+};
+
+// Copying and pasting. UI-only, like BuildUiState; the clipboard outlives
+// the game, so copies go from one save to another.
+struct BlueprintUiState {
+    Tool tool = Tool::Build;
+    std::optional<GridPos> copy_start;   // where the copy drag started
+    std::optional<Blueprint> clipboard;  // the last copy
+    std::optional<Blueprint> held;       // what Paste pastes, turned as the player turns it
+    std::string paste_status;            // why it can't be pasted where the mouse is; empty if it can
+    bool show_library = false;           // the Blueprints window
+};
+BlueprintUiState g_blueprints;
+
+// Back to building (from copying or pasting).
+void LeaveBlueprintTool() {
+    g_blueprints.tool = Tool::Build;
+    g_blueprints.copy_start.reset();
+    g_blueprints.held.reset();
+    g_blueprints.paste_status.clear();
+}
+
+// Picks up `blueprint` to paste.
+void HoldBlueprint(const Blueprint& blueprint) {
+    LeaveBlueprintTool();
+    g_blueprints.tool = Tool::Paste;
+    g_blueprints.held = blueprint;
+}
+
 // Pick `kind` to build, or put it away if it is already picked.
 void ToggleSelected(ItemKind kind) {
+    LeaveBlueprintTool();
     if (g_build.selected == kind)
         g_build.selected.reset();
     else
         g_build.selected = kind;
 }
 
-void SetBuildMessage(BuildResult result) {
-    g_build.message = describe(result);
+void SetMessage(std::string message, ImVec4 color = theme::kBad) {
+    g_build.message = std::move(message);
+    g_build.message_color = color;
     g_build.message_time = ImGui::GetTime();
+}
+
+void SetBuildMessage(BuildResult result) {
+    SetMessage(describe(result));
+}
+
+// The key that goes with C and V for copy and paste.
+#ifdef __APPLE__
+constexpr const char* kCtrlName = "Cmd";
+#else
+constexpr const char* kCtrlName = "Ctrl";
+#endif
+
+// "6x4, 5 buildings".
+std::string BlueprintSummary(const Blueprint& blueprint) {
+    const std::size_t n = blueprint.buildings.size();
+    return std::to_string(blueprint.size.w) + "x" + std::to_string(blueprint.size.h) + ", " + std::to_string(n) +
+           (n == 1 ? " building" : " buildings");
+}
+
+// Everything pasting it takes from the inventory, on bare space.
+Inventory BlueprintCost(const Blueprint& blueprint) {
+    Inventory cost;
+    for (const std::optional<ItemKind>& tile : blueprint.hull)
+        if (tile)
+            cost.add(*tile);
+    for (const BlueprintBuilding& b : blueprint.buildings)
+        cost.add(b.kind);
+    return cost;
 }
 
 const char* DirectionName(Direction d) {
@@ -620,6 +697,68 @@ std::vector<ItemKind> BuildList(const Ship& ship) {
     return list;
 }
 
+// Copying and pasting, in the left panel: what's on the clipboard, the
+// tools, and while pasting, what the blueprint costs and whether it fits
+// where the mouse is.
+void DrawBlueprintSection(const Ship& ship) {
+    theme::SectionHeading("Blueprints");
+    BlueprintUiState& bp = g_blueprints;
+    if (bp.clipboard)
+        ImGui::Text("Clipboard: %s", BlueprintSummary(*bp.clipboard).c_str());
+    else
+        ImGui::TextColored(theme::kInkDim, "Clipboard empty");
+
+    const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+    if (theme::SegmentedButton("Copy", bp.tool == Tool::Copy, ImVec2(third, 0.0f))) {
+        if (bp.tool == Tool::Copy) {
+            LeaveBlueprintTool();
+        } else {
+            LeaveBlueprintTool();
+            bp.tool = Tool::Copy;
+        }
+    }
+    ImGui::SetItemTooltip("Drag a box over what to copy (%s+C)", kCtrlName);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!bp.clipboard && bp.tool != Tool::Paste);
+    if (theme::SegmentedButton("Paste", bp.tool == Tool::Paste, ImVec2(third, 0.0f))) {
+        if (bp.tool == Tool::Paste)
+            LeaveBlueprintTool();
+        else
+            HoldBlueprint(*bp.clipboard);
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Paste the clipboard (%s+V)", kCtrlName);
+    ImGui::SameLine();
+    if (theme::SegmentedButton("Library", bp.show_library, ImVec2(third, 0.0f)))
+        bp.show_library = !bp.show_library;
+    ImGui::SetItemTooltip("Saved blueprints, import and export (B)");
+
+    if (bp.tool == Tool::Copy) {
+        ImGui::TextColored(theme::kInkDim, "Drag a box over what to copy\nRight click or Esc: stop");
+    } else if (bp.tool == Tool::Paste && bp.held) {
+        ImGui::TextUnformatted(bp.held->name.empty() ? "Pasting the clipboard" : bp.held->name.c_str());
+        ImGui::TextColored(theme::kInkDim, "Click: paste   R: rotate\nRight click or Esc: stop");
+        // What it costs on bare space, red where the bridge is short.
+        const float icon = ImGui::GetFrameHeight() * 1.4f;
+        IconFlow flow;
+        flow.Start(icon);
+        for (const ItemStack& s : BlueprintCost(*bp.held).stacks()) {
+            const int have = ship.inventory().count(s.kind);
+            const std::string amount = ShortCount(s.count);
+            flow.Next();
+            ImGui::PushID(static_cast<int>(s.kind));
+            IconTile(ItemIcon(s.kind), icon, {have < s.count ? "!" : nullptr, amount.c_str()});
+            ImGui::SetItemTooltip("%s: %d (%d in the bridge)", item_name(s.kind), s.count, have);
+            ImGui::PopID();
+        }
+        if (!bp.paste_status.empty()) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(theme::kBad, "%s", bp.paste_status.c_str());
+            ImGui::PopTextWrapPos();
+        }
+    }
+}
+
 // The left panel: an icon per placeable item in the inventory with its count,
 // what is selected and its facing, the cargo (everything else in the
 // inventory) and the controls.
@@ -669,9 +808,11 @@ void DrawBuildPalette(const Ship& ship, float width) {
 
     ImGui::Spacing();
     if (!g_build.message.empty() && ImGui::GetTime() - g_build.message_time < kMessageSeconds)
-        ImGui::TextColored(theme::kBad, "%s", g_build.message.c_str());
+        ImGui::TextColored(g_build.message_color, "%s", g_build.message.c_str());
     else
         ImGui::TextUnformatted("");
+
+    DrawBlueprintSection(ship);
 
     theme::SectionHeading("Cargo");
     const float cargo_icon = ImGui::GetFrameHeight() * 1.6f;
@@ -700,9 +841,11 @@ void DrawBuildPalette(const Ship& ship, float width) {
                        "Right click / drag: remove a building;\n"
                        "again to remove the hull (refunds)\n"
                        "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
-                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: pause menu\n\n"
+                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: pause menu\n"
+                       "%s+C: copy an area   %s+V: paste\nB: blueprints\n\n"
                        "Everything but hull needs a hull tile under it; the largest buildings need "
-                       "reinforced hull.");
+                       "reinforced hull.",
+                       kCtrlName, kCtrlName);
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
 }
@@ -1329,8 +1472,68 @@ bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
     return panning;
 }
 
+// The copy tool's box, from cell `a` to cell `b` (either way round), and
+// the buildings it will take, outlined (`origin`, `cell`: the grid on
+// screen).
+void DrawCopyBox(ImDrawList* draw, const Ship& ship, GridPos a, GridPos b, ImVec2 origin, float cell) {
+    const GridPos lo{std::min(a.x, b.x), std::min(a.y, b.y)};
+    const GridPos hi{std::max(a.x, b.x), std::max(a.y, b.y)};
+    const ImVec2 min = CellMin(origin, cell, lo);
+    const ImVec2 max = CellMin(origin, cell, {hi.x + 1, hi.y + 1});
+    draw->AddRectFilled(min, max, theme::U32(theme::kNavy, 0.15f));
+    for (const GridPos p : ship.placement_order()) {
+        const Building* building = ship.building_anchored_at(p);
+        const GridSize size = building->footprint();
+        if (!building->item_kind() || p.x > hi.x || p.y > hi.y || p.x + size.w <= lo.x || p.y + size.h <= lo.y)
+            continue;
+        const ImVec2 bmin = CellMin(origin, cell, p);
+        draw->AddRect(bmin, FootprintMax(bmin, cell, size), theme::U32(theme::kNavy), 0.0f, 0, 1.5f);
+    }
+    draw->AddRect(min, max, theme::U32(theme::kNavy), 0.0f, 0, 2.0f);
+}
+
+// A ghost of `blueprint` pasted with its top-left cell at `at`: what it would
+// add (not what is there already), each piece that can't go down outlined
+// (warning-colored when it only lacks the items), and its bounds, good or
+// bad. Returns the plan.
+PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& blueprint, GridPos at, ImVec2 origin,
+                         float cell) {
+    const PastePlan plan = plan_paste(ship, blueprint, at);
+    for (const PasteEntry& e : plan.entries) {
+        if (e.satisfied)
+            continue;
+        const ImVec2 min = CellMin(origin, cell, e.at);
+        const ImU32 bad = theme::U32(e.result == BuildResult::NoneInInventory ? theme::kWarn : theme::kBad);
+        if (!e.building) {
+            const ImVec2 max(min.x + cell, min.y + cell);
+            DrawHull(draw, e.kind, min, max, cell, 0.5f, theme::U32(theme::kTileHull, 0.5f),
+                     theme::U32(theme::kTileReinforcedHull, 0.5f));
+            if (e.result != BuildResult::Ok)
+                draw->AddRect(min, max, bad, 0.0f, 0, 1.5f);
+            continue;
+        }
+        const BlueprintBuilding& b = blueprint.buildings[*e.building];
+        const GridSize size = footprint_of(b.kind, b.facing);
+        const ImVec2 max = FootprintMax(min, cell, size);
+        DrawBuilding(draw, min, cell, size, b.kind, b.facing, 0.45f);
+        // Its settings, where the built one shows them.
+        if (cell >= 8.0f && b.recipe && !b.recipe->outputs.empty())
+            DrawItem(draw, ImVec2(max.x - cell * 0.32f, min.y + cell * 0.32f), cell * 0.16f,
+                     b.recipe->outputs.front().kind);
+        if (b.filter)
+            DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.2f), *b.filter);
+        if (e.result != BuildResult::Ok)
+            draw->AddRect(min, max, bad, 0.0f, 0, 2.0f);
+    }
+    const ImVec2 min = CellMin(origin, cell, at);
+    draw->AddRect(min, FootprintMax(min, cell, blueprint.size), theme::U32(plan.ok() ? theme::kGood : theme::kBad),
+                  0.0f, 0, 2.0f);
+    return plan;
+}
+
 // The build grid on a canvas filling `avail`: click / drag to build and
-// remove, scroll to zoom, middle drag (or hold Space and move) to pan.
+// remove (or with the copy and paste tools, copy and paste), scroll to zoom,
+// middle drag (or hold Space and move) to pan.
 void DrawShipGrid(Ship& ship, ImVec2 avail) {
     const int n = ship.size();
     const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
@@ -1344,19 +1547,52 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
     const float side = cell * static_cast<float>(n);
     const ImVec2 origin(std::floor(canvas_min.x + g_camera.offset.x), std::floor(canvas_min.y + g_camera.offset.y));
 
+    // The cell under the mouse, and the nearest one on the grid (where a
+    // copy box dragged off the edge stops).
+    const ImVec2 m = ImGui::GetMousePos();
+    const GridPos mouse_cell{static_cast<int>(std::floor((m.x - origin.x) / cell)),
+                             static_cast<int>(std::floor((m.y - origin.y) / cell))};
+    const GridPos nearest_cell{std::clamp(mouse_cell.x, 0, n - 1), std::clamp(mouse_cell.y, 0, n - 1)};
     std::optional<GridPos> hover_cell;
-    if (ImGui::IsItemHovered() && !panning) {
-        const ImVec2 m = ImGui::GetMousePos();
-        const GridPos p{static_cast<int>(std::floor((m.x - origin.x) / cell)),
-                        static_cast<int>(std::floor((m.y - origin.y) / cell))};
-        if (ship.in_bounds(p))
-            hover_cell = p;
-    }
+    if (ImGui::IsItemHovered() && !panning && ship.in_bounds(mouse_cell))
+        hover_cell = mouse_cell;
+
+    // Pasting: the blueprint centered on the mouse.
+    BlueprintUiState& bp = g_blueprints;
+    std::optional<GridPos> paste_at;
+    if (bp.tool == Tool::Paste && bp.held && hover_cell)
+        paste_at = GridPos{hover_cell->x - bp.held->size.w / 2, hover_cell->y - bp.held->size.h / 2};
 
     // Input: a click reports why it failed; dragging just skips cells that
     // don't work, so painting a row over existing tiles stays quiet.
     // Only while the press started on the grid (the button is active).
-    if (hover_cell && ImGui::IsItemActive()) {
+    if (bp.tool != Tool::Build) {
+        // Right click puts the tool away.
+        if (hover_cell && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            LeaveBlueprintTool();
+        } else if (bp.tool == Tool::Copy) {
+            if (hover_cell && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                bp.copy_start = hover_cell;
+            if (bp.copy_start && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                if (const std::optional<Blueprint> copy = copy_region(ship, *bp.copy_start, nearest_cell)) {
+                    bp.clipboard = copy;
+                    HoldBlueprint(*copy);
+                    SetMessage("Copied " + BlueprintSummary(*copy), theme::kGood);
+                } else {
+                    bp.copy_start.reset();
+                    SetMessage("Nothing there to copy");
+                }
+            }
+        } else if (paste_at && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            const PasteResult result = paste(ship, *bp.held, *paste_at);
+            if (!result.pasted)
+                SetMessage(describe(result.plan));
+            else if (result.settings_skipped > 0)
+                SetMessage(std::to_string(result.settings_skipped) +
+                               " recipe(s) not unlocked yet: those machines have none",
+                           theme::kWarnText);
+        }
+    } else if (hover_cell && ImGui::IsItemActive()) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             // With nothing selected, nothing gets built: a click only inspects.
             const std::optional<BuildResult> r =
@@ -1457,9 +1693,27 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                 DrawRouterItem(draw, *router, min, cell);
         }
 
+    // Copying: the box being dragged, or the cell it would start from.
+    if (bp.tool == Tool::Copy) {
+        if (bp.copy_start)
+            DrawCopyBox(draw, ship, *bp.copy_start, nearest_cell, origin, cell);
+        else if (hover_cell)
+            DrawCopyBox(draw, ship, *hover_cell, *hover_cell, origin, cell);
+    }
+    // Pasting: a ghost of the blueprint, and why it can't go there if so.
+    // Clipped to the grid.
+    bp.paste_status.clear();
+    if (paste_at) {
+        draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
+        const PastePlan plan = DrawPasteGhost(draw, ship, *bp.held, *paste_at, origin, cell);
+        draw->PopClipRect();
+        if (!plan.ok())
+            bp.paste_status = describe(plan);
+    }
+
     // Hover preview: a ghost of what would be built (its footprint starting
     // at the hovered cell), outlined in good / bad. Clipped to the grid.
-    if (hover_cell) {
+    if (hover_cell && bp.tool == Tool::Build) {
         if (const std::optional<ItemKind> selected = g_build.selected) {
             const GridSize size = footprint_of(*selected, g_build.facing);
             const ImVec2 min = CellMin(origin, cell, *hover_cell);
@@ -1535,6 +1789,267 @@ std::string Trimmed(const std::string& s) {
     if (first == std::string::npos)
         return {};
     return s.substr(first, s.find_last_not_of(" \t") - first + 1);
+}
+
+// ---------------------------------------------------------------------------
+// Blueprint library
+// ---------------------------------------------------------------------------
+
+// The Blueprints window's state. Reset, and the library read from disk,
+// each time it opens; read again after each change it makes.
+struct LibraryUiState {
+    std::vector<BlueprintSlot> slots;
+    bool loaded = false;
+    std::string message;  // what the last action did, or why it failed
+    ImVec4 message_color = theme::kBad;
+    // Saving the clipboard: the name being typed.
+    char save_name[64] = {};
+    bool focus_save = false;
+    // The blueprint whose name is being edited, and the edit.
+    std::optional<fs::path> renaming;
+    char new_name[64] = {};
+    bool focus_name = false;
+    // The blueprint waiting for the player to confirm deleting it.
+    std::optional<fs::path> deleting;
+    std::string deleting_name;
+};
+LibraryUiState g_library;
+
+constexpr const char* kSaveBlueprintPopup = "Save blueprint";
+constexpr const char* kDeleteBlueprintPopup = "Delete blueprint?";
+
+// The Blueprints window (B, or Library in the left panel): the blueprints
+// saved in `dir`, to paste, rename, delete or copy as text, and saving the
+// clipboard into it or importing a blueprint copied as text.
+void DrawBlueprintLibrary(const fs::path& dir) {
+    BlueprintUiState& bp = g_blueprints;
+    LibraryUiState& ui = g_library;
+    if (!bp.show_library) {
+        ui.loaded = false;
+        return;
+    }
+    if (!ui.loaded) {
+        ui = {};
+        ui.slots = list_blueprints(dir);
+        ui.loaded = true;
+    }
+    const auto say = [&](std::string message, ImVec4 color) {
+        ui.message = std::move(message);
+        ui.message_color = color;
+    };
+
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 24.0f, fh * 16.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (!ImGui::Begin("Blueprints", &bp.show_library, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    bool refresh = false;
+    std::optional<fs::path> use;  // the blueprint to pick up, once the list is drawn
+    bool commit_rename = false;
+
+    ImGui::BeginDisabled(!bp.clipboard);
+    if (theme::PrimaryButton("Save clipboard")) {
+        std::snprintf(ui.save_name, sizeof ui.save_name, "%s",
+                      bp.clipboard->name.empty() ? ("Blueprint " + std::to_string(ui.slots.size() + 1)).c_str()
+                                                 : bp.clipboard->name.c_str());
+        ui.focus_save = true;
+        ImGui::OpenPopup(kSaveBlueprintPopup);
+    }
+    ImGui::SetItemTooltip("Keep what was last copied, by name");
+    ImGui::SameLine();
+    if (ImGui::Button("Copy clipboard as text")) {
+        ImGui::SetClipboardText(blueprint_to_string(*bp.clipboard).c_str());
+        say("Copied as text: paste it anywhere to share it", theme::kGood);
+    }
+    ImGui::SetItemTooltip("Put what was last copied on the system clipboard, as a blueprint string");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Import text")) {
+        const char* text = ImGui::GetClipboardText();
+        std::string error;
+        std::optional<Blueprint> imported = blueprint_from_string(text ? text : "", error);
+        if (!imported) {
+            say("The system clipboard holds no blueprint: " + error, theme::kBad);
+        } else {
+            if (Trimmed(imported->name).empty())
+                imported->name = "Imported blueprint";
+            if (add_blueprint(dir, *imported, error))
+                say("Imported \"" + imported->name + "\"", theme::kGood);
+            else
+                say("Couldn't save it: " + error, theme::kBad);
+            refresh = true;
+        }
+    }
+    ImGui::SetItemTooltip("Add a blueprint string from the system clipboard");
+
+    if (!ui.message.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(ui.message_color, "%s", ui.message.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::Spacing();
+
+    if (ui.slots.empty())
+        ImGui::TextColored(theme::kInkDim, "No blueprints yet: copy an area (%s+C), then save it here.", kCtrlName);
+    const ImGuiTableFlags table_flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit;
+    if (!ui.slots.empty() && ImGui::BeginTable("##blueprint_table", 3, table_flags)) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Size");
+        ImGui::TableSetupColumn("##actions");
+        ImGui::TableHeadersRow();
+        for (const BlueprintSlot& slot : ui.slots) {
+            ImGui::PushID(slot.path.string().c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (!slot.blueprint) {
+                // Unreadable: it can only be deleted.
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(theme::kInkDim, "%s", slot.path.filename().string().c_str());
+                ImGui::SameLine();
+                theme::HelpMarker(("Can't be read: " + slot.error).c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                if (theme::DangerSmallButton("Delete")) {
+                    ui.deleting = slot.path;
+                    ui.deleting_name = slot.path.filename().string();
+                }
+                ImGui::PopID();
+                continue;
+            }
+            const Blueprint& blueprint = *slot.blueprint;
+            if (ui.renaming == slot.path) {
+                if (ui.focus_name) {
+                    ImGui::SetKeyboardFocusHere();
+                    ui.focus_name = false;
+                }
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputText("##name", ui.new_name, sizeof ui.new_name,
+                                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
+                    commit_rename = true;
+                else if (ImGui::IsItemDeactivated())
+                    ui.renaming.reset();  // Escape, or clicked elsewhere
+            } else {
+                // The whole row: double-click to pick it up.
+                ImGui::Selectable(blueprint.name.c_str(), false,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                                      ImGuiSelectableFlags_AllowDoubleClick,
+                                  ImVec2(0.0f, fh));
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    use = slot.path;
+            }
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(BlueprintSummary(blueprint).c_str());
+
+            ImGui::TableNextColumn();
+            if (ImGui::SmallButton("Use"))
+                use = slot.path;
+            ImGui::SetItemTooltip("Pick it up to paste");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy text")) {
+                ImGui::SetClipboardText(blueprint_to_string(blueprint).c_str());
+                say("Copied \"" + blueprint.name + "\" as text", theme::kGood);
+            }
+            ImGui::SetItemTooltip("Put it on the system clipboard, as a blueprint string to share");
+            ImGui::SameLine();
+            if (theme::PencilButton("##rename")) {
+                ui.renaming = slot.path;
+                std::snprintf(ui.new_name, sizeof ui.new_name, "%s", blueprint.name.c_str());
+                ui.focus_name = true;
+            }
+            ImGui::SetItemTooltip("Rename");
+            ImGui::SameLine();
+            if (theme::DangerSmallButton("Delete")) {
+                ui.deleting = slot.path;
+                ui.deleting_name = blueprint.name;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    // Naming the clipboard, to save it.
+    if (ImGui::BeginPopupModal(kSaveBlueprintPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Name:");
+        if (ui.focus_save) {
+            ImGui::SetKeyboardFocusHere();
+            ui.focus_save = false;
+        }
+        ImGui::SetNextItemWidth(fh * 12.0f);
+        const bool entered = ImGui::InputText("##save_name", ui.save_name, sizeof ui.save_name,
+                                              ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        bool close = false;
+        if (theme::PrimaryButton("Save") || entered) {
+            const std::string name = Trimmed(ui.save_name);
+            std::string error;
+            if (name.empty()) {
+                say("A blueprint needs a name.", theme::kBad);
+            } else if (bp.clipboard) {
+                Blueprint named = *bp.clipboard;
+                named.name = name;
+                if (add_blueprint(dir, named, error))
+                    say("Saved \"" + name + "\"", theme::kGood);
+                else
+                    say("Couldn't save it: " + error, theme::kBad);
+                refresh = true;
+            }
+            close = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ShortcutPressed(ImGuiKey_Escape))
+            close = true;
+        if (close)
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // Opened here, not in the row, so the popup's ID doesn't depend on it.
+    if (ui.deleting && !ImGui::IsPopupOpen(kDeleteBlueprintPopup))
+        ImGui::OpenPopup(kDeleteBlueprintPopup);
+    if (ImGui::BeginPopupModal(kDeleteBlueprintPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Delete \"%s\"? This can't be undone.", ui.deleting_name.c_str());
+        ImGui::Spacing();
+        bool close = false;
+        if (theme::PrimaryButton("Delete")) {
+            std::string error;
+            if (ui.deleting && !delete_blueprint(*ui.deleting, error))
+                say("Couldn't delete it: " + error, theme::kBad);
+            else
+                ui.message.clear();
+            refresh = close = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ShortcutPressed(ImGuiKey_Escape))
+            close = true;
+        if (close) {
+            ui.deleting.reset();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (commit_rename && ui.renaming) {
+        const std::string name = Trimmed(ui.new_name);
+        std::string error;
+        if (name.empty())
+            say("A blueprint needs a name.", theme::kBad);
+        else if (!rename_blueprint(*ui.renaming, name, error))
+            say("Couldn't rename it: " + error, theme::kBad);
+        ui.renaming.reset();
+        refresh = true;
+    }
+    if (use)
+        for (const BlueprintSlot& slot : ui.slots)
+            if (slot.path == *use && slot.blueprint) {
+                HoldBlueprint(*slot.blueprint);
+                bp.show_library = false;
+            }
+    if (refresh)
+        ui.slots = list_blueprints(dir);
+    ImGui::End();
 }
 
 }  // namespace
@@ -1738,13 +2253,23 @@ void DrawCredits(Screen& screen) {
     ImGui::End();
 }
 
-void DrawPlaying(Screen& screen, World& world, bool& paused) {
-    // Escape opens the pause menu, or closes it again. Not when it closed a
-    // dropdown or tooltip popup: ImGui already did that before we got here,
-    // so look at whether one was open last frame.
+void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir) {
+    // Escape opens the pause menu, or closes it again; first, though, it puts
+    // the copy / paste tool away, then closes the Blueprints window. Not when
+    // it closed a dropdown or tooltip popup: ImGui already did that before we
+    // got here, so look at whether one was open last frame.
     static bool popup_was_open = false;
-    if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open))
-        paused = !paused;
+    BlueprintUiState& bp = g_blueprints;
+    if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {
+        if (paused)
+            paused = false;
+        else if (bp.tool != Tool::Build)
+            LeaveBlueprintTool();
+        else if (bp.show_library)
+            bp.show_library = false;
+        else
+            paused = true;
+    }
 
     Ship& ship = world.get_ship();
     if (!paused) {
@@ -1752,10 +2277,35 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
         for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
             if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
                 ToggleSelected(list[i]);
-        if (ShortcutPressed(ImGuiKey_Q))
+        if (ShortcutPressed(ImGuiKey_Q)) {
             g_build.selected.reset();
-        if (ShortcutPressed(ImGuiKey_R))
-            g_build.facing = rotated_cw(g_build.facing);
+            LeaveBlueprintTool();
+        }
+        if (ShortcutPressed(ImGuiKey_R)) {
+            if (bp.tool != Tool::Paste || !bp.held) {
+                g_build.facing = rotated_cw(g_build.facing);
+            } else if (can_rotate(*bp.held)) {
+                bp.held = rotated_cw(*bp.held);
+            } else {
+                for (const BlueprintBuilding& b : bp.held->buildings)
+                    if (!is_rotatable(b.kind) && footprint_of(b.kind).w != footprint_of(b.kind).h) {
+                        SetMessage(std::string(item_name(b.kind)) + " can't be turned, so this can't either");
+                        break;
+                    }
+            }
+        }
+        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+            LeaveBlueprintTool();
+            bp.tool = Tool::Copy;
+        }
+        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+            if (bp.clipboard)
+                HoldBlueprint(*bp.clipboard);
+            else
+                SetMessage(std::string("Nothing copied yet: ") + kCtrlName + "+C copies an area");
+        }
+        if (ShortcutPressed(ImGuiKey_B))
+            bp.show_library = !bp.show_library;
     }
 
     // The mouse wheel zooms the grid; it never scrolls the page.
@@ -1773,6 +2323,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
     DrawMilestoneBanner(ship.get_bridge(), grid_min, grid_avail);
     ImGui::SetCursorScreenPos(ImVec2(grid_min.x + grid_avail.x + gap, grid_min.y));
     DrawCraftPanel(ship, craft_w);
+    if (!paused)
+        DrawBlueprintLibrary(blueprints_dir);
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
 
     // The pause menu: a modal over the game, which dims it and takes the
@@ -1794,6 +2346,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused) {
             g_banner = {};
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
+            LeaveBlueprintTool();  // the clipboard stays, to paste into another game
+            bp.show_library = false;
         }
         if (!paused)
             ImGui::CloseCurrentPopup();

@@ -6,10 +6,8 @@
 // the bottom, is the one struct the simulation classes open their private
 // state to (their `friend struct SaveAccess`).
 //
-// Items and directions are written by their enumerator's name and recipes
-// by recipe_name, never by number, so reordering an enum or the recipe table doesn't break old saves. (The makefile sets
-// JSON_DISABLE_ENUM_SERIALIZATION, so an enum can't be written as a number
-// by mistake.)
+// Items, directions and recipes are written by name (see json_io.h, which
+// holds the reading and writing pieces shared with blueprints).
 //
 // Reading checks everything that could break the simulation's invariants
 // (ranges, known names, bounds, hull under buildings, overlaps, one bridge).
@@ -18,13 +16,12 @@
 // A bad save never asserts.
 #include "persistence/save_file.h"
 
+#include "persistence/json_io.h"
 #include "sim/building.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/world.h"
-
-#include "nlohmann/json.hpp"
 
 #include <istream>
 #include <limits>
@@ -35,9 +32,7 @@
 #include <string_view>
 #include <utility>
 
-// Objects keep their keys in the order written, so saves read naturally
-// (kind and position first).
-using Json = nlohmann::ordered_json;
+using namespace json_io;
 
 namespace {
 
@@ -52,50 +47,9 @@ constexpr int kMaxSavedCount = std::numeric_limits<int>::max() / kItemKindCount;
 // save from asking for an absurd amount.
 constexpr std::size_t kMaxSavedQueue = 100'000;
 
-class LoadError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
-
 // ---------------------------------------------------------------------------
-// Names
+// Checked reading (the rest is in json_io.h)
 // ---------------------------------------------------------------------------
-
-// Items are written by item_id (sim/game_types.h).
-
-const char* direction_id(Direction d) {
-    switch (d) {
-    case Direction::North: return "North";
-    case Direction::East:  return "East";
-    case Direction::South: return "South";
-    case Direction::West:  return "West";
-    }
-    return "?";
-}
-
-// ---------------------------------------------------------------------------
-// Checked reading
-// ---------------------------------------------------------------------------
-
-std::string load_string(const Json& j, const char* what) {
-    if (!j.is_string())
-        throw LoadError(std::string("expected ") + what + ", not " + j.dump());
-    return j.get<std::string>();
-}
-
-// An integer from lo to hi (json's own get<int>() doesn't check the range).
-std::int64_t load_int(const Json& j, std::int64_t lo, std::int64_t hi) {
-    // Non-negative numbers parse as unsigned; compare those unsigned, so a
-    // huge one isn't wrapped into range.
-    const bool in_range = j.is_number_unsigned()
-                              ? hi >= 0 && j.get<std::uint64_t>() <= static_cast<std::uint64_t>(hi) &&
-                                    static_cast<std::int64_t>(j.get<std::uint64_t>()) >= lo
-                              : j.is_number_integer() && j.get<std::int64_t>() >= lo && j.get<std::int64_t>() <= hi;
-    if (!in_range)
-        throw LoadError("expected a whole number from " + std::to_string(lo) + " to " + std::to_string(hi) +
-                        ", not " + j.dump());
-    return j.get<std::int64_t>();
-}
 
 Tick load_tick(const Json& j, Tick hi = std::numeric_limits<Tick>::max()) {
     if (!j.is_number_unsigned() || j.get<std::uint64_t>() > hi)
@@ -113,53 +67,6 @@ int load_coord(const Json& j) {
     return static_cast<int>(load_int(j, 0, kShipGridSize - 1));
 }
 
-std::optional<ItemKind> item_from_id(std::string_view id) {
-    for (int i = 0; i < kItemKindCount; ++i)
-        if (id == item_id(static_cast<ItemKind>(i)))
-            return static_cast<ItemKind>(i);
-    return std::nullopt;
-}
-
-ItemKind load_item(const Json& j) {
-    const std::string id = load_string(j, "an item");
-    const std::optional<ItemKind> kind = item_from_id(id);
-    if (!kind)
-        throw LoadError("unknown item \"" + id + "\"");
-    return *kind;
-}
-
-// An item, or null for none.
-Json save_optional_item(std::optional<ItemKind> kind) {
-    return kind ? Json(item_id(*kind)) : Json(nullptr);
-}
-
-std::optional<ItemKind> load_optional_item(const Json& j) {
-    return j.is_null() ? std::nullopt : std::optional<ItemKind>(load_item(j));
-}
-
-Direction load_direction(const Json& j) {
-    const std::string id = load_string(j, "a direction");
-    for (int i = 0; i < 4; ++i)
-        if (id == direction_id(static_cast<Direction>(i)))
-            return static_cast<Direction>(i);
-    throw LoadError("unknown direction \"" + id + "\"");
-}
-
-Json save_recipe(const Recipe* recipe) {
-    return recipe ? Json(recipe_name(*recipe)) : Json(nullptr);
-}
-
-// A recipe by name, or null for none.
-const Recipe* load_recipe(const Json& j) {
-    if (j.is_null())
-        return nullptr;
-    const std::string name = load_string(j, "a recipe");
-    for (const Recipe& r : all_recipes())
-        if (name == recipe_name(r))
-            return &r;
-    throw LoadError("unknown recipe \"" + name + "\"");
-}
-
 // An inventory: an object of counts by item, {"IronPlate": 200, ...}.
 Json save_inventory(const Inventory& inv) {
     Json j = Json::object();
@@ -175,12 +82,6 @@ Inventory load_inventory(const Json& j) {
     for (const auto& [id, count] : j.items())
         inv.add(load_item(Json(id)), static_cast<int>(load_int(count, 0, kMaxSavedCount)));
     return inv;
-}
-
-const Json& load_array(const Json& j, const char* what) {
-    if (!j.is_array())
-        throw LoadError(std::string("expected a list of ") + what + ", not " + j.dump());
-    return j;
 }
 
 }  // namespace
