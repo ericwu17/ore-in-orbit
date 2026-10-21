@@ -101,6 +101,9 @@ enum class ItemKind {
     // Placeable: ship systems.
     SurveyScanner,
     IonThruster,
+    // Placeable: turrets.
+    Autocannon,
+    Railgun,
     // Raw resources (what the collectors gather).
     IronOre,
     CopperOre,
@@ -125,6 +128,9 @@ enum class ItemKind {
     // Fleet: launching ships and moving cargo between them.
     ShipStarterPack,
     CargoPod,
+    // Ammunition, for the turrets.
+    SlugMagazine,
+    RailSlug,
     Count,  // not a kind: the number of kinds
 };
 
@@ -141,7 +147,7 @@ enum class ItemCategory {
 ItemCategory item_category(ItemKind kind);
 // Hull tiles and buildings: what the player can put on the grid.
 constexpr bool is_placeable(ItemKind kind) {
-    return static_cast<int>(kind) <= static_cast<int>(ItemKind::IonThruster);
+    return static_cast<int>(kind) <= static_cast<int>(ItemKind::Railgun);
 }
 
 // The player-facing name of an item ("Hull", "Iron plate", ...).

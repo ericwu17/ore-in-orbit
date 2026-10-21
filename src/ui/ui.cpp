@@ -9,6 +9,7 @@
 #include "persistence/blueprint_file.h"
 #include "persistence/save_slots.h"
 #include "sim/blueprint.h"
+#include "sim/combat.h"
 #include "sim/fleet.h"
 #include "sim/ship.h"
 #include "sim/world.h"
@@ -276,6 +277,8 @@ const char* TileLabel(ItemKind kind) {
     case ItemKind::BatteryBank:       return "BB";
     case ItemKind::SurveyScanner:     return "SS";
     case ItemKind::IonThruster:       return "IT";
+    case ItemKind::Autocannon:        return "AC";
+    case ItemKind::Railgun:           return "RG";
     default:                          return "?";
     }
 }
@@ -291,6 +294,8 @@ ImVec4 TileColor(ItemKind kind) {
     case ItemKind::BatteryBank:       return theme::kTilePower;
     case ItemKind::SurveyScanner:
     case ItemKind::IonThruster:       return theme::kTileSystem;
+    case ItemKind::Autocannon:
+    case ItemKind::Railgun:           return theme::kTileTurret;
     default:                          return theme::kTileMachine;
     }
 }
@@ -994,6 +999,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     ImGui::SameLine();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
+    ImGui::TextColored(b.damaged() ? theme::kBad : theme::kInkDim, "Health %d / %d", b.get_hp(), b.max_hp());
 
     const float bar_w = ImGui::GetFrameHeight() * 8.0f;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
@@ -1092,6 +1098,18 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     }
     if (kind == ItemKind::SurveyScanner)
         ImGui::TextColored(theme::kInkDim, "Surveys the sectors next to the ship's");
+    if (const auto* turret = dynamic_cast<const Turret*>(&b)) {
+        const TurretSpec& spec = turret->get_spec();
+        ImGui::TextColored(theme::kInkDim, "%d damage, %.1f shots / s, range %.0f", spec.damage,
+                           static_cast<double>(kTicksPerSecond) / static_cast<double>(spec.interval),
+                           static_cast<double>(spec.range));
+        const std::string held = Fraction(turret->get_ammo(), kTurretAmmoCapacity);
+        AmountLine(ItemIcon(spec.ammo), held, turret->get_ammo() > 0 ? theme::kInk : theme::kBad, in_tooltip);
+        if (turret->shots_left() == 0)
+            ImGui::TextColored(theme::kBad, "Out of ammunition: belt %s into it", item_name(spec.ammo));
+        else
+            ImGui::TextColored(theme::kInkDim, "%d shots left", turret->shots_left());
+    }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
         for (const ItemStack& s : hold->get_stored().stacks())
@@ -1383,15 +1401,21 @@ void DrawFleetStrip(World& world) {
                 f.renaming.reset();
             }
         } else {
-            const std::string label = s->name + "  \xc2\xb7  " + sector.name;
+            const bool attacked = s->battle.under_attack();
+            const std::string label = s->name + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
+            if (attacked && s->id != f.current)
+                ImGui::PushStyleColor(ImGuiCol_Text, theme::kBad);
             if (theme::SegmentedButton(label.c_str(), s->id == f.current))
                 show = s->id;
+            if (attacked && s->id != f.current)
+                ImGui::PopStyleColor();
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 f.renaming = s->id;
                 std::snprintf(f.rename, sizeof f.rename, "%s", s->name.c_str());
                 f.focus_rename = true;
             }
-            ImGui::SetItemTooltip("%s, in %s\nDouble-click to rename", s->name.c_str(), sector.name.c_str());
+            ImGui::SetItemTooltip("%s, in %s%s\nDouble-click to rename", s->name.c_str(), sector.name.c_str(),
+                                  attacked ? "\nUnder attack!" : "");
         }
         ImGui::PopID();
     }
@@ -1674,6 +1698,38 @@ void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
     draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, min.y + h - pad - ss.y), theme::U32(theme::kInkDim), subtitle);
 }
 
+// The fight, along the bottom of the grid: how many enemies are on it, or
+// when the next wave comes.
+void DrawBattleBanner(const FleetShip& ship, const Sector& sector, Tick now, ImVec2 grid_min, ImVec2 grid_size) {
+    const Battle& battle = ship.battle;
+    std::string title;
+    std::string subtitle;
+    ImVec4 color = theme::kBad;
+    if (battle.under_attack()) {
+        title = "Under attack: " + std::to_string(battle.enemies.size()) + " enemies";
+        subtitle = sector.hostile() ? std::to_string(sector.waves_left) + " more waves to come" : "The last wave";
+    } else if (battle.next_wave) {
+        const Tick left = *battle.next_wave > now ? *battle.next_wave - now : 0;
+        title = "Next wave in " + std::to_string((left + kTicksPerSecond - 1) / kTicksPerSecond) + " s";
+        subtitle = std::to_string(sector.waves_left) + " waves left in " + sector.name;
+        color = theme::kWarnText;
+    } else {
+        return;
+    }
+    const float fh = ImGui::GetFrameHeight();
+    const float pad = fh * 0.4f;
+    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
+    const ImVec2 ss = ImGui::CalcTextSize(subtitle.c_str());
+    const float w = std::max(ts.x, ss.x) + pad * 2.0f;
+    const float h = ts.y + ss.y + pad * 2.0f;
+    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), grid_min.y + grid_size.y - h - fh);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    theme::DrawShadowedPanel(draw, min, ImVec2(min.x + w, min.y + h), ImGui::GetStyle().WindowRounding);
+    draw->AddText(ImVec2(min.x + (w - ts.x) * 0.5f, min.y + pad), theme::U32(color), title.c_str());
+    draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, min.y + pad + ts.y), theme::U32(theme::kInkDim),
+                  subtitle.c_str());
+}
+
 // A hull tile (`kind`: Hull or ReinforcedHull) over `min`..`max`: its sprite,
 // or flat `hull` / `reinforced`, also when zoomed out too far for the sprite
 // to read.
@@ -1806,7 +1862,88 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
 // The build grid on a canvas filling `avail`: click / drag to build and
 // remove (or with the copy and paste tools, copy and paste), scroll to zoom,
 // middle drag (or hold Space and move) to pan.
-void DrawShipGrid(Ship& ship, ImVec2 avail) {
+// A building's health, as a thin bar along its top, once it's damaged; and a
+// red flash for a few frames after it's hit (`now`: the World's tick).
+void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now) {
+    constexpr Tick kFlashTicks = 8;
+    if (b.hit_at > 0 && now - b.hit_at < kFlashTicks) {
+        const float fade = 1.0f - static_cast<float>(now - b.hit_at) / static_cast<float>(kFlashTicks);
+        draw->AddRectFilled(min, max, theme::U32(theme::kBad, 0.45f * fade));
+    }
+    if (!b.damaged())
+        return;
+    const float fraction = static_cast<float>(b.get_hp()) / static_cast<float>(b.max_hp());
+    const float h = std::max(2.0f, cell * 0.12f);
+    const float inset = std::max(1.0f, cell * 0.08f);
+    const ImVec2 bar_min(min.x + inset, min.y + inset);
+    const ImVec2 bar_max(max.x - inset, min.y + inset + h);
+    draw->AddRectFilled(bar_min, bar_max, theme::U32(theme::kInk, 0.6f));
+    const ImVec4 color = fraction > 0.6f ? theme::kGood : fraction > 0.3f ? theme::kWarn : theme::kBad;
+    draw->AddRectFilled(bar_min, ImVec2(bar_min.x + (bar_max.x - bar_min.x) * fraction, bar_max.y),
+                        theme::U32(color));
+}
+
+// The fight on the grid (`origin`, `cell`): turrets' shots, then the
+// enemies, as arrowheads pointing where they're headed, with their health
+// once hurt and their shots.
+void DrawBattle(ImDrawList* draw, const Ship& ship, const Battle& battle, ImVec2 origin, float cell, Tick now) {
+    constexpr Tick kTracerTicks = 6;
+    const auto screen = [&](float x, float y) { return ImVec2(origin.x + x * cell, origin.y + y * cell); };
+    const auto tracer = [&](ImVec2 from, ImVec2 to, Tick fired_at, ImVec4 color, float width) {
+        if (fired_at == 0 || now - fired_at >= kTracerTicks)
+            return;
+        const float fade = 1.0f - static_cast<float>(now - fired_at) / static_cast<float>(kTracerTicks);
+        draw->AddLine(from, to, theme::U32(color, fade), std::max(1.5f, width));
+    };
+    for (const GridPos p : ship.placement_order()) {
+        const auto* turret = dynamic_cast<const Turret*>(ship.building_anchored_at(p));
+        if (!turret)
+            continue;
+        const GridSize size = turret->footprint();
+        const ImVec2 from = screen(static_cast<float>(p.x) + static_cast<float>(size.w) * 0.5f,
+                                   static_cast<float>(p.y) + static_cast<float>(size.h) * 0.5f);
+        tracer(from, screen(turret->aim_x, turret->aim_y), turret->fired_at, theme::kWarn,
+               cell * (*turret->item_kind() == ItemKind::Railgun ? 0.3f : 0.12f));
+    }
+    for (const Enemy& e : battle.enemies) {
+        const EnemySpec& spec = enemy_spec(e.kind);
+        const ImVec2 c = screen(e.x, e.y);
+        tracer(c, screen(e.aim_x, e.aim_y), e.fired_at, theme::kBad, cell * 0.1f);
+        // Pointing at its target.
+        ImVec2 d(0.0f, -1.0f);
+        if (e.target)
+            if (const Building* b = ship.building_anchored_at(*e.target)) {
+                const GridSize size = b->footprint();
+                const float dx = static_cast<float>(e.target->x) + static_cast<float>(size.w) * 0.5f - e.x;
+                const float dy = static_cast<float>(e.target->y) + static_cast<float>(size.h) * 0.5f - e.y;
+                const float len = std::hypot(dx, dy);
+                if (len > 0.01f)
+                    d = ImVec2(dx / len, dy / len);
+            }
+        const float r = cell * (e.kind == EnemyKind::Drone ? 0.45f : e.kind == EnemyKind::Gunship ? 0.9f : 1.8f);
+        const ImVec2 side(-d.y, d.x);
+        const ImVec2 tip(c.x + d.x * r, c.y + d.y * r);
+        const ImVec2 left(c.x - d.x * r * 0.7f + side.x * r * 0.7f, c.y - d.y * r * 0.7f + side.y * r * 0.7f);
+        const ImVec2 right(c.x - d.x * r * 0.7f - side.x * r * 0.7f, c.y - d.y * r * 0.7f - side.y * r * 0.7f);
+        const ImVec4 color = e.kind == EnemyKind::Drone     ? theme::kRedHover
+                             : e.kind == EnemyKind::Gunship ? theme::kRed
+                                                            : theme::kRedActive;
+        draw->AddTriangleFilled(tip, left, right, theme::U32(color));
+        draw->AddTriangle(tip, left, right, theme::U32(theme::kInk), 1.0f);
+        if (e.hp < spec.hp) {
+            const float w = r * 1.6f;
+            const float h = std::max(2.0f, cell * 0.1f);
+            const ImVec2 bar_min(c.x - w * 0.5f, c.y - r - h - 2.0f);
+            draw->AddRectFilled(bar_min, ImVec2(bar_min.x + w, bar_min.y + h), theme::U32(theme::kInk, 0.6f));
+            draw->AddRectFilled(bar_min,
+                                ImVec2(bar_min.x + w * static_cast<float>(e.hp) / static_cast<float>(spec.hp),
+                                       bar_min.y + h),
+                                theme::U32(theme::kBad));
+        }
+    }
+}
+
+void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     const int n = ship.size();
     const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
     const ImVec2 canvas_size(std::max(avail.x, 1.0f), std::max(avail.y, 1.0f));
@@ -1948,8 +2085,14 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
                     DrawMachineStatus(draw, *machine, min, max, cell);
                 if (const auto* sorter = dynamic_cast<const Sorter*>(b))
                     DrawSorterFilter(draw, *sorter, min, cell);
-                if (b == InspectedBuilding(ship))
+                DrawBuildingDamage(draw, *b, min, max, cell, now);
+                if (b == InspectedBuilding(ship)) {
                     draw->AddRect(min, max, theme::U32(theme::kRed), 0.0f, 0, 2.0f);
+                    // A turret's reach.
+                    if (const auto* turret = dynamic_cast<const Turret*>(b))
+                        draw->AddCircle(ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f),
+                                        turret->get_spec().range * cell, theme::U32(theme::kRed, 0.6f), 0, 1.5f);
+                }
             }
     // Items on belts, junctions and routers, over every building (they
     // cross onto the next cell).
@@ -1964,6 +2107,8 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
             else if (const auto* router = dynamic_cast<const Router*>(b))
                 DrawRouterItem(draw, *router, min, cell);
         }
+
+    DrawBattle(draw, ship, battle, origin, cell, now);
 
     // Copying: the box being dragged, or the cell it would start from.
     if (bp.tool == Tool::Copy) {
@@ -2070,6 +2215,10 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
             ImGui::TextColored(theme::kGood, "none");
         else
             ThreatPips(s.threat);
+        if (s.cleared())
+            ImGui::TextColored(theme::kGood, "Cleared: no more enemies come");
+        else if (s.hostile())
+            ImGui::TextColored(theme::kBad, "%d waves of enemies to fight off", s.waves_left);
         ImGui::TextColored(theme::kInkDim, "Yields (home: 100%%)");
         for (int r = 0; r < kRawResourceCount; ++r) {
             const int y = s.yields[static_cast<std::size_t>(r)];
@@ -2188,7 +2337,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
         const Sector& s = map.at(i);
         const ImVec2 c = screen(s);
         if (s.surveyed) {
-            draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.threat)));
+            draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.hostile() ? s.threat : 0)));
         } else {
             draw->AddCircleFilled(c, r, theme::U32(theme::kPaper2));
             const ImVec2 q = ImGui::CalcTextSize("?");
@@ -2731,7 +2880,49 @@ void DrawCredits(Screen& screen) {
     ImGui::End();
 }
 
+namespace {
+
+// Back to the main menu from a game: the game screen's state is the next
+// game's to start over with.
+void LeaveGame(Screen& screen) {
+    screen = Screen::MainMenu;
+    g_camera = {};  // the next game starts centred on its bridge
+    g_fleet = {};
+    g_map = {};
+    g_banner = {};
+    g_build.inspected.reset();
+    g_build.inspected_building = nullptr;
+    LeaveBlueprintTool();  // the clipboard stays, to paste into another game
+    g_blueprints.show_library = false;
+}
+
+// The end of a game whose fleet is lost: the news, and the way out.
+void DrawFleetLost(Screen& screen) {
+    BeginFullscreenPage("##fleet_lost");
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetCursorPosY(viewport->WorkSize.y * 0.35f);
+    ImGui::PushFont(nullptr, theme::kFontHuge);
+    CenteredText("Fleet lost", theme::kBad);
+    ImGui::PopFont();
+    CenteredText("Every ship's bridge has been destroyed.", theme::kInk);
+    CenteredText("Load the last save (from a minute ago, at most) to try again.", theme::kInkDim);
+    ImGui::Dummy(ImVec2(0.0f, fh));
+    const ImVec2 button(fh * 8.0f, fh * 1.6f);
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - button.x) * 0.5f);
+    if (theme::PrimaryButton("Main menu", button) || ShortcutPressed(ImGuiKey_Escape))
+        LeaveGame(screen);
+    ImGui::End();
+}
+
+}  // namespace
+
 void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir) {
+    if (world.fleet_lost()) {
+        paused = false;
+        DrawFleetLost(screen);
+        return;
+    }
     // Escape opens the pause menu, or closes it again; first, though, it puts
     // the copy / paste tool away, then closes the Blueprints window. Not when
     // it closed a dropdown or tooltip popup: ImGui already did that before we
@@ -2815,8 +3006,10 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     if (g_map.shown)
         DrawStarMap(world, shown, grid_avail);
     else
-        DrawShipGrid(shown.ship, grid_avail);
+        DrawShipGrid(shown.ship, shown.battle, world.get_tick(), grid_avail);
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
+    if (!g_map.shown)
+        DrawBattleBanner(shown, world.get_map().at(shown.sector), world.get_tick(), grid_min, grid_avail);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     DrawCraftPanel(world, shown, craft_w);
     if (!paused) {
@@ -2839,15 +3032,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             paused = false;
         if (ImGui::Button("Main menu", button_size)) {
             paused = false;
-            screen = Screen::MainMenu;
-            g_camera = {};  // the next game starts centred on its bridge
-            g_fleet = {};
-            g_map = {};
-            g_banner = {};
-            g_build.inspected.reset();
-            g_build.inspected_building = nullptr;
-            LeaveBlueprintTool();  // the clipboard stays, to paste into another game
-            bp.show_library = false;
+            LeaveGame(screen);
         }
         if (!paused)
             ImGui::CloseCurrentPopup();
@@ -2937,6 +3122,12 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
         ImGui::SetNextItemWidth(fh * 6.0f);
         if (ImGui::InputInt("Count", &give.count, 1, 100))
             give.count = std::max(give.count, 1);
+        if (world.fleet_lost()) {
+            ImGui::TextDisabled("The fleet is lost");
+            ImGui::End();
+            style = themed;
+            return;
+        }
         FleetShip& current = CurrentShip(world.get_fleet());
         Inventory& inventory = current.ship.inventory();
         if (ImGui::Button("Give"))
@@ -2959,6 +3150,16 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
                     }
         }
         ImGui::SetItemTooltip("Fills every ion thruster on %s with fuel cells", current.name.c_str());
+
+        ImGui::SeparatorText("Combat");
+        if (ImGui::Button("Send a wave"))
+            world.send_wave(current.id);
+        ImGui::SetItemTooltip("Sends %s's sector's next wave (as if hostile) at %s now",
+                              world.get_map().at(current.sector).name.c_str(), current.name.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Clear enemies"))
+            world.clear_enemies(current.id);
+        ImGui::Text("Enemies on %s: %zu", current.name.c_str(), current.battle.enemies.size());
 
         ImGui::SeparatorText("Milestones");
         Progress& progress = world.get_fleet().get_progress();

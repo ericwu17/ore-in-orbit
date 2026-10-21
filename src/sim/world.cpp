@@ -21,7 +21,7 @@ const char* describe(JumpResult result) {
     return "?";
 }
 
-World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)) {
+World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {
     update_yields();
 }
 
@@ -37,11 +37,44 @@ void World::scan() {
                 map.survey(n);
 }
 
+void World::fight() {
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
+        combat_tick(s->ship, s->battle, map.at(s->sector), rng, current_tick);
+    std::vector<int> lost;
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
+        if (s->ship.bridge_destroyed())
+            lost.push_back(s->id);
+    for (const int id : lost)
+        fleet.remove(id);
+}
+
 void World::advance_tick() {
+    if (fleet_lost())
+        return;
     ++current_tick;
     fleet.tick(current_tick);
-    if (current_tick % kTicksPerSecond == 0)
+    fight();
+    if (current_tick % kTicksPerSecond == 0) {
         scan();
+        for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
+            if (!s->battle.under_attack())
+                s->ship.repair_all(kRepairPercent);
+    }
+}
+
+bool World::send_wave(int ship) {
+    FleetShip* s = fleet.find(ship);
+    if (!s)
+        return false;
+    Sector& sector = map.at(s->sector);
+    const int threat = std::max(sector.threat, 1);
+    spawn_wave(s->ship, s->battle, threat, std::max(waves_for_threat(threat) - sector.waves_left, 0), rng);
+    return true;
+}
+
+void World::clear_enemies(int ship) {
+    if (FleetShip* s = fleet.find(ship))
+        s->battle.enemies.clear();
 }
 
 void World::reveal_map() {
@@ -73,6 +106,7 @@ JumpResult World::jump(int ship, int sector) {
         return result;
     FleetShip& s = *fleet.find(ship);
     s.ship.burn_thrusters();
+    s.battle = {};
     s.sector = sector;
     s.ship.set_yields(map.at(sector).yields);
     map.visit(sector);

@@ -70,6 +70,7 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::SolarPanel:
     case ItemKind::BatteryBank:
     case ItemKind::SurveyScanner:
+    case ItemKind::Autocannon:
         size = {2, 2};
         break;
     case ItemKind::TractorArray:
@@ -78,6 +79,7 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
     case ItemKind::SolarArray:
+    case ItemKind::Railgun:
         size = {3, 3};
         break;
     case ItemKind::IonThruster:
@@ -109,6 +111,7 @@ bool needs_reinforced_hull(ItemKind kind) {
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
     case ItemKind::SolarArray:
+    case ItemKind::Railgun:
         return true;
     default:
         return false;
@@ -136,8 +139,47 @@ int machine_crafting_speed(ItemKind kind) {
     }
 }
 
+int max_hp_of(std::optional<ItemKind> kind) {
+    if (!kind)
+        return 2000;  // the bridge
+    switch (*kind) {
+    case ItemKind::TransportBelt:
+    case ItemKind::ExpressBelt:
+    case ItemKind::BeltTunnel:
+    case ItemKind::FilterSorter:
+    case ItemKind::ReverseSorter:
+    case ItemKind::Junction:
+    case ItemKind::Router:            return 50;
+    case ItemKind::SolarPanel:        return 100;
+    case ItemKind::AsteroidCollector: return 150;
+    case ItemKind::CargoHold:
+    case ItemKind::SolarFurnace:
+    case ItemKind::BatteryBank:
+    case ItemKind::SurveyScanner:     return 200;
+    case ItemKind::FabricatorMk1:     return 250;
+    case ItemKind::SolarArray:
+    case ItemKind::IonThruster:       return 300;
+    case ItemKind::TractorArray:
+    case ItemKind::Refinery:
+    case ItemKind::FabricatorMk2:
+    case ItemKind::Autocannon:        return 400;
+    case ItemKind::FabricatorMk3:     return 600;
+    case ItemKind::Railgun:           return 800;
+    default:                          return 100;
+    }
+}
+
 Building::Building(std::optional<ItemKind> k, Direction facing, GridSize s)
-    : placed_by(k), dir(facing), size(s) {}
+    : placed_by(k), dir(facing), size(s), hp(max_hp_of(k)) {}
+
+bool Building::take_damage(int amount) {
+    hp = std::max(0, hp - std::max(amount, 0));
+    return hp == 0;
+}
+
+void Building::repair(int amount) {
+    hp = std::min(max_hp(), hp + std::max(amount, 0));
+}
 
 Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize, kBridgeSize}) {}
 
@@ -224,6 +266,52 @@ double Collector::rate_per_second() const {
 
 float Collector::catch_progress() const {
     return static_cast<float>(progress) / static_cast<float>(spec->interval * 100);
+}
+
+const TurretSpec& turret_spec(ItemKind kind) {
+    // Fast and short: a swarm-killer that eats magazines.
+    static const TurretSpec autocannon{.ammo = ItemKind::SlugMagazine,
+                                       .shots_per_ammo = 8,
+                                       .range = 9.0f,
+                                       .damage = 8,
+                                       .interval = kTicksPerSecond / 4};
+    // Slow, long and heavy: for the big ships.
+    static const TurretSpec railgun{.ammo = ItemKind::RailSlug,
+                                    .shots_per_ammo = 1,
+                                    .range = 18.0f,
+                                    .damage = 150,
+                                    .interval = 2 * kTicksPerSecond};
+    switch (kind) {
+    case ItemKind::Autocannon: return autocannon;
+    case ItemKind::Railgun:    return railgun;
+    default:                   break;
+    }
+    assert(false && "turret_spec: not a turret");
+    return autocannon;
+}
+
+Turret::Turret(ItemKind k) : Building(k, Direction::North, footprint_of(k)), spec(&turret_spec(k)) {}
+
+void Turret::fire() {
+    assert(ready());
+    if (shots == 0) {
+        --ammo;
+        shots = spec->shots_per_ammo;
+    }
+    --shots;
+    cooldown = spec->interval;
+}
+
+void Turret::tick() {
+    if (cooldown > 0)
+        --cooldown;
+}
+
+std::vector<ItemStack> Turret::contents() const {
+    // A part-used item is lost.
+    if (ammo == 0)
+        return {};
+    return {{spec->ammo, ammo}};
 }
 
 std::vector<ItemStack> Thruster::contents() const {
@@ -453,6 +541,9 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<PowerPlant>(kind);
     case ItemKind::IonThruster:
         return std::make_unique<Thruster>();
+    case ItemKind::Autocannon:
+    case ItemKind::Railgun:
+        return std::make_unique<Turret>(kind);
     case ItemKind::SurveyScanner:
         return std::make_unique<ShipSystem>(kind);
     default:

@@ -15,6 +15,7 @@
 #pragma once
 
 #include "sim/building.h"
+#include "sim/combat.h"
 #include "sim/game_types.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
@@ -29,6 +30,7 @@ struct FleetShip {
     std::string name;
     Ship ship;
     int sector = 0;  // where it is: the index of a sector
+    Battle battle;   // the enemies on its grid, if any
 };
 
 // A cargo pod carries up to this many items, of any kinds.
@@ -114,6 +116,9 @@ public:
 
     // Renames ship `id`; false if there's none.
     bool rename(int id, std::string name);
+    // Ship `id` is lost (its bridge destroyed): gone from the fleet, and
+    // the cargo on its way to it with it (see Transfer).
+    void remove(int id);
 
     // One simulation step at tick `now`: every ship ticks, then the cargo
     // due by `now` lands.

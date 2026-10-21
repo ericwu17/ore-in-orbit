@@ -83,6 +83,8 @@ BUILDINGS = {
     "BatteryBank":       (2, 2, "tile", GOOD, "BB"),
     "SurveyScanner":     (2, 2, "tile", RED_ACTIVE, "SS"),
     "IonThruster":       (2, 3, "tile", RED_ACTIVE, "IT"),
+    "Autocannon":        (2, 2, "tile", INK, "AC"),
+    "Railgun":           (3, 3, "tile", INK, "RG"),
 }
 BRIDGE = (6, 6, "tile", RED, "BRIDGE")
 
@@ -109,6 +111,8 @@ ITEMS = {
     "Processor":         ("plate", ITEM_COMPONENT, "CPU"),
     "ShipStarterPack":   ("plate", RED, "SHIP"),
     "CargoPod":          ("plate", STORAGE, "Pod"),
+    "SlugMagazine":      ("plate", ITEM_IRON, "Mag"),
+    "RailSlug":          ("plate", ITEM_EXOTIC, "RS"),
 }
 
 

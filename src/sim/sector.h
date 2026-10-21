@@ -33,6 +33,10 @@ std::optional<int> raw_resource_index(ItemKind kind);
 // The highest threat a sector has.
 constexpr int kMaxThreat = 5;
 
+// The waves of enemies a sector of `threat` sends before it's cleared (see
+// combat.h): none for a safe one.
+int waves_for_threat(int threat);
+
 // A yield is a percentage of the home sector's: collectors there catch
 // items that much as fast. 0: none to be had.
 using Yields = std::array<int, kRawResourceCount>;
@@ -43,12 +47,17 @@ struct Sector {
     float y = 0.0f;
     std::vector<int> neighbors;  // indices of the sectors linked to it
     Yields yields{};
-    int threat = 0;  // 0 (safe) to kMaxThreat
+    int threat = 0;      // 0 (safe) to kMaxThreat
+    int waves_left = 0;  // waves it has yet to send (see combat.h)
     bool visited = false;
     bool surveyed = false;
 
     // The yield of `kind`: 0 for a kind that isn't gathered.
     int yield(ItemKind kind) const;
+    // Sends waves at the ships in it.
+    bool hostile() const { return waves_left > 0; }
+    // Was hostile, and has sent all its waves.
+    bool cleared() const { return threat > 0 && waves_left == 0; }
 };
 
 class StarMap {
@@ -67,6 +76,7 @@ public:
 
     int size() const { return static_cast<int>(sectors.size()); }
     const Sector& at(int i) const { return sectors[static_cast<std::size_t>(i)]; }
+    Sector& at(int i) { return sectors[static_cast<std::size_t>(i)]; }
     const std::vector<Sector>& all() const { return sectors; }
     bool linked(int a, int b) const;
     // Visited, or next to a sector that is.

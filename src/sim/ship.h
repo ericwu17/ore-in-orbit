@@ -30,6 +30,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // Side of the square build grid, in cells. The starting ship is a small
@@ -115,6 +116,9 @@ private:
     void add_building(GridPos p, std::unique_ptr<Building> building);
     // Sets a collector's yield from `yields`, for its target.
     void update_yield(Collector& collector) const;
+    // Takes the building at `anchor` (its top-left cell) off the grid,
+    // returning it.
+    std::unique_ptr<Building> take_building(GridPos anchor);
     // A square hull patch of side `side`, centered on the grid, with the
     // bridge in the middle and nothing in its inventory.
     static Ship with_hull_patch(int side);
@@ -143,10 +147,14 @@ public:
     // The building whose top-left cell is `p`, or null (also null on the
     // other cells of a larger building).
     const Building* building_anchored_at(GridPos p) const;
+    // The same, to change it (combat).
+    Building* building_anchored_at(GridPos p);
     // Every building's top-left cell, oldest first (the order they tick in).
     const std::vector<GridPos>& placement_order() const { return placed; }
     // How many cells have hull.
     int hull_count() const;
+    // The smallest box holding all the hull: its top-left cell and size.
+    std::pair<GridPos, GridSize> hull_bounds() const;
     // Every ion thruster on board.
     std::vector<const Thruster*> thrusters() const;
     // Burns every thruster's fuel (a jump).
@@ -179,6 +187,14 @@ public:
     // Removes the hull tile at `p`, refunding it (plain or reinforced); only
     // once no building covers it.
     BuildResult remove_hull(GridPos p);
+
+    // Combat: the building at `anchor` (its top-left cell) is destroyed:
+    // off the grid, and nothing comes back, neither it nor what it held.
+    // Not the bridge, whose loss is the ship's (see bridge_destroyed).
+    void destroy_building(GridPos anchor);
+    bool bridge_destroyed() const { return bridge->get_hp() == 0; }
+    // Mends every building by `percent` of its max_hp (at least 1 each).
+    void repair_all(int percent);
 
     // Hands one item to the building covering `to`, coming from the next
     // cell over, `from`; false (and no change) if it won't take it. A belt

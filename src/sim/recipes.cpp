@@ -107,6 +107,14 @@ std::vector<Recipe> make_recipes() {
             .in(StructuralFrame, 10).in(AdvancedCircuit, 5).in(Hull, 40).in(Circuit, 10)
             .out(ShipStarterPack),
         R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
+
+        // Defense: turrets, and the ammunition belts feed them.
+        R(Assemble, 6).in(Steel, 10).in(Gear, 10).in(Circuit, 5).out(Autocannon),
+        R(Assemble, 1).in(IronPlate, 2).in(Steel).out(SlugMagazine, 2),
+        R(Assemble, 15)
+            .in(StructuralFrame, 10).in(AdvancedCircuit, 10).in(IridiumPlate, 10).in(Processor, 2)
+            .out(Railgun),
+        R(Assemble, 3).in(IridiumPlate).in(Steel, 2).in(Circuit).out(RailSlug),
     };
 }
 

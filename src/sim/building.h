@@ -15,6 +15,7 @@
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── PowerPlant   solar panel / array, battery bank
 //   ├── Thruster     ion thruster: charged with fuel cells for a jump
+//   ├── Turret       autocannon, railgun: fire the ammunition belts bring
 //   └── ShipSystem   survey scanner
 //
 // One class per family, not per building: each building's footprint and
@@ -69,12 +70,20 @@ GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 bool is_rotatable(ItemKind kind);
 // The large late-game buildings that need reinforced hull under them.
 bool needs_reinforced_hull(ItemKind kind);
+// The damage a building of this kind takes before it's destroyed (nullopt:
+// the bridge).
+int max_hp_of(std::optional<ItemKind> kind);
 
 class Building {
 private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
     std::optional<ItemKind> placed_by;
     Direction dir;
     GridSize size;
+    int hp;  // 0 to max_hp(): at 0, destroyed
 
 public:
     // `placed_by` is nullopt for buildings that never came from the inventory
@@ -90,6 +99,18 @@ public:
     Direction facing() const { return dir; }
     bool rotatable() const { return placed_by && is_rotatable(*placed_by); }
     virtual bool removable() const { return true; }
+
+    // Health: enemies wear it down (see combat.h), and it mends while no
+    // enemy is near.
+    int get_hp() const { return hp; }
+    int max_hp() const { return max_hp_of(placed_by); }
+    bool damaged() const { return hp < max_hp(); }
+    // Takes `amount` of damage, down to 0; true if that destroyed it.
+    bool take_damage(int amount);
+    // Mends `amount`, up to max_hp().
+    void repair(int amount);
+    // The tick it was last hit, for the UI to flash it (not saved).
+    Tick hit_at = 0;
     // One simulation step.
     virtual void tick() {}
     // The items held inside it (buffers), refunded to the bridge when it is
@@ -470,6 +491,59 @@ public:
     std::vector<ItemStack> contents() const override;
     bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged(); }
     void receive(ItemKind) override { ++fuel; }
+};
+
+// What a turret fires and how: one item of `ammo` is `shots_per_ammo`
+// shots, each doing `damage` to an enemy within `range` cells of its middle,
+// one every `interval` ticks.
+struct TurretSpec {
+    ItemKind ammo;
+    int shots_per_ammo = 1;
+    float range = 0.0f;
+    int damage = 0;
+    Tick interval = 0;
+};
+
+// The spec of a turret kind (autocannon, railgun).
+const TurretSpec& turret_spec(ItemKind kind);
+
+// Items of ammunition a turret holds, waiting to be loaded.
+constexpr int kTurretAmmoCapacity = 10;
+
+// A turret: takes its ammunition from belts, and fires at the nearest enemy
+// in range when it's ready (see combat.h). Out of ammunition, it's silent.
+class Turret : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    const TurretSpec* spec;
+    int ammo = 0;       // items waiting
+    int shots = 0;      // left in the item loaded
+    Tick cooldown = 0;  // ticks until it can fire again
+
+public:
+    explicit Turret(ItemKind k);
+
+    const TurretSpec& get_spec() const { return *spec; }
+    int get_ammo() const { return ammo; }
+    int get_shots() const { return shots; }
+    // Shots it can fire before it needs more ammunition.
+    int shots_left() const { return shots + ammo * spec->shots_per_ammo; }
+    bool ready() const { return cooldown == 0 && shots_left() > 0; }
+    // Fires one shot (ready() must hold), loading an item if it must.
+    void fire();
+    void tick() override;
+    std::vector<ItemStack> contents() const override;
+    bool accepts(ItemKind kind) const override { return kind == spec->ammo && ammo < kTurretAmmoCapacity; }
+    void receive(ItemKind) override { ++ammo; }
+
+    // The last shot, for the UI (not saved): when, and where it went (in
+    // cells, as Enemy positions are).
+    Tick fired_at = 0;
+    float aim_x = 0.0f;
+    float aim_y = 0.0f;
 };
 
 // The survey scanner: surveys the sectors next to the ship's (see World).

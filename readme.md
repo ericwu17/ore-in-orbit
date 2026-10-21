@@ -50,6 +50,19 @@ thruster on board is charged (10 fuel cells each, refined from carbon and
 delivered by belt), and the ship has enough of them: one per 1,500 hull
 tiles. The jump burns all their fuel.
 
+Sectors with a threat are hostile: they send waves of enemies at every
+ship in them, the first 30 seconds after it arrives, then one every 45
+seconds, bigger each time and with heavier ships the higher the threat
+(drones, gunships, dreadnoughts). Enemies come in from one side, fly at
+the nearest building and shoot it; a building shot to pieces is gone, with
+nothing refunded, and a ship whose bridge falls is lost (with every ship,
+the game: the last save stays as it was, to try again from). Turrets fight
+back while they have ammunition, delivered by belt: the autocannon fires
+slug magazines fast and short, the railgun (from the "Frontier" milestone)
+rail slugs slow, far and hard. Once a sector has sent all its waves and
+they're beaten, it's cleared, for good. Jumping away leaves the enemies
+behind. Buildings mend slowly while no enemy is near.
+
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot, and nlohmann::json (vendored in
 `third_party/nlohmann/`, for save files). Runs on macOS, Linux and Windows.
 
@@ -213,15 +226,19 @@ One directory per layer under `src/`; includes name their layer
     name, a `Ship` and the sector it's in), the `Progress` they share,
     launching a new ship from a starter pack, and cargo pods in flight
     between ships (`Transfer`).
-  - `world.h/.cpp` — `World`: owns all state (the star map and the fleet),
-    `advance_tick()` steps it; jumping between sectors, and survey
-    scanners.
+  - `combat.h/.cpp` — enemies (`Enemy`, `EnemySpec`), the waves hostile
+    sectors send, and the fight on a ship's grid (`Battle`, `combat_tick`)
+    between them and its turrets.
+  - `world.h/.cpp` — `World`: owns all state (the star map, the fleet and
+    the fights' random numbers), `advance_tick()` steps it; jumping between
+    sectors, survey scanners, losing ships, and buildings mending.
 - `src/persistence/` — save files, also headless (the tests link it). The
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
   - `save_file.h/.cpp` — the save format, a JSON document: a header (name,
     when, play time) and the whole `World` (the star map, every ship of the
-    fleet, the shared milestone progress and the cargo in flight), with items, directions and
+    fleet and its fight, the shared milestone progress and the cargo in
+    flight), with items, directions and
     recipes written by name, and loading that checks everything (a bad
     save is refused with a reason, never trusted).
   - `save_slots.h/.cpp` — the saves folder: listing, writing (atomically,

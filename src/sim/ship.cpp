@@ -120,6 +120,10 @@ const Building* Ship::building_anchored_at(GridPos p) const {
     return in_bounds(p) ? at(buildings, p).get() : nullptr;
 }
 
+Building* Ship::building_anchored_at(GridPos p) {
+    return in_bounds(p) ? at(buildings, p).get() : nullptr;
+}
+
 void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
     if (auto* collector = dynamic_cast<Collector*>(building.get()))
         update_yield(*collector);
@@ -152,6 +156,20 @@ int Ship::hull_count() const {
         for (const std::optional<ItemKind>& tile : row)
             n += tile ? 1 : 0;
     return n;
+}
+
+std::pair<GridPos, GridSize> Ship::hull_bounds() const {
+    GridPos lo{kShipGridSize, kShipGridSize};
+    GridPos hi{-1, -1};
+    for (int y = 0; y < kShipGridSize; ++y)
+        for (int x = 0; x < kShipGridSize; ++x)
+            if (at(hull, {x, y})) {
+                lo = {std::min(lo.x, x), std::min(lo.y, y)};
+                hi = {std::max(hi.x, x), std::max(hi.y, y)};
+            }
+    if (hi.x < 0)
+        return {{0, 0}, {0, 0}};
+    return {lo, {hi.x - lo.x + 1, hi.y - lo.y + 1}};
 }
 
 std::vector<const Thruster*> Ship::thrusters() const {
@@ -245,25 +263,43 @@ BuildResult Ship::place(ItemKind kind, GridPos p, Direction facing) {
     return BuildResult::Ok;
 }
 
+std::unique_ptr<Building> Ship::take_building(GridPos a) {
+    std::unique_ptr<Building> building = std::move(at(buildings, a));
+    assert(building);
+    const GridSize size = building->footprint();
+    for (int y = a.y; y < a.y + size.h; ++y)
+        for (int x = a.x; x < a.x + size.w; ++x)
+            at(anchor, {x, y}).reset();
+    placed.erase(std::find(placed.begin(), placed.end(), a));
+    return building;
+}
+
 BuildResult Ship::remove_building(GridPos p) {
     if (!in_bounds(p))
         return BuildResult::OutOfBounds;
     const std::optional<GridPos> a = at(anchor, p);
     if (!a)
         return BuildResult::NothingThere;
-    std::unique_ptr<Building>& building = at(buildings, *a);
-    if (!building->removable())
+    if (!at(buildings, *a)->removable())
         return BuildResult::NotRemovable;
+    const std::unique_ptr<Building> building = take_building(*a);
     if (const auto kind = building->item_kind())
         inventory().add(*kind);
     inventory().add(building->contents());
-    const GridSize size = building->footprint();
-    for (int y = a->y; y < a->y + size.h; ++y)
-        for (int x = a->x; x < a->x + size.w; ++x)
-            at(anchor, {x, y}).reset();
-    building.reset();
-    placed.erase(std::find(placed.begin(), placed.end(), *a));
     return BuildResult::Ok;
+}
+
+void Ship::destroy_building(GridPos a) {
+    assert(at(buildings, a).get() != bridge);
+    take_building(a);
+}
+
+void Ship::repair_all(int percent) {
+    for (const GridPos p : placed) {
+        Building& b = *at(buildings, p);
+        if (b.damaged())
+            b.repair(std::max(1, b.max_hp() * percent / 100));
+    }
 }
 
 BuildResult Ship::remove_hull(GridPos p) {

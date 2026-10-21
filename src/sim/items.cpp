@@ -26,6 +26,8 @@ const char* item_name(ItemKind kind) {
     case ItemKind::BatteryBank:       return "Battery bank";
     case ItemKind::SurveyScanner:     return "Survey scanner";
     case ItemKind::IonThruster:       return "Ion thruster";
+    case ItemKind::Autocannon:        return "Autocannon";
+    case ItemKind::Railgun:           return "Railgun";
     case ItemKind::IronOre:           return "Iron ore";
     case ItemKind::CopperOre:         return "Copper ore";
     case ItemKind::Silica:            return "Silica";
@@ -46,6 +48,8 @@ const char* item_name(ItemKind kind) {
     case ItemKind::Processor:         return "Processor";
     case ItemKind::ShipStarterPack:   return "Ship starter pack";
     case ItemKind::CargoPod:          return "Cargo pod";
+    case ItemKind::SlugMagazine:      return "Slug magazine";
+    case ItemKind::RailSlug:          return "Rail slug";
     case ItemKind::Count:             break;
     }
     return "?";
@@ -76,6 +80,8 @@ const char* item_id(ItemKind kind) {
     case ItemKind::BatteryBank:       return "BatteryBank";
     case ItemKind::SurveyScanner:     return "SurveyScanner";
     case ItemKind::IonThruster:       return "IonThruster";
+    case ItemKind::Autocannon:        return "Autocannon";
+    case ItemKind::Railgun:           return "Railgun";
     case ItemKind::IronOre:           return "IronOre";
     case ItemKind::CopperOre:         return "CopperOre";
     case ItemKind::Silica:            return "Silica";
@@ -96,6 +102,8 @@ const char* item_id(ItemKind kind) {
     case ItemKind::Processor:         return "Processor";
     case ItemKind::ShipStarterPack:   return "ShipStarterPack";
     case ItemKind::CargoPod:          return "CargoPod";
+    case ItemKind::SlugMagazine:      return "SlugMagazine";
+    case ItemKind::RailSlug:          return "RailSlug";
     case ItemKind::Count:             break;
     }
     return "?";

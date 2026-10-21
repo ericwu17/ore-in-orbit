@@ -32,7 +32,7 @@ Fleet Fleet::new_game() {
 
 FleetShip& Fleet::add(std::string name, Ship ship, int sector) {
     ship.get_bridge().share_progress(progress);
-    auto added = std::make_unique<FleetShip>(FleetShip{next_id++, std::move(name), std::move(ship), sector});
+    auto added = std::make_unique<FleetShip>(FleetShip{next_id++, std::move(name), std::move(ship), sector, {}});
     ships.push_back(std::move(added));
     return *ships.back();
 }
@@ -135,6 +135,10 @@ bool Fleet::rename(int id, std::string name) {
         return false;
     s->name = std::move(name);
     return true;
+}
+
+void Fleet::remove(int id) {
+    std::erase_if(ships, [&](const std::unique_ptr<FleetShip>& s) { return s->id == id; });
 }
 
 void Fleet::tick(Tick now) {

@@ -10,7 +10,8 @@
 //
 // The game being played is saved to its file (persistence/save_slots.h)
 // when leaving it for the menu, when the window closes, and every
-// kAutosaveSeconds of play.
+// kAutosaveSeconds of play; but never once its fleet is lost, so the last
+// save is still there to try again from.
 //
 // This file is shared by all platforms (macOS, Linux, Windows). The only
 // platform-specific piece is the macOS key press-and-hold tweak, which lives
@@ -80,6 +81,8 @@ struct Session
 
 static void save_session(Session& session)
 {
+    if (session.world.fleet_lost())
+        return;
     std::string error;
     if (!write_save_file(session.save_path, session.name, session.world, error))
         printf("Error: saving \"%s\": %s\n", session.name.c_str(), error.c_str());

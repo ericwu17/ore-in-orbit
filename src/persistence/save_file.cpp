@@ -18,6 +18,7 @@
 
 #include "persistence/json_io.h"
 #include "sim/building.h"
+#include "sim/combat.h"
 #include "sim/fleet.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
@@ -144,6 +145,10 @@ struct SaveAccess {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
             j["fuel"] = thruster->fuel;
+        } else if (const auto* turret = dynamic_cast<const Turret*>(&b)) {
+            j["ammo"] = turret->ammo;
+            j["shots"] = turret->shots;
+            j["cooldown"] = turret->cooldown;
         } else if (const auto* m = dynamic_cast<const Machine*>(&b)) {
             j["recipe"] = save_recipe(m->recipe);
             // How far along the craft under way is, or null when idle.
@@ -240,6 +245,11 @@ struct SaveAccess {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* thruster = dynamic_cast<Thruster*>(&b)) {
             thruster->fuel = static_cast<int>(load_int(j.at("fuel"), 0, kThrusterCharge));
+        } else if (auto* turret = dynamic_cast<Turret*>(&b)) {
+            turret->ammo = static_cast<int>(load_int(j.at("ammo"), 0, kTurretAmmoCapacity));
+            // An item is loaded when a shot needs it, so never a full one.
+            turret->shots = static_cast<int>(load_int(j.at("shots"), 0, turret->spec->shots_per_ammo - 1));
+            turret->cooldown = load_tick(j.at("cooldown"), turret->spec->interval);
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
             const Recipe* recipe = load_recipe(j.at("recipe"));
             if (recipe && !m->can_run(*recipe))
@@ -277,6 +287,9 @@ struct SaveAccess {
                 {"facing", direction_id(b.facing())},
                 {"output_side", b.next_output_side},
             };
+            // Health only when it isn't full.
+            if (b.damaged())
+                j["hp"] = b.hp;
             save_state(j, b);
             buildings.push_back(std::move(j));
         }
@@ -322,6 +335,8 @@ struct SaveAccess {
         }
         // push_output keeps it below the number of cells around the footprint.
         b->next_output_side = static_cast<std::size_t>(load_int(j.at("output_side"), 0, 1'000));
+        if (const auto hp = j.find("hp"); hp != j.end())
+            b->hp = static_cast<int>(load_int(*hp, 1, b->max_hp()));
 
         const GridPos p{load_coord(j.at("x")), load_coord(j.at("y"))};
         const GridSize size = b->footprint();
@@ -343,11 +358,60 @@ struct SaveAccess {
         ship.add_building(p, std::move(b));
     }
 
+    // The enemies on a ship's grid, and when its next wave comes.
+    static Json save_battle(const Battle& battle) {
+        Json enemies = Json::array();
+        for (const Enemy& e : battle.enemies)
+            enemies.push_back({
+                {"kind", enemy_id(e.kind)},
+                {"x", e.x},
+                {"y", e.y},
+                {"hp", e.hp},
+                {"cooldown", e.cooldown},
+                {"target", e.target ? Json{{"x", e.target->x}, {"y", e.target->y}} : Json(nullptr)},
+            });
+        return {{"enemies", std::move(enemies)},
+                {"next_wave", battle.next_wave ? Json(*battle.next_wave) : Json(nullptr)}};
+    }
+
+    // `now`: the World's tick, which the next wave comes after.
+    static Battle load_battle(const Json& j, Tick now) {
+        Battle battle;
+        const Json& enemies = load_array(j.at("enemies"), "enemies");
+        if (enemies.size() > 10'000)
+            throw LoadError("too many enemies");
+        for (const Json& je : enemies) {
+            Enemy e;
+            const std::optional<EnemyKind> kind = enemy_from_id(load_string(je.at("kind"), "an enemy kind"));
+            if (!kind)
+                throw LoadError("an unknown enemy: " + je.at("kind").dump());
+            e.kind = *kind;
+            const EnemySpec& spec = enemy_spec(e.kind);
+            e.x = load_float(je.at("x"), 10'000.0f);
+            e.y = load_float(je.at("y"), 10'000.0f);
+            e.hp = static_cast<int>(load_int(je.at("hp"), 1, spec.hp));
+            e.cooldown = load_tick(je.at("cooldown"), spec.interval);
+            if (const Json& t = je.at("target"); !t.is_null())
+                e.target = GridPos{load_coord(t.at("x")), load_coord(t.at("y"))};
+            battle.enemies.push_back(e);
+        }
+        if (const Json& next = j.at("next_wave"); !next.is_null()) {
+            battle.next_wave = load_tick(next, now + std::max(kFirstWaveDelay, kWaveInterval));
+            if (*battle.next_wave <= now)
+                throw LoadError("a wave that should have come already");
+        }
+        return battle;
+    }
+
     // The ships, oldest first, and the cargo in flight between them.
     static Json save_fleet(const Fleet& fleet) {
         Json ships = Json::array();
         for (const std::unique_ptr<FleetShip>& s : fleet.ships)
-            ships.push_back({{"id", s->id}, {"name", s->name}, {"sector", s->sector}, {"ship", save_ship(s->ship)}});
+            ships.push_back({{"id", s->id},
+                             {"name", s->name},
+                             {"sector", s->sector},
+                             {"ship", save_ship(s->ship)},
+                             {"battle", save_battle(s->battle)}});
         Json transfers = Json::array();
         for (const Transfer& t : fleet.transfers) {
             Inventory items;
@@ -377,8 +441,8 @@ struct SaveAccess {
             const int sector = static_cast<int>(load_int(s.at("sector"), 0, map.size() - 1));
             if (!map.at(sector).visited)
                 throw LoadError("a ship in a sector never visited");
-            fleet.ships.push_back(std::make_unique<FleetShip>(
-                FleetShip{id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector}));
+            fleet.ships.push_back(std::make_unique<FleetShip>(FleetShip{
+                id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector, load_battle(s.at("battle"), now)}));
         }
         if (fleet.ships.empty())
             throw LoadError("the fleet has no ships");
@@ -412,6 +476,7 @@ struct SaveAccess {
                 {"neighbors", s.neighbors},
                 {"yields", std::move(yields)},
                 {"threat", s.threat},
+                {"waves_left", s.waves_left},
                 {"visited", s.visited},
                 {"surveyed", s.surveyed},
             });
@@ -441,6 +506,7 @@ struct SaveAccess {
             if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
                 throw LoadError("a yield for something that isn't a raw resource");
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
+            s.waves_left = static_cast<int>(load_int(js.at("waves_left"), 0, waves_for_threat(s.threat)));
             s.visited = js.at("visited").get<bool>();
             s.surveyed = js.at("surveyed").get<bool>();
             if (s.visited && !s.surveyed)
@@ -475,12 +541,19 @@ struct SaveAccess {
     }
 
     static Json save_world(const World& world) {
-        return {{"tick", world.current_tick}, {"star_map", save_map(world.map)}, {"fleet", save_fleet(world.fleet)}};
+        return {{"tick", world.current_tick},
+                {"rng", world.rng.state},
+                {"star_map", save_map(world.map)},
+                {"fleet", save_fleet(world.fleet)}};
     }
 
     static World load_world(const Json& j) {
         World world;
-        world.current_tick = load_tick(j.at("tick"), std::numeric_limits<Tick>::max() - kTransferTicks);
+        // Far enough from the end that adding a delay to it can't overflow.
+        world.current_tick = load_tick(j.at("tick"), std::numeric_limits<Tick>::max() / 2);
+        if (!j.at("rng").is_number_unsigned())
+            throw LoadError("expected the random number state, not " + j.at("rng").dump());
+        world.rng.state = j.at("rng").get<std::uint64_t>();
         world.map = load_map(j.at("star_map"));
         world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map);
         world.update_yields();

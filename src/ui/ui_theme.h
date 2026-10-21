@@ -62,6 +62,7 @@ constexpr ImVec4 kTileStorage       = Rgb(140, 112, 72);  // cargo holds
 constexpr ImVec4 kTileMachine       = kNavyHover;
 constexpr ImVec4 kTilePower         = kGood;
 constexpr ImVec4 kTileSystem        = kRedActive;
+constexpr ImVec4 kTileTurret        = kInk;
 constexpr ImVec4 kTileGlyph         = kPaperLight; // letters and arrows on tiles
 
 // Items on belts, by material family.
