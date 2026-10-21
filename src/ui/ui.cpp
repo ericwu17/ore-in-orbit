@@ -84,8 +84,34 @@ struct BuildUiState {
     // top-left cell, and the building itself, to notice it went away.
     std::optional<GridPos> inspected;
     const Building* inspected_building = nullptr;
+    // The grid cell under the mouse last frame (Q picks what's there).
+    std::optional<GridPos> hover_cell;
+    // The current left drag: the last cell it went over, and the cells it
+    // built on, which a belt drawn round a corner turns to face the new way.
+    std::optional<GridPos> drag_last;
+    std::vector<GridPos> drag_placed;
+    bool show_keys = false;  // the keys overlay (?)
 };
 BuildUiState g_build;
+
+// A machine's recipe, a collector's target or a sorter's filter: what a
+// building of that kind is set to do.
+struct BuildingSettings {
+    ItemKind kind = ItemKind::Hull;  // the building they came from
+    const Recipe* recipe = nullptr;
+    std::optional<ItemKind> target;
+    std::optional<ItemKind> filter;
+    bool has_filter = false;  // a sorter's (whose filter may be none)
+};
+
+// The settings last picked for each kind of building, which new ones of that
+// kind start with, and the ones Shift+right-click copied (Shift+left-click
+// pastes them). UI-only.
+struct SettingsUiState {
+    std::unordered_map<int, BuildingSettings> last;  // by ItemKind
+    std::optional<BuildingSettings> copied;
+};
+SettingsUiState g_settings;
 
 // The building in the inspector, or null (forgetting it if it was removed).
 const Building* InspectedBuilding(const Ship& ship) {
@@ -213,6 +239,61 @@ void SetMessage(std::string message, ImVec4 color = theme::kBad) {
 
 void SetBuildMessage(BuildResult result) {
     SetMessage(describe(result));
+}
+
+// What the building `b` is set to do, if it has settings (a machine, a
+// collector or a sorter).
+std::optional<BuildingSettings> SettingsOf(const Building& b) {
+    const std::optional<ItemKind> kind = b.item_kind();
+    if (!kind)
+        return std::nullopt;
+    BuildingSettings s;
+    s.kind = *kind;
+    if (const auto* machine = dynamic_cast<const Machine*>(&b))
+        s.recipe = machine->get_recipe();
+    else if (const auto* collector = dynamic_cast<const Collector*>(&b))
+        s.target = collector->get_target();
+    else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
+        s.filter = sorter->get_filter();
+        s.has_filter = true;
+    } else
+        return std::nullopt;
+    return s;
+}
+
+// Remembers `s` as what new buildings of its kind start with.
+void RememberSettings(const BuildingSettings& s) {
+    g_settings.last[static_cast<int>(s.kind)] = s;
+}
+
+// Sets the building covering `p` to `s` where it can take them; whether
+// anything changed.
+bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
+    const Building* b = ship.building_at(p);
+    const std::optional<BuildingSettings> now = b ? SettingsOf(*b) : std::nullopt;
+    if (!now)
+        return false;
+    if (dynamic_cast<const Machine*>(b))
+        return s.recipe && s.recipe != now->recipe && ship.set_recipe(p, s.recipe);
+    if (dynamic_cast<const Collector*>(b))
+        return s.target && s.target != now->target && ship.set_collector_target(p, *s.target);
+    return s.has_filter && s.filter != now->filter && ship.set_sort_filter(p, s.filter);
+}
+
+bool SameSettings(const BuildingSettings& a, const BuildingSettings& b) {
+    return a.recipe == b.recipe && a.target == b.target && a.filter == b.filter;
+}
+
+// The name of what settings set a building to ("Iron plate"), or null for
+// none.
+const char* SettingsName(const BuildingSettings& s) {
+    if (s.recipe)
+        return recipe_name(*s.recipe);
+    if (s.target)
+        return item_name(*s.target);
+    if (s.filter)
+        return item_name(*s.filter);
+    return nullptr;
 }
 
 // The key that goes with C and V for copy and paste.
@@ -343,7 +424,7 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
     const ImVec2 a(min.x + inset, min.y + inset);
     const ImVec2 b(max.x - inset, max.y - inset);
     const ImVec2 c((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
-    const float rounding = cell * 0.15f;
+    const float rounding = cell * 0.04f;
     const ImU32 glyph = theme::U32(theme::kTileGlyph, alpha);
     const ImVec2 d = DirectionVector(facing);
 
@@ -394,7 +475,7 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
         // No arrow: it doesn't face a way. Its filter is drawn over it (see
         // DrawSorterFilter).
         draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
-        draw->AddRect(a, b, theme::U32(*kind == ItemKind::ReverseSorter ? theme::kRed : theme::kWarn, alpha),
+        draw->AddRect(a, b, theme::U32(*kind == ItemKind::ReverseSorter ? theme::kAccent : theme::kWarn, alpha),
                       rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
         break;
     case ItemKind::Junction:
@@ -608,7 +689,7 @@ void DrawIcon(ImDrawList* draw, const Icon& icon, ImVec2 min, ImVec2 max, float 
     switch (icon.type) {
     case Icon::Type::None: {
         // A crossed-out circle.
-        const ImU32 color = theme::U32(theme::kInkDim, alpha);
+        const ImU32 color = theme::U32(theme::kTextDim, alpha);
         const float t = std::max(1.5f, r * 0.12f);
         draw->AddCircle(c, r * 0.6f, color, 0, t);
         draw->AddLine(ImVec2(c.x - r * 0.42f, c.y + r * 0.42f), ImVec2(c.x + r * 0.42f, c.y - r * 0.42f), color, t);
@@ -641,42 +722,47 @@ struct Badges {
     const char* bottom_right = nullptr;
 };
 
-// A square tile `size` across at `min`: `bg`, the icon over it (faded by
-// `alpha`) and its badges. Disabled widgets fade all of it.
+// A square tile `size` across at `min`: `bg` with bevelled edges (an amber
+// border when `selected`), the icon over it (faded by `alpha`) and its
+// badges, in mono. Disabled widgets fade all of it.
 void DrawIconFrame(ImDrawList* draw, const Icon& icon, ImVec2 min, float size, ImVec4 bg, Badges badges,
-                   float alpha) {
+                   float alpha, bool selected = false) {
     const float style_alpha = ImGui::GetStyle().Alpha;
     const ImVec2 max(min.x + size, min.y + size);
-    draw->AddRectFilled(min, max, theme::U32(bg, style_alpha), ImGui::GetStyle().FrameRounding);
+    draw->AddRectFilled(min, max, theme::U32(bg, style_alpha));
+    draw->AddLine(min, ImVec2(max.x - 1.0f, min.y), theme::U32(theme::kBevelLight, style_alpha));
+    draw->AddLine(ImVec2(min.x, max.y - 1.0f), ImVec2(max.x, max.y - 1.0f), theme::U32(theme::kBevelDark, style_alpha));
+    if (selected)
+        draw->AddRect(min, max, theme::U32(theme::kAccent, style_alpha), 0.0f, 0, 2.0f);
     const float pad = size * 0.08f;
     DrawIcon(draw, icon, ImVec2(min.x + pad, min.y + pad), ImVec2(max.x - pad, max.y - pad), style_alpha * alpha);
     if (!badges.top_left && !badges.bottom_right)
         return;
-    ImGui::PushFont(nullptr, theme::kFontSmall);
-    const ImU32 ink = theme::U32(theme::kInk, style_alpha);
-    const ImU32 halo = theme::U32(theme::kPaperLight, style_alpha);
+    theme::PushMono(theme::kFontSmall);
+    const ImU32 ink = theme::U32(theme::kText, style_alpha);
+    const ImU32 halo = theme::U32(theme::kBevelDark, style_alpha);
     if (badges.top_left)
-        theme::DrawHaloText(draw, ImVec2(min.x + 3.0f, min.y + 1.0f), ink, halo, badges.top_left);
+        theme::DrawHaloText(draw, ImVec2(min.x + 3.0f, min.y + 1.0f), theme::U32(theme::kAccent, style_alpha), halo,
+                            badges.top_left);
     if (badges.bottom_right) {
         const ImVec2 ts = ImGui::CalcTextSize(badges.bottom_right);
         theme::DrawHaloText(draw, ImVec2(max.x - ts.x - 3.0f, max.y - ts.y - 1.0f), ink, halo, badges.bottom_right);
     }
-    ImGui::PopFont();
+    theme::PopMono();
 }
 
-// A square button `size` across showing `icon`, filled navy when selected
-// (like theme::SegmentedButton), with `badges` and the icon faded by `fade`.
-// Returns true when clicked.
+// A square button `size` across showing `icon`, outlined amber when
+// selected, with `badges` and the icon faded by `fade`. Returns true when
+// clicked.
 bool IconButton(const char* id, const Icon& icon, float size, bool selected, Badges badges = {},
                 float fade = 1.0f) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const bool pressed = ImGui::InvisibleButton(id, ImVec2(size, size));
     const bool hovered = ImGui::IsItemHovered();
-    const ImVec4 bg = selected                 ? (hovered ? theme::kNavyHover : theme::kNavy)
-                      : ImGui::IsItemActive() ? theme::kPaper4
-                      : hovered               ? theme::kPaper3
-                                              : theme::kPaper2;
-    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, bg, badges, fade);
+    const ImVec4 bg = ImGui::IsItemActive() ? theme::kFrameActive
+                      : hovered || selected ? theme::kFrameHover
+                                            : theme::kFrame;
+    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, bg, badges, fade, selected);
     return pressed;
 }
 
@@ -684,7 +770,7 @@ bool IconButton(const char* id, const Icon& icon, float size, bool selected, Bad
 void IconTile(const Icon& icon, float size, Badges badges = {}) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(size, size));
-    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, theme::kPaper2, badges, 1.0f);
+    DrawIconFrame(ImGui::GetWindowDrawList(), icon, min, size, theme::kFrame, badges, 1.0f);
 }
 
 // An unframed icon `size` across; hovering it shows its name.
@@ -741,28 +827,42 @@ void AmountLine(const Icon& icon, const std::string& text, ImVec4 color, bool na
     ImGui::TextColored(color, "%s%s%s%s", text.c_str(), named ? " " : "", named ? IconName(icon) : "", suffix);
 }
 
-// The placeable items in the build list: those in the inventory, plus the
-// selected one. The first nine get the number keys.
+// The placeable items in the build list: every one unlocked, plus any in
+// the inventory and the selected one, in a fixed order, so that the first
+// nine, which get the number keys, only move when a milestone unlocks more.
 std::vector<ItemKind> BuildList(const Ship& ship) {
+    const Progress& progress = ship.get_bridge().get_progress();
     std::vector<ItemKind> list;
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
-        if (is_placeable(kind) && (ship.inventory().count(kind) > 0 || kind == g_build.selected))
+        if (is_placeable(kind) &&
+            (progress.unlocked(kind) || ship.inventory().count(kind) > 0 || kind == g_build.selected))
             list.push_back(kind);
     }
     return list;
 }
 
+void RecipeDetails(const Recipe& recipe, const Inventory* inv);
+
+// The bridge's hand-crafting recipe for `kind`, or null if it's only made
+// in machines.
+const Recipe* HandRecipeFor(ItemKind kind) {
+    for (const Recipe& r : all_recipes())
+        if (r.hand_craftable && r.outputs.front().kind == kind)
+            return &r;
+    return nullptr;
+}
+
 // Copying and pasting, in the left panel: what's on the clipboard, the
-// tools, and while pasting, what the blueprint costs and whether it fits
-// where the mouse is.
+// tools, and while pasting, what the blueprint costs.
 void DrawBlueprintSection(const Ship& ship) {
-    theme::SectionHeading("Blueprints");
+    if (!theme::CollapsingSection("Blueprints"))
+        return;
     BlueprintUiState& bp = g_blueprints;
     if (bp.clipboard)
         ImGui::Text("Clipboard: %s", BlueprintSummary(*bp.clipboard).c_str());
     else
-        ImGui::TextColored(theme::kInkDim, "Clipboard empty");
+        ImGui::TextColored(theme::kTextDim, "Clipboard empty");
 
     const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
     if (theme::SegmentedButton("Copy", bp.tool == Tool::Copy, ImVec2(third, 0.0f))) {
@@ -789,12 +889,9 @@ void DrawBlueprintSection(const Ship& ship) {
         bp.show_library = !bp.show_library;
     ImGui::SetItemTooltip("Saved blueprints, import and export (B)");
 
-    if (bp.tool == Tool::Copy) {
-        ImGui::TextColored(theme::kInkDim, "Drag a box over what to copy\nRight click or Esc: stop");
-    } else if (bp.tool == Tool::Paste && bp.held) {
+    if (bp.tool == Tool::Paste && bp.held) {
         ImGui::TextUnformatted(bp.held->name.empty() ? "Pasting the clipboard" : bp.held->name.c_str());
-        ImGui::TextColored(theme::kInkDim, "Click: paste   R: rotate\nRight click or Esc: stop");
-        // What it costs on bare space, red where the bridge is short.
+        // What it costs on bare space, marked where the bridge is short.
         const float icon = ImGui::GetFrameHeight() * 1.4f;
         IconFlow flow;
         flow.Start(icon);
@@ -807,26 +904,22 @@ void DrawBlueprintSection(const Ship& ship) {
             ImGui::SetItemTooltip("%s: %d (%d in the bridge)", item_name(s.kind), s.count, have);
             ImGui::PopID();
         }
-        if (!bp.paste_status.empty()) {
-            ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(theme::kBad, "%s", bp.paste_status.c_str());
-            ImGui::PopTextWrapPos();
-        }
     }
 }
 
-// The left panel: an icon per placeable item in the inventory with its count,
-// what is selected and its facing, the cargo (everything else in the
-// inventory) and the controls.
-void DrawBuildPalette(const Ship& ship, float width) {
+// The left panel: an icon per placeable item with its count (click to
+// build it, right click to hand-craft one), what is selected, its facing
+// and the settings new ones get, copying and pasting, and the cargo
+// (everything else in the inventory).
+void DrawBuildPalette(Ship& ship, float width) {
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
-    theme::DrawShadowedPanel(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y),
-                             ImGui::GetStyle().WindowRounding);
+    theme::DrawPlatePanel(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y));
 
     ImGui::BeginChild("##build_palette", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     theme::SectionHeading("Build");
 
+    Bridge& bridge = ship.get_bridge();
     const float icon = ImGui::GetFrameHeight() * 1.9f;
     const std::vector<ItemKind> list = BuildList(ship);
     IconFlow flow;
@@ -841,87 +934,93 @@ void DrawBuildPalette(const Ship& ship, float width) {
         if (IconButton("##build", ItemIcon(kind), icon, g_build.selected == kind,
                        {i < 9 ? key.c_str() : nullptr, amount.c_str()}, count == 0 ? 0.4f : 1.0f))
             ToggleSelected(kind);
+        const Recipe* hand = HandRecipeFor(kind);
+        if (hand && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            const int n = ImGui::GetIO().KeyShift ? 5 : 1;
+            int queued = 0;
+            while (queued < n && bridge.queue_craft(*hand))
+                ++queued;
+            if (queued == 0)
+                SetMessage(std::string("Can't hand-craft ") + item_name(kind) + " now: see its recipe");
+        }
         if (ImGui::BeginItemTooltip()) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
-            ImGui::TextColored(theme::kInkDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
+            ImGui::TextColored(theme::kTextDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
             if (i < 9)
-                ImGui::TextColored(theme::kInkDim, "Key %s", key.c_str());
+                ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
+            if (hand) {
+                ImGui::TextColored(theme::kTextDim, "Right click: hand-craft 1 (Shift: 5)");
+                RecipeDetails(*hand, &bridge.get_inventory());
+            } else {
+                ImGui::TextColored(theme::kTextDim, "Made in machines");
+            }
             ImGui::EndTooltip();
         }
         ImGui::PopID();
     }
 
     ImGui::Spacing();
-    if (g_build.selected)
+    if (g_build.selected) {
         ImGui::TextUnformatted(item_name(*g_build.selected));
-    else
-        ImGui::TextColored(theme::kInkDim, "Nothing selected");
-    if (g_build.selected && is_rotatable(*g_build.selected))
-        ImGui::Text("Facing: %s  (R to rotate)", DirectionName(g_build.facing));
-    else
-        ImGui::TextColored(theme::kInkDim, "Facing: -");
-
-    ImGui::Spacing();
-    if (!g_build.message.empty() && ImGui::GetTime() - g_build.message_time < kMessageSeconds)
-        ImGui::TextColored(g_build.message_color, "%s", g_build.message.c_str());
-    else
-        ImGui::TextUnformatted("");
+        if (is_rotatable(*g_build.selected)) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kTextDim, "facing %s", DirectionName(g_build.facing));
+        }
+        const auto last = g_settings.last.find(static_cast<int>(*g_build.selected));
+        if (last != g_settings.last.end())
+            if (const char* name = SettingsName(last->second)) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(theme::kTextDim, "New ones:");
+                ImGui::SameLine();
+                const BuildingSettings& s = last->second;
+                const Icon setting = s.recipe ? RecipeIcon(*s.recipe) : ItemIcon(s.target ? *s.target : *s.filter);
+                AmountLine(setting, name, theme::kText, false);
+            }
+    } else {
+        ImGui::TextColored(theme::kTextDim, "Nothing selected: clicks inspect");
+    }
 
     DrawBlueprintSection(ship);
 
-    theme::SectionHeading("Cargo");
-    const float cargo_icon = ImGui::GetFrameHeight() * 1.6f;
-    IconFlow cargo;
-    cargo.Start(cargo_icon);
-    bool any = false;
-    for (int i = 0; i < kItemKindCount; ++i) {
-        const ItemKind kind = static_cast<ItemKind>(i);
-        const int count = ship.inventory().count(kind);
-        if (is_placeable(kind) || count == 0)
-            continue;
-        any = true;
-        const std::string amount = ShortCount(count);
-        cargo.Next();
-        IconTile(ItemIcon(kind), cargo_icon, {nullptr, amount.c_str()});
-        ImGui::SetItemTooltip("%s: %d", item_name(kind), count);
+    if (theme::CollapsingSection("Cargo")) {
+        const float cargo_icon = ImGui::GetFrameHeight() * 1.6f;
+        IconFlow cargo;
+        cargo.Start(cargo_icon);
+        bool any = false;
+        for (int i = 0; i < kItemKindCount; ++i) {
+            const ItemKind kind = static_cast<ItemKind>(i);
+            const int count = ship.inventory().count(kind);
+            if (is_placeable(kind) || count == 0)
+                continue;
+            any = true;
+            const std::string amount = ShortCount(count);
+            cargo.Next();
+            IconTile(ItemIcon(kind), cargo_icon, {nullptr, amount.c_str()});
+            ImGui::SetItemTooltip("%s: %d", item_name(kind), count);
+        }
+        if (!any)
+            ImGui::TextColored(theme::kTextDim, "Empty");
     }
-    if (!any)
-        ImGui::TextColored(theme::kInkDim, "Empty");
-
-    ImGui::Spacing();
-    ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextColored(theme::kInkDim,
-                       "Left click / drag: build\nLeft click a building: inspect it\n"
-                       "(pick a machine's recipe, a collector's\ntarget or a sorter's filter)\n"
-                       "Right click / drag: remove a building;\n"
-                       "again to remove the hull (refunds)\n"
-                       "Scroll: zoom\nMiddle drag, or hold Space\nand move the mouse: pan\n"
-                       "1-9: pick item   R: rotate\nQ, or the same key again:\nbuild nothing\nEsc: pause menu\n"
-                       "%s+C: copy an area   %s+V: paste\nB: blueprints\n\n"
-                       "Everything but hull needs a hull tile under it; the largest buildings need "
-                       "reinforced hull.",
-                       kCtrlName, kCtrlName);
-    ImGui::PopTextWrapPos();
     ImGui::EndChild();
 }
 
 // What goes into a recipe and what it makes, item by item, for its tooltip.
 // `inv` colors inputs by whether the bridge has them; null leaves them plain.
 void RecipeDetails(const Recipe& recipe, const Inventory* inv) {
-    ImGui::TextColored(theme::kInkDim, "%s, %.1f s", craft_category_name(recipe.category),
+    ImGui::TextColored(theme::kTextDim, "%s, %.1f s", craft_category_name(recipe.category),
                        static_cast<double>(recipe.ticks) / static_cast<double>(kTicksPerSecond));
     for (const ItemStack& s : recipe.inputs) {
         if (inv) {
             const int have = inv->count(s.kind);
             const std::string suffix = "  (have " + std::to_string(have) + ")";
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), have >= s.count ? theme::kInk : theme::kBad, true,
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), have >= s.count ? theme::kText : theme::kBad, true,
                        suffix.c_str());
         } else {
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, true);
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, true);
         }
     }
-    ImGui::TextColored(theme::kInkDim, "Makes");
+    ImGui::TextColored(theme::kTextDim, "Makes");
     for (const ItemStack& s : recipe.outputs)
         AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, true);
 }
@@ -933,7 +1032,7 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
     ImGui::TextUnformatted(recipe_name(recipe));
     RecipeDetails(recipe, inv);
     if (hint)
-        ImGui::TextColored(theme::kInkDim, "%s", hint);
+        ImGui::TextColored(theme::kTextDim, "%s", hint);
     ImGui::EndTooltip();
 }
 
@@ -999,7 +1098,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     ImGui::SameLine();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
-    ImGui::TextColored(b.damaged() ? theme::kBad : theme::kInkDim, "Health %d / %d", b.get_hp(), b.max_hp());
+    ImGui::TextColored(b.damaged() ? theme::kBad : theme::kTextDim, "Health %d / %d", b.get_hp(), b.max_hp());
 
     const float bar_w = ImGui::GetFrameHeight() * 8.0f;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
@@ -1007,29 +1106,29 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (int c = 0; c < kCraftCategoryCount; ++c)
             if (machine->crafts(static_cast<CraftCategory>(c)))
                 crafts += std::string(crafts.empty() ? "" : ", ") + craft_category_name(static_cast<CraftCategory>(c));
-        ImGui::TextColored(theme::kInkDim, "%s, speed x%d", crafts.c_str(), machine->crafting_speed());
+        ImGui::TextColored(theme::kTextDim, "%s, speed x%d", crafts.c_str(), machine->crafting_speed());
         const Recipe* recipe = machine->get_recipe();
         if (!recipe) {
             ImGui::TextColored(theme::kWarnText, "No recipe: click it to pick one");
         } else {
             char rate[32];
             std::snprintf(rate, sizeof(rate), "  (%.1f / min)", machine->crafts_per_minute());
-            AmountLine(RecipeIcon(*recipe), recipe_name(*recipe), theme::kInk, false, rate);
+            AmountLine(RecipeIcon(*recipe), recipe_name(*recipe), theme::kText, false, rate);
             ImGui::ProgressBar(machine->craft_progress(), ImVec2(bar_w, 0.0f), machine->crafting() ? "" : "Waiting");
-            ImGui::TextColored(theme::kInkDim, "Ingredients (per craft)");
+            ImGui::TextColored(theme::kTextDim, "Ingredients (per craft)");
             for (const ItemStack& s : recipe->inputs) {
                 const int have = machine->get_input().count(s.kind);
-                AmountLine(ItemIcon(s.kind), Fraction(have, s.count), have >= s.count ? theme::kInk : theme::kInkDim,
+                AmountLine(ItemIcon(s.kind), Fraction(have, s.count), have >= s.count ? theme::kText : theme::kTextDim,
                            in_tooltip);
             }
-            ImGui::TextColored(theme::kInkDim, "Waiting to go out");
+            ImGui::TextColored(theme::kTextDim, "Waiting to go out");
             bool any = false;
             for (const ItemStack& s : machine->get_output().stacks()) {
                 AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kGood, in_tooltip);
                 any = true;
             }
             if (!any)
-                ImGui::TextColored(theme::kInkDim, "  -");
+                ImGui::TextColored(theme::kTextDim, "  -");
         }
     }
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
@@ -1039,28 +1138,28 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
             ImGui::TextColored(theme::kWarnText, "No %s in this sector: aim it at something else",
                                item_name(collector->get_target()));
         } else {
-            ImGui::TextColored(theme::kInkDim, "Gathers %s: %.0f / min (%d%% of home)",
+            ImGui::TextColored(theme::kTextDim, "Gathers %s: %.0f / min (%d%% of home)",
                                item_name(collector->get_target()), collector->rate_per_second() * 60.0,
                                collector->get_yield());
-            ImGui::TextColored(theme::kInkDim, "At home: 1 every %.1f s", seconds);
+            ImGui::TextColored(theme::kTextDim, "At home: 1 every %.1f s", seconds);
         }
         const bool full = collector->full();
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
         ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
         for (const ItemStack& s : collector->items().stacks())
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
     if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
         if (!belt->moves_items()) {
-            ImGui::TextColored(theme::kInkDim, "Doesn't move items yet");
+            ImGui::TextColored(theme::kTextDim, "Doesn't move items yet");
         } else {
-            ImGui::TextColored(theme::kInkDim, "%.0f cells / s",
+            ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
                                static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
             Inventory carried;
             for (const BeltItem& item : belt->get_items())
                 carried.add(item.kind);
             for (const ItemStack& s : carried.stacks())
-                AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
+                AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
         }
     }
     if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
@@ -1068,57 +1167,57 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Filter:");
         ImGui::SameLine();
-        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kInk, false);
+        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
         if (sorter->inverted())
-            ImGui::TextColored(theme::kInkDim, "Matching items turn left or right;\nothers go straight through");
+            ImGui::TextColored(theme::kTextDim, "Matching items turn left or right;\nothers go straight through");
         else
-            ImGui::TextColored(theme::kInkDim, "Matching items go straight through;\nothers turn left or right");
+            ImGui::TextColored(theme::kTextDim, "Matching items go straight through;\nothers turn left or right");
     }
     if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
-        ImGui::TextColored(theme::kInkDim, "Items cross straight over, out the\nopposite side");
+        ImGui::TextColored(theme::kTextDim, "Items cross straight over, out the\nopposite side");
         Inventory crossing;
         for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
             for (const JunctionItem& item : junction->lane(travel))
                 crossing.add(item.kind);
         for (const ItemStack& s : crossing.stacks())
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
     if (const auto* router = dynamic_cast<const Router*>(&b)) {
-        ImGui::TextColored(theme::kInkDim, "Passes items to its other three sides\nin turn");
+        ImGui::TextColored(theme::kTextDim, "Passes items to its other three sides\nin turn");
         if (const std::optional<ItemKind> held = router->get_held())
-            AmountLine(ItemIcon(*held), item_name(*held), theme::kInk, in_tooltip);
+            AmountLine(ItemIcon(*held), item_name(*held), theme::kText, in_tooltip);
     }
     if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
         const std::string fuel = Fraction(thruster->get_fuel(), kThrusterCharge) + " fuel cells";
         ImGui::ProgressBar(static_cast<float>(thruster->get_fuel()) / static_cast<float>(kThrusterCharge),
                            ImVec2(bar_w, 0.0f), fuel.c_str());
-        ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kInkDim, "%s",
+        ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
                            thruster->charged() ? "Charged: ready to jump (see the map, M)"
                                                : "Belt fuel cells into it to charge it");
     }
     if (kind == ItemKind::SurveyScanner)
-        ImGui::TextColored(theme::kInkDim, "Surveys the sectors next to the ship's");
+        ImGui::TextColored(theme::kTextDim, "Surveys the sectors next to the ship's");
     if (const auto* turret = dynamic_cast<const Turret*>(&b)) {
         const TurretSpec& spec = turret->get_spec();
-        ImGui::TextColored(theme::kInkDim, "%d damage, %.1f shots / s, range %.0f", spec.damage,
+        ImGui::TextColored(theme::kTextDim, "%d damage, %.1f shots / s, range %.0f", spec.damage,
                            static_cast<double>(kTicksPerSecond) / static_cast<double>(spec.interval),
                            static_cast<double>(spec.range));
         const std::string held = Fraction(turret->get_ammo(), kTurretAmmoCapacity);
-        AmountLine(ItemIcon(spec.ammo), held, turret->get_ammo() > 0 ? theme::kInk : theme::kBad, in_tooltip);
+        AmountLine(ItemIcon(spec.ammo), held, turret->get_ammo() > 0 ? theme::kText : theme::kBad, in_tooltip);
         if (turret->shots_left() == 0)
             ImGui::TextColored(theme::kBad, "Out of ammunition: belt %s into it", item_name(spec.ammo));
         else
-            ImGui::TextColored(theme::kInkDim, "%d shots left", turret->shots_left());
+            ImGui::TextColored(theme::kTextDim, "%d shots left", turret->shots_left());
     }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
         for (const ItemStack& s : hold->get_stored().stacks())
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kInk, in_tooltip);
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
     if (!kind)
-        ImGui::TextColored(theme::kInkDim, "Belts deliver into its inventory");
+        ImGui::TextColored(theme::kTextDim, "Belts deliver into its inventory");
     if (b.rotatable())
-        ImGui::TextColored(theme::kInkDim, "Facing %s", DirectionName(b.facing()));
+        ImGui::TextColored(theme::kTextDim, "Facing %s", DirectionName(b.facing()));
 }
 
 // Whether `text` contains `part`, ignoring case.
@@ -1225,7 +1324,7 @@ bool ComboSearchOption(const Icon& icon, bool selected) {
 
 void EndComboSearch() {
     if (g_combo_search.shown == 0)
-        ImGui::TextColored(theme::kInkDim, "No matches");
+        ImGui::TextColored(theme::kTextDim, "No matches");
     ImGui::EndChild();
 }
 
@@ -1264,7 +1363,27 @@ void DrawInspector(Ship& ship) {
     const Building* b = InspectedBuilding(ship);
     if (!b)
         return;
+    // The heading, with a cross at its right end to close it.
+    const ImVec2 heading_min = ImGui::GetCursorScreenPos();
+    const float heading_w = ImGui::GetContentRegionAvail().x;
     theme::SectionHeading("Inspect");
+    const ImVec2 after_heading = ImGui::GetCursorScreenPos();
+    const float s = ImGui::GetTextLineHeight();
+    ImGui::SetCursorScreenPos(ImVec2(heading_min.x + heading_w - s, heading_min.y + ImGui::GetStyle().ItemSpacing.y +
+                                                                        (ImGui::GetFrameHeight() - s) * 0.5f));
+    if (theme::CloseButton("##close_inspector")) {
+        g_build.inspected.reset();
+        g_build.inspected_building = nullptr;
+        return;
+    }
+    ImGui::SetItemTooltip("Close (Esc)");
+    ImGui::SetCursorScreenPos(after_heading);
+    // Whatever is picked below is what new ones of its kind start with.
+    const auto remember = [&] {
+        if (const Building* changed = ship.building_at(*g_build.inspected))
+            if (const std::optional<BuildingSettings> settings = SettingsOf(*changed))
+                RememberSettings(*settings);
+    };
     BuildingDetails(*b, false);
     if (const auto* machine = dynamic_cast<const Machine*>(b)) {
         const Progress& progress = ship.get_bridge().get_progress();
@@ -1274,8 +1393,8 @@ void DrawInspector(Ship& ship) {
                            current ? recipe_name(*current) : "Pick a recipe")) {
             BeginComboSearch();
             if (ComboSearchShows("None")) {
-                if (ComboSearchOption(Icon{}, current == nullptr))
-                    ship.set_recipe(*g_build.inspected, nullptr);
+                if (ComboSearchOption(Icon{}, current == nullptr) && ship.set_recipe(*g_build.inspected, nullptr))
+                    remember();
                 ImGui::SetItemTooltip("None");
             }
             const std::vector<const Recipe*> recipes = machine_recipes(*machine->item_kind());
@@ -1286,8 +1405,9 @@ void DrawInspector(Ship& ship) {
                 ImGui::PushID(static_cast<int>(i));
                 const std::string hint = LockedHint(progress, *r);
                 ImGui::BeginDisabled(!hint.empty());
-                if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current)
-                    ship.set_recipe(*g_build.inspected, r);
+                if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current &&
+                    ship.set_recipe(*g_build.inspected, r))
+                    remember();
                 ImGui::EndDisabled();
                 RecipeTooltip(*r, nullptr, hint.empty() ? nullptr : hint.c_str());
                 ImGui::PopID();
@@ -1295,7 +1415,7 @@ void DrawInspector(Ship& ship) {
             EndComboSearch();
             ImGui::EndCombo();
         }
-        ImGui::TextColored(theme::kInkDim, "Changing it returns held ingredients to the bridge.");
+        ImGui::TextColored(theme::kTextDim, "Changing it returns held ingredients to the bridge.");
     }
     if (const auto* collector = dynamic_cast<const Collector*>(b)) {
         const ItemKind current = collector->get_target();
@@ -1306,8 +1426,9 @@ void DrawInspector(Ship& ship) {
                 if (!ComboSearchShows(item_name(kind)))
                     continue;
                 ImGui::PushID(static_cast<int>(kind));
-                if (ComboSearchOption(ItemIcon(kind), kind == current) && kind != current)
-                    ship.set_collector_target(*g_build.inspected, kind);
+                if (ComboSearchOption(ItemIcon(kind), kind == current) && kind != current &&
+                    ship.set_collector_target(*g_build.inspected, kind))
+                    remember();
                 ImGui::SetItemTooltip("%s", item_name(kind));
                 ImGui::PopID();
             }
@@ -1322,33 +1443,31 @@ void DrawInspector(Ship& ship) {
                            current ? item_name(*current) : "Pick a filter")) {
             BeginComboSearch();
             if (ComboSearchShows("None")) {
-                if (ComboSearchOption(Icon{}, !current))
-                    ship.set_sort_filter(*g_build.inspected, std::nullopt);
+                if (ComboSearchOption(Icon{}, !current) && ship.set_sort_filter(*g_build.inspected, std::nullopt))
+                    remember();
                 ImGui::SetItemTooltip("None");
             }
             if (const std::optional<ItemKind> picked = ComboSearchItemOptions(current))
-                ship.set_sort_filter(*g_build.inspected, *picked);
+                if (ship.set_sort_filter(*g_build.inspected, *picked))
+                    remember();
             EndComboSearch();
             ImGui::EndCombo();
         }
-    }
-    if (ImGui::Button("Close##inspector", ImVec2(-1.0f, 0.0f))) {
-        g_build.inspected.reset();
-        g_build.inspected_building = nullptr;
     }
 }
 
 // The milestone being worked on: what to deliver, how much has been, and
 // what it unlocks.
 void DrawMilestone(const Progress& progress) {
-    theme::SectionHeading("Milestone");
+    if (!theme::CollapsingSection("Milestone"))
+        return;
     const Milestone* m = progress.current_milestone();
     if (!m) {
         ImGui::TextColored(theme::kGood, "All milestones complete");
         return;
     }
     ImGui::Text("%zu / %zu: %s", progress.current_index() + 1, all_milestones().size(), m->name);
-    ImGui::TextColored(theme::kInkDim, "Deliver to the bridge:");
+    ImGui::TextColored(theme::kTextDim, "Deliver to the bridge:");
     for (const ItemStack& s : m->deliver) {
         const int have = progress.delivered_count(s.kind);
         const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
@@ -1358,7 +1477,7 @@ void DrawMilestone(const Progress& progress) {
         ImGui::ProgressBar(static_cast<float>(have) / static_cast<float>(s.count), ImVec2(-1.0f, 0.0f),
                            overlay.c_str());
     }
-    ImGui::TextColored(theme::kInkDim, "Unlocks");
+    ImGui::TextColored(theme::kTextDim, "Unlocks");
     const float icon = ImGui::GetFrameHeight() * 1.4f;
     IconFlow flow;
     flow.Start(icon);
@@ -1421,7 +1540,7 @@ void DrawFleetStrip(World& world) {
     }
     if (fleet.get_ships().size() > 1) {
         ImGui::SameLine();
-        ImGui::TextColored(theme::kInkDim, "[ ] switch ships");
+        ImGui::TextColored(theme::kTextDim, "[ ] switch ships");
     }
     if (show)
         SwitchToShip(*show);
@@ -1442,7 +1561,8 @@ void CycleShip(const Fleet& fleet, int step) {
 // the cargo on its way to or from the ship shown.
 void DrawFleetSection(World& world, const FleetShip& current) {
     Fleet& fleet = world.get_fleet();
-    theme::SectionHeading("Fleet");
+    if (!theme::CollapsingSection("Fleet"))
+        return;
     const FleetResult launch = fleet.can_launch(current.id);
     ImGui::BeginDisabled(launch != FleetResult::Ok);
     if (ImGui::Button("Launch a new ship", ImVec2(-1.0f, 0.0f))) {
@@ -1467,7 +1587,7 @@ void DrawFleetSection(World& world, const FleetShip& current) {
         for (const ItemStack& item : t.items)
             n += item.count;
         const double seconds = static_cast<double>(t.arrives - now) / static_cast<double>(kTicksPerSecond);
-        ImGui::TextColored(theme::kInkDim, "%s %s: %d items, %.0f s", t.from == current.id ? "To" : "From",
+        ImGui::TextColored(theme::kTextDim, "%s %s: %d items, %.0f s", t.from == current.id ? "To" : "From",
                            other ? other->name.c_str() : "(lost)", n, std::ceil(seconds));
     }
 }
@@ -1506,7 +1626,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
             ImGui::PopID();
         }
         if (!any)
-            ImGui::TextColored(theme::kInkDim, "No other ship in this sector");
+            ImGui::TextColored(theme::kTextDim, "No other ship in this sector");
         ImGui::EndCombo();
     }
 
@@ -1523,7 +1643,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
         ImGui::InputInt("##count", &stack.count, 1, 10);
         stack.count = std::clamp(stack.count, 0, inv.count(stack.kind));
         ImGui::SameLine();
-        ImGui::TextColored(theme::kInkDim, "/ %d", inv.count(stack.kind));
+        ImGui::TextColored(theme::kTextDim, "/ %d", inv.count(stack.kind));
         ImGui::SameLine();
         if (theme::DangerSmallButton("Remove"))
             remove = i;
@@ -1554,7 +1674,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
     const int pods = pods_needed(total);
     const int have_pods = inv.count(ItemKind::CargoPod);
     AmountLine(ItemIcon(ItemKind::CargoPod), Fraction(have_pods, pods),
-               have_pods >= pods ? theme::kInk : theme::kBad, false, " cargo pods needed");
+               have_pods >= pods ? theme::kText : theme::kBad, false, " cargo pods needed");
     const FleetResult result =
         to ? fleet.can_send(current.id, to->id, f.cargo) : FleetResult::NoSuchShip;
     ImGui::BeginDisabled(result != FleetResult::Ok);
@@ -1565,7 +1685,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
     }
     ImGui::EndDisabled();
     if (result != FleetResult::Ok)
-        ImGui::TextColored(theme::kInkDim, "%s", to ? describe(result) : "Pick a ship to send to");
+        ImGui::TextColored(theme::kTextDim, "%s", to ? describe(result) : "Pick a ship to send to");
     ImGui::End();
 }
 
@@ -1576,22 +1696,24 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
     Ship& ship = current.ship;
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
-    theme::DrawShadowedPanel(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y),
-                             ImGui::GetStyle().WindowRounding);
+    theme::DrawPlatePanel(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y));
 
     ImGui::BeginChild("##craft_panel", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     Bridge& bridge = ship.get_bridge();
-    DrawMilestone(bridge.get_progress());
+    // The inspector first, so a click on the grid shows up where it's seen.
     ImGui::PushTextWrapPos(0.0f);
     DrawInspector(ship);
+    ImGui::PopTextWrapPos();
+    DrawMilestone(bridge.get_progress());
+    ImGui::PushTextWrapPos(0.0f);
     DrawFleetSection(world, current);
     ImGui::PopTextWrapPos();
 
     const float icon = ImGui::GetFrameHeight() * 1.6f;
-    theme::SectionHeading("Craft queue");
     const std::deque<CraftJob>& queue = bridge.craft_queue();
-    if (queue.empty()) {
-        ImGui::TextColored(theme::kInkDim, "Idle");
+    if (!theme::CollapsingSection("Craft queue")) {
+    } else if (queue.empty()) {
+        ImGui::TextColored(theme::kTextDim, "Idle");
     } else {
         constexpr std::size_t kShown = 8;
         std::optional<std::size_t> cancel;
@@ -1611,7 +1733,7 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
                 ImGui::GetWindowDrawList()->AddRectFilled(
                     ImVec2(job_min.x + 2.0f, job_min.y + icon - h - 2.0f),
                     ImVec2(job_min.x + 2.0f + (icon - 4.0f) * progress, job_min.y + icon - 2.0f),
-                    theme::U32(theme::kWarn));
+                    theme::U32(theme::kAccent));
             }
             if ((clicked && i > 0) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
                 cancel = i;
@@ -1620,23 +1742,27 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
             ImGui::PopID();
         }
         if (queue.size() > kShown)
-            ImGui::TextColored(theme::kInkDim, "... and %zu more", queue.size() - kShown);
+            ImGui::TextColored(theme::kTextDim, "... and %zu more", queue.size() - kShown);
         if (cancel)
             bridge.cancel_craft(*cancel);
     }
 
-    theme::SectionHeading("Hand-craft");
-    ImGui::TextColored(theme::kInkDim, "Click: 1   Shift-click: 5");
-    ImGui::SeparatorText("Materials");
-    DrawHandCraftButtons(bridge, ItemCategory::Material);
-    ImGui::SeparatorText("Components");
-    DrawHandCraftButtons(bridge, ItemCategory::Component);
-    ImGui::SeparatorText("Buildings");
-    DrawHandCraftButtons(bridge, ItemCategory::Placeable);
+    if (theme::CollapsingSection("Hand-craft")) {
+        ImGui::TextColored(theme::kTextDim, "Click: 1   Shift-click: 5");
+        ImGui::SeparatorText("Materials");
+        DrawHandCraftButtons(bridge, ItemCategory::Material);
+        ImGui::SeparatorText("Components");
+        DrawHandCraftButtons(bridge, ItemCategory::Component);
+        ImGui::SeparatorText("Buildings");
+        DrawHandCraftButtons(bridge, ItemCategory::Placeable);
+    }
 
-    theme::SectionHeading("Recipe book");
+    if (!theme::CollapsingSection("Recipe book", false)) {
+        ImGui::EndChild();
+        return;
+    }
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextColored(theme::kInkDim, "Made in machines: click one on the grid to pick its recipe.");
+    ImGui::TextColored(theme::kTextDim, "Made in machines: click one on the grid to pick its recipe.");
     ImGui::PopTextWrapPos();
     const std::vector<Recipe>& recipes = all_recipes();
     for (int c = 0; c < kCraftCategoryCount; ++c) {
@@ -1670,6 +1796,40 @@ struct MilestoneBanner {
 };
 MilestoneBanner g_banner;
 
+// A banner plate centered across the grid (`grid_min`, `grid_size`): a band
+// along its top in `band` (hazard stripes when `hazard`), `title` in mono
+// in `color`, and `subtitle` under it. At the top of the grid, or with
+// `bottom`, at its bottom. Returns its height.
+float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 band, bool hazard, ImVec2 grid_min,
+                 ImVec2 grid_size, bool bottom) {
+    const float fh = ImGui::GetFrameHeight();
+    const float pad = fh * 0.45f;
+    const float band_h = std::max(4.0f, fh * 0.28f);
+    theme::PushMono(theme::kFontTitle);
+    const ImVec2 ts = ImGui::CalcTextSize(title);
+    theme::PopMono();
+    const ImVec2 ss = ImGui::CalcTextSize(subtitle);
+    const float w = std::max(ts.x, ss.x) + pad * 2.0f;
+    const float h = band_h + ts.y + ss.y + pad * 2.0f;
+    const float y = bottom ? grid_min.y + grid_size.y - h - fh * 0.6f : grid_min.y + fh * 0.6f;
+    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), y);
+    const ImVec2 max(min.x + w, min.y + h);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    theme::DrawPlatePanel(draw, min, max);
+    const ImVec2 band_max(max.x - 2.0f, min.y + band_h);
+    if (hazard) {
+        draw->AddRectFilled(ImVec2(min.x + 1.0f, min.y + 1.0f), band_max, theme::U32(theme::kBevelDark));
+        theme::DrawHazardStripes(draw, ImVec2(min.x + 1.0f, min.y + 1.0f), band_max, band);
+    } else {
+        draw->AddRectFilled(ImVec2(min.x + 1.0f, min.y + 1.0f), band_max, theme::U32(band));
+    }
+    theme::PushMono(theme::kFontTitle);
+    draw->AddText(ImVec2(min.x + (w - ts.x) * 0.5f, min.y + band_h + pad * 0.8f), theme::U32(color), title);
+    theme::PopMono();
+    draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, max.y - pad - ss.y), theme::U32(theme::kTextDim), subtitle);
+    return h;
+}
+
 // Announces a milestone just completed, for a few seconds, at the top of
 // the grid (`grid_min`, `grid_size`).
 void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
@@ -1683,51 +1843,60 @@ void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
     if (current == 0 || ImGui::GetTime() >= banner.until)
         return;
 
-    const std::string title = std::string("Milestone complete: ") + all_milestones()[current - 1].name;
+    const std::string title = std::string("MILESTONE COMPLETE: ") + all_milestones()[current - 1].name;
     const char* subtitle = progress.all_complete() ? "Every milestone done!" : "New recipes unlocked";
-    const float fh = ImGui::GetFrameHeight();
-    const float pad = fh * 0.6f;
-    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
-    const ImVec2 ss = ImGui::CalcTextSize(subtitle);
-    const float w = std::max(ts.x, ss.x) + pad * 2.0f;
-    const float h = ts.y + ss.y + ImGui::GetStyle().ItemSpacing.y + pad * 2.0f;
-    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), grid_min.y + fh);
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    theme::DrawShadowedPanel(draw, min, ImVec2(min.x + w, min.y + h), ImGui::GetStyle().WindowRounding);
-    draw->AddText(ImVec2(min.x + (w - ts.x) * 0.5f, min.y + pad), theme::U32(theme::kGood), title.c_str());
-    draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, min.y + h - pad - ss.y), theme::U32(theme::kInkDim), subtitle);
+    DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 
 // The fight, along the bottom of the grid: how many enemies are on it, or
-// when the next wave comes.
-void DrawBattleBanner(const FleetShip& ship, const Sector& sector, Tick now, ImVec2 grid_min, ImVec2 grid_size) {
+// when the next wave comes. Returns its height (0 when there's none).
+float DrawBattleBanner(const FleetShip& ship, const Sector& sector, Tick now, ImVec2 grid_min, ImVec2 grid_size) {
     const Battle& battle = ship.battle;
     std::string title;
     std::string subtitle;
     ImVec4 color = theme::kBad;
     if (battle.under_attack()) {
-        title = "Under attack: " + std::to_string(battle.enemies.size()) + " enemies";
+        title = "UNDER ATTACK: " + std::to_string(battle.enemies.size()) + " enemies";
         subtitle = sector.hostile() ? std::to_string(sector.waves_left) + " more waves to come" : "The last wave";
     } else if (battle.next_wave) {
         const Tick left = *battle.next_wave > now ? *battle.next_wave - now : 0;
-        title = "Next wave in " + std::to_string((left + kTicksPerSecond - 1) / kTicksPerSecond) + " s";
+        title = "NEXT WAVE IN " + std::to_string((left + kTicksPerSecond - 1) / kTicksPerSecond) + " s";
         subtitle = std::to_string(sector.waves_left) + " waves left in " + sector.name;
         color = theme::kWarnText;
     } else {
-        return;
+        return 0.0f;
     }
+    return DrawBanner(title.c_str(), subtitle.c_str(), color, battle.under_attack() ? theme::kBad : theme::kAccent,
+                      true, grid_min, grid_size, true);
+}
+
+// The last message (SetMessage), for a few seconds after it's set: a toast
+// centered over the bottom of the grid, `above` pixels higher (over the
+// battle banner), fading out at the end.
+void DrawToast(ImVec2 grid_min, ImVec2 grid_size, float above) {
+    const BuildUiState& build = g_build;
+    const double age = ImGui::GetTime() - build.message_time;
+    if (build.message.empty() || age >= kMessageSeconds)
+        return;
+    const float alpha = static_cast<float>(std::min(1.0, (kMessageSeconds - age) / 0.5));
     const float fh = ImGui::GetFrameHeight();
     const float pad = fh * 0.4f;
-    const ImVec2 ts = ImGui::CalcTextSize(title.c_str());
-    const ImVec2 ss = ImGui::CalcTextSize(subtitle.c_str());
-    const float w = std::max(ts.x, ss.x) + pad * 2.0f;
-    const float h = ts.y + ss.y + pad * 2.0f;
-    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), grid_min.y + grid_size.y - h - fh);
+    const float wrap = std::min(grid_size.x * 0.8f, fh * 24.0f);
+    const ImVec2 ts = ImGui::CalcTextSize(build.message.c_str(), nullptr, false, wrap);
+    const float stripe = std::max(3.0f, fh * 0.15f);
+    const float w = ts.x + pad * 2.0f + stripe;
+    const float h = ts.y + pad * 2.0f;
+    const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f),
+                     grid_min.y + grid_size.y - h - fh * 0.6f - (above > 0.0f ? above + fh * 0.4f : 0.0f));
+    const ImVec2 max(min.x + w, min.y + h);
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    theme::DrawShadowedPanel(draw, min, ImVec2(min.x + w, min.y + h), ImGui::GetStyle().WindowRounding);
-    draw->AddText(ImVec2(min.x + (w - ts.x) * 0.5f, min.y + pad), theme::U32(color), title.c_str());
-    draw->AddText(ImVec2(min.x + (w - ss.x) * 0.5f, min.y + pad + ts.y), theme::U32(theme::kInkDim),
-                  subtitle.c_str());
+    draw->AddRectFilled(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(max.x + 3.0f, max.y + 3.0f),
+                        theme::U32(theme::kShadow, 0.35f * alpha));
+    draw->AddRectFilled(min, max, theme::U32(theme::kPanel, alpha));
+    draw->AddRect(min, max, theme::U32(theme::kBevelLight, alpha));
+    draw->AddRectFilled(min, ImVec2(min.x + stripe, max.y), theme::U32(build.message_color, alpha));
+    draw->AddText(nullptr, 0.0f, ImVec2(min.x + stripe + pad, min.y + pad), theme::U32(build.message_color, alpha),
+                  build.message.c_str(), nullptr, wrap);
 }
 
 // A hull tile (`kind`: Hull or ReinforcedHull) over `min`..`max`: its sprite,
@@ -1740,6 +1909,24 @@ void DrawHull(ImDrawList* draw, ItemKind kind, ImVec2 min, ImVec2 max, float cel
         DrawSprite(draw, *sprite, min, max, Direction::North, alpha);
     else
         draw->AddRectFilled(min, max, kind == ItemKind::ReinforcedHull ? reinforced : hull);
+}
+
+// Amber brackets round the corners of `min`..`max`, marking the building
+// being inspected.
+void DrawCornerBrackets(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 color, float cell) {
+    const float len = std::max(4.0f, std::min(cell * 0.5f, (max.x - min.x) * 0.3f));
+    const float t = 2.0f;
+    const ImVec2 a(min.x - 2.0f, min.y - 2.0f);
+    const ImVec2 b(max.x + 2.0f, max.y + 2.0f);
+    draw->AddRect(min, max, theme::U32(theme::kAccent, 0.35f), 0.0f, 0, 1.0f);
+    draw->AddLine(a, ImVec2(a.x + len, a.y), color, t);
+    draw->AddLine(a, ImVec2(a.x, a.y + len), color, t);
+    draw->AddLine(ImVec2(b.x, a.y), ImVec2(b.x - len, a.y), color, t);
+    draw->AddLine(ImVec2(b.x, a.y), ImVec2(b.x, a.y + len), color, t);
+    draw->AddLine(ImVec2(a.x, b.y), ImVec2(a.x + len, b.y), color, t);
+    draw->AddLine(ImVec2(a.x, b.y), ImVec2(a.x, b.y - len), color, t);
+    draw->AddLine(b, ImVec2(b.x - len, b.y), color, t);
+    draw->AddLine(b, ImVec2(b.x, b.y - len), color, t);
 }
 
 // Pans and zooms the camera from this frame's input on the canvas (the
@@ -1808,16 +1995,16 @@ void DrawCopyBox(ImDrawList* draw, const Ship& ship, GridPos a, GridPos b, ImVec
     const GridPos hi{std::max(a.x, b.x), std::max(a.y, b.y)};
     const ImVec2 min = CellMin(origin, cell, lo);
     const ImVec2 max = CellMin(origin, cell, {hi.x + 1, hi.y + 1});
-    draw->AddRectFilled(min, max, theme::U32(theme::kNavy, 0.15f));
+    draw->AddRectFilled(min, max, theme::U32(theme::kAccent, 0.12f));
     for (const GridPos p : ship.placement_order()) {
         const Building* building = ship.building_anchored_at(p);
         const GridSize size = building->footprint();
         if (!building->item_kind() || p.x > hi.x || p.y > hi.y || p.x + size.w <= lo.x || p.y + size.h <= lo.y)
             continue;
         const ImVec2 bmin = CellMin(origin, cell, p);
-        draw->AddRect(bmin, FootprintMax(bmin, cell, size), theme::U32(theme::kNavy), 0.0f, 0, 1.5f);
+        draw->AddRect(bmin, FootprintMax(bmin, cell, size), theme::U32(theme::kAccent, 0.7f), 0.0f, 0, 1.5f);
     }
-    draw->AddRect(min, max, theme::U32(theme::kNavy), 0.0f, 0, 2.0f);
+    draw->AddRect(min, max, theme::U32(theme::kAccent), 0.0f, 0, 2.0f);
 }
 
 // A ghost of `blueprint` pasted with its top-left cell at `at`: what it would
@@ -1877,7 +2064,7 @@ void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 
     const float inset = std::max(1.0f, cell * 0.08f);
     const ImVec2 bar_min(min.x + inset, min.y + inset);
     const ImVec2 bar_max(max.x - inset, min.y + inset + h);
-    draw->AddRectFilled(bar_min, bar_max, theme::U32(theme::kInk, 0.6f));
+    draw->AddRectFilled(bar_min, bar_max, theme::U32(theme::kBevelDark, 0.75f));
     const ImVec4 color = fraction > 0.6f ? theme::kGood : fraction > 0.3f ? theme::kWarn : theme::kBad;
     draw->AddRectFilled(bar_min, ImVec2(bar_min.x + (bar_max.x - bar_min.x) * fraction, bar_max.y),
                         theme::U32(color));
@@ -1925,16 +2112,16 @@ void DrawBattle(ImDrawList* draw, const Ship& ship, const Battle& battle, ImVec2
         const ImVec2 tip(c.x + d.x * r, c.y + d.y * r);
         const ImVec2 left(c.x - d.x * r * 0.7f + side.x * r * 0.7f, c.y - d.y * r * 0.7f + side.y * r * 0.7f);
         const ImVec2 right(c.x - d.x * r * 0.7f - side.x * r * 0.7f, c.y - d.y * r * 0.7f - side.y * r * 0.7f);
-        const ImVec4 color = e.kind == EnemyKind::Drone     ? theme::kRedHover
-                             : e.kind == EnemyKind::Gunship ? theme::kRed
-                                                            : theme::kRedActive;
+        const ImVec4 color = e.kind == EnemyKind::Drone     ? theme::kBadHover
+                             : e.kind == EnemyKind::Gunship ? theme::kBad
+                                                            : theme::kBadActive;
         draw->AddTriangleFilled(tip, left, right, theme::U32(color));
-        draw->AddTriangle(tip, left, right, theme::U32(theme::kInk), 1.0f);
+        draw->AddTriangle(tip, left, right, theme::U32(theme::kBevelDark), 1.5f);
         if (e.hp < spec.hp) {
             const float w = r * 1.6f;
             const float h = std::max(2.0f, cell * 0.1f);
             const ImVec2 bar_min(c.x - w * 0.5f, c.y - r - h - 2.0f);
-            draw->AddRectFilled(bar_min, ImVec2(bar_min.x + w, bar_min.y + h), theme::U32(theme::kInk, 0.6f));
+            draw->AddRectFilled(bar_min, ImVec2(bar_min.x + w, bar_min.y + h), theme::U32(theme::kBevelDark, 0.75f));
             draw->AddRectFilled(bar_min,
                                 ImVec2(bar_min.x + w * static_cast<float>(e.hp) / static_cast<float>(spec.hp),
                                        bar_min.y + h),
@@ -1942,6 +2129,130 @@ void DrawBattle(ImDrawList* draw, const Ship& ship, const Battle& battle, ImVec2
         }
     }
 }
+
+// Whether a left drag turns `kind` to face the way it goes: belts, so a
+// line drawn round a corner carries items along it.
+bool DragTurns(ItemKind kind) {
+    return kind == ItemKind::TransportBelt || kind == ItemKind::ExpressBelt;
+}
+
+// The way from cell `a` to the neighboring cell `b`.
+Direction DirectionBetween(GridPos a, GridPos b) {
+    if (b.x > a.x)
+        return Direction::East;
+    if (b.x < a.x)
+        return Direction::West;
+    return b.y > a.y ? Direction::South : Direction::North;
+}
+
+// Gives the building just placed at `p` the settings last picked for its
+// kind, if any.
+void ApplyLastSettings(Ship& ship, GridPos p, ItemKind kind) {
+    const auto last = g_settings.last.find(static_cast<int>(kind));
+    if (last != g_settings.last.end())
+        ApplySettings(ship, p, last->second);
+}
+
+// Turns the belt this drag put at `p` to face `facing` (taking it up and
+// putting it down again), so the one before a corner points round it.
+void RefaceDragged(Ship& ship, GridPos p, ItemKind kind, Direction facing) {
+    const std::vector<GridPos>& placed = g_build.drag_placed;
+    const Building* b = ship.building_anchored_at(p);
+    if (!b || b->item_kind() != kind || b->facing() == facing ||
+        std::find(placed.begin(), placed.end(), p) == placed.end())
+        return;
+    const Direction before = b->facing();
+    if (ship.remove_building(p) == BuildResult::Ok && ship.place(kind, p, facing) != BuildResult::Ok)
+        ship.place(kind, p, before);
+}
+
+// One frame of a left press or drag that builds, the mouse over `cell`:
+// places the selected item on every cell from the last one the drag was over
+// to this one, a step at a time, so a quick drag leaves no gaps; belts turn
+// to face the way it goes. A press that builds nothing inspects the building
+// there, or says why.
+void BuildDrag(Ship& ship, GridPos cell) {
+    BuildUiState& build = g_build;
+    const bool pressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    if (pressed || !build.drag_last) {
+        build.drag_last.reset();
+        build.drag_placed.clear();
+    }
+    std::vector<GridPos> path;
+    GridPos prev = build.drag_last.value_or(cell);
+    for (GridPos p = prev; p.x != cell.x || p.y != cell.y;) {
+        if (p.x != cell.x)
+            p.x += cell.x > p.x ? 1 : -1;
+        else
+            p.y += cell.y > p.y ? 1 : -1;
+        path.push_back(p);
+    }
+    if (path.empty())
+        path.push_back(cell);  // the press, or the mouse hasn't left the cell
+    build.drag_last = cell;
+
+    // With nothing selected, nothing gets built: a click only inspects.
+    std::optional<BuildResult> result;
+    for (const GridPos p : path) {
+        if (!build.selected)
+            break;
+        const ItemKind kind = *build.selected;
+        if (DragTurns(kind) && (p.x != prev.x || p.y != prev.y)) {
+            build.facing = DirectionBetween(prev, p);
+            RefaceDragged(ship, prev, kind, build.facing);
+        }
+        result = ship.place(kind, p, build.facing);
+        if (result == BuildResult::Ok) {
+            build.drag_placed.push_back(p);
+            ApplyLastSettings(ship, p, kind);
+        }
+        prev = p;
+    }
+    if (!pressed || result == BuildResult::Ok)
+        return;
+    // Clicking a building (rather than building on it) inspects it.
+    if (const Building* b = ship.building_at(cell)) {
+        build.inspected = ship.anchor_of(cell);
+        build.inspected_building = b;
+    } else if (result) {
+        SetBuildMessage(*result);
+    }
+}
+
+// Shift + mouse on the grid, over `cell`: a right click copies the settings
+// of the building there, a left click (or drag) pastes them onto each one
+// it goes over.
+void SettingsDrag(Ship& ship, GridPos cell) {
+    const Building* b = ship.building_at(cell);
+    const std::optional<BuildingSettings> here = b ? SettingsOf(*b) : std::nullopt;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        if (!here) {
+            SetMessage("Nothing there with settings to copy");
+            return;
+        }
+        g_settings.copied = here;
+        const char* name = SettingsName(*here);
+        SetMessage(std::string("Settings copied: ") + (name ? name : "none"), theme::kGood);
+        return;
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        return;
+    const bool pressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    if (!g_settings.copied) {
+        if (pressed)
+            SetMessage("Shift+right-click a building first, to copy its settings");
+        return;
+    }
+    if (ApplySettings(ship, cell, *g_settings.copied)) {
+        if (const std::optional<BuildingSettings> now = SettingsOf(*ship.building_at(cell)))
+            RememberSettings(*now);
+    } else if (pressed && here && !SameSettings(*here, *g_settings.copied)) {
+        SetMessage("Those settings don't fit this building");
+    }
+}
+
+// How long the mouse rests on a building before its tooltip shows.
+constexpr double kTooltipDelay = 0.35;
 
 void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     const int n = ship.size();
@@ -1965,6 +2276,9 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     std::optional<GridPos> hover_cell;
     if (ImGui::IsItemHovered() && !panning && ship.in_bounds(mouse_cell))
         hover_cell = mouse_cell;
+    g_build.hover_cell = hover_cell;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        g_build.drag_last.reset();
 
     // Pasting: the blueprint centered on the mouse.
     BlueprintUiState& bp = g_blueprints;
@@ -2001,21 +2315,11 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                                " recipe(s) not unlocked yet: those machines have none",
                            theme::kWarnText);
         }
+    } else if (hover_cell && ImGui::IsItemActive() && ImGui::GetIO().KeyShift) {
+        SettingsDrag(ship, *hover_cell);
     } else if (hover_cell && ImGui::IsItemActive()) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            // With nothing selected, nothing gets built: a click only inspects.
-            const std::optional<BuildResult> r =
-                g_build.selected ? std::optional(ship.place(*g_build.selected, *hover_cell, g_build.facing))
-                                 : std::nullopt;
-            if (r != BuildResult::Ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                // Clicking a building (rather than building on it) inspects it.
-                if (const Building* b = ship.building_at(*hover_cell)) {
-                    g_build.inspected = ship.anchor_of(*hover_cell);
-                    g_build.inspected_building = b;
-                } else if (r) {
-                    SetBuildMessage(*r);
-                }
-            }
+            BuildDrag(ship, *hover_cell);
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
             // One layer per press, picked where it starts: on a building it
             // only removes buildings, so a second press takes the hull.
@@ -2039,21 +2343,27 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->PushClipRect(canvas_min, canvas_max, true);
     const ImU32 grid_line = theme::U32(theme::kGridLine);
+    const ImU32 grid_major = theme::U32(theme::kGridMajor);
     const ImU32 hull = theme::U32(theme::kTileHull);
     const ImU32 reinforced = theme::U32(theme::kTileReinforcedHull);
-    // The grid as whole lines (one per row / column, not an outline per
-    // cell: the grid is large), then the hull filled over it. Zoomed far
-    // out, only the grid's border.
+    // The grid's space a shade lighter than the void around it, then the
+    // grid as whole lines (one per row / column, not an outline per cell:
+    // the grid is large), a brighter one every kGridMajorEvery cells like a
+    // drawing sheet, then the hull filled over it. Zoomed far out, only the
+    // grid's border.
+    draw->AddRectFilled(origin, ImVec2(origin.x + side, origin.y + side), theme::U32(theme::kInset));
     if (cell >= 4.0f) {
         const ImVec2 top_left = CellMin(origin, cell, lo);
         const ImVec2 bottom_right = CellMin(origin, cell, {hi.x + 1, hi.y + 1});
         for (int x = lo.x; x <= hi.x + 1; ++x) {
             const float t = origin.x + static_cast<float>(x) * cell;
-            draw->AddLine(ImVec2(t, top_left.y), ImVec2(t, bottom_right.y), grid_line);
+            draw->AddLine(ImVec2(t, top_left.y), ImVec2(t, bottom_right.y),
+                          x % theme::kGridMajorEvery == 0 ? grid_major : grid_line);
         }
         for (int y = lo.y; y <= hi.y + 1; ++y) {
             const float t = origin.y + static_cast<float>(y) * cell;
-            draw->AddLine(ImVec2(top_left.x, t), ImVec2(bottom_right.x, t), grid_line);
+            draw->AddLine(ImVec2(top_left.x, t), ImVec2(bottom_right.x, t),
+                          y % theme::kGridMajorEvery == 0 ? grid_major : grid_line);
         }
     } else {
         draw->AddRect(origin, ImVec2(origin.x + side, origin.y + side), grid_line);
@@ -2087,11 +2397,11 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                     DrawSorterFilter(draw, *sorter, min, cell);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
                 if (b == InspectedBuilding(ship)) {
-                    draw->AddRect(min, max, theme::U32(theme::kRed), 0.0f, 0, 2.0f);
+                    DrawCornerBrackets(draw, min, max, theme::U32(theme::kAccent), cell);
                     // A turret's reach.
                     if (const auto* turret = dynamic_cast<const Turret*>(b))
                         draw->AddCircle(ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f),
-                                        turret->get_spec().range * cell, theme::U32(theme::kRed, 0.6f), 0, 1.5f);
+                                        turret->get_spec().range * cell, theme::U32(theme::kAccent, 0.6f), 0, 1.5f);
                 }
             }
     // Items on belts, junctions and routers, over every building (they
@@ -2148,12 +2458,23 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
             draw->PopClipRect();
         }
 
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
-            if (const Building* b = ship.building_at(*hover_cell)) {
-                ImGui::BeginTooltip();
-                BuildingDetails(*b, true);
-                ImGui::EndTooltip();
-            }
+    }
+
+    // The tooltip of the building under the mouse, once it has rested there
+    // a moment with no button down (not while building past it).
+    static const Building* tip_building = nullptr;
+    static double tip_since = 0.0;
+    const bool buttons = ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right);
+    const Building* under =
+        hover_cell && bp.tool == Tool::Build && !buttons ? ship.building_at(*hover_cell) : nullptr;
+    if (under != tip_building) {
+        tip_building = under;
+        tip_since = ImGui::GetTime();
+    }
+    if (under && ImGui::GetTime() - tip_since >= kTooltipDelay) {
+        ImGui::BeginTooltip();
+        BuildingDetails(*under, true);
+        ImGui::EndTooltip();
     }
     draw->PopClipRect();
 }
@@ -2168,7 +2489,7 @@ ImVec4 ThreatColor(int threat) {
         return theme::kGood;
     if (threat <= 2)
         return theme::kWarn;
-    return theme::kRed;
+    return theme::kBad;
 }
 
 // A threat as a row of kMaxThreat dots, `threat` of them filled, laid out
@@ -2185,7 +2506,7 @@ void ThreatPips(int threat) {
         if (i < threat)
             draw->AddCircleFilled(c, r, color);
         else
-            draw->AddCircle(c, r, theme::U32(theme::kInkDim), 0, 1.0f);
+            draw->AddCircle(c, r, theme::U32(theme::kTextDim), 0, 1.0f);
     }
 }
 
@@ -2196,7 +2517,7 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
     const Sector& s = map.at(index);
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetCursorScreenPos(min);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kPaper);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kPanel);
     ImGui::BeginChild("##sector", ImVec2(fh * 13.0f, 0.0f),
                       ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
@@ -2204,9 +2525,9 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
     ImGui::TextUnformatted(s.surveyed ? s.name.c_str() : "Unsurveyed sector");
     ImGui::PopFont();
     if (index == 0)
-        ImGui::TextColored(theme::kInkDim, "Home");
+        ImGui::TextColored(theme::kTextDim, "Home");
     if (!s.surveyed) {
-        ImGui::TextColored(theme::kInkDim,
+        ImGui::TextColored(theme::kTextDim,
                            "Visit it, or bring a ship with a survey scanner next door, to learn what's there.");
     } else {
         ImGui::TextUnformatted("Threat");
@@ -2219,11 +2540,11 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
             ImGui::TextColored(theme::kGood, "Cleared: no more enemies come");
         else if (s.hostile())
             ImGui::TextColored(theme::kBad, "%d waves of enemies to fight off", s.waves_left);
-        ImGui::TextColored(theme::kInkDim, "Yields (home: 100%%)");
+        ImGui::TextColored(theme::kTextDim, "Yields (home: 100%%)");
         for (int r = 0; r < kRawResourceCount; ++r) {
             const int y = s.yields[static_cast<std::size_t>(r)];
             AmountLine(ItemIcon(kRawResources[r]), y > 0 ? std::to_string(y) + "%" : "none",
-                       y > 100 ? theme::kGood : y > 0 ? theme::kInk : theme::kInkDim, false);
+                       y > 100 ? theme::kGood : y > 0 ? theme::kText : theme::kTextDim, false);
         }
     }
     std::string here;
@@ -2240,7 +2561,7 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
         const auto charged = std::count_if(thrusters.begin(), thrusters.end(),
                                            [](const Thruster* t) { return t->charged(); });
         const int needed = thrusters_needed(current.ship.hull_count());
-        ImGui::TextColored(theme::kInkDim, "%s's ion thrusters: %d of %zu charged, %d needed", current.name.c_str(),
+        ImGui::TextColored(theme::kTextDim, "%s's ion thrusters: %d of %zu charged, %d needed", current.name.c_str(),
                            static_cast<int>(charged), thrusters.size(), needed);
         const JumpResult can = world.can_jump(current.id, index);
         ImGui::BeginDisabled(can != JumpResult::Ok);
@@ -2314,7 +2635,16 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->PushClipRect(canvas_min, canvas_max, true);
-    draw->AddRectFilled(canvas_min, canvas_max, theme::U32(theme::kPaperLight), ImGui::GetStyle().WindowRounding);
+    draw->AddRectFilled(canvas_min, canvas_max, theme::U32(theme::kInset));
+    draw->AddRect(canvas_min, canvas_max, theme::U32(theme::kBevelDark));
+    // Range rings round home, and cross hairs through it, like a plotting
+    // table.
+    const ImVec2 home(canvas_min.x + m.offset.x, canvas_min.y + m.offset.y);
+    const ImU32 ring = theme::U32(theme::kGridLine);
+    for (int k = 1; k <= 6; ++k)
+        draw->AddCircle(home, extent * m.scale * static_cast<float>(k) / 3.0f, ring, 96, 1.0f);
+    draw->AddLine(ImVec2(canvas_min.x, home.y), ImVec2(canvas_max.x, home.y), ring);
+    draw->AddLine(ImVec2(home.x, canvas_min.y), ImVec2(home.x, canvas_max.y), ring);
 
     // Links between known sectors; those out of the shown ship's sector,
     // where it can jump, stand out.
@@ -2324,13 +2654,13 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
                 continue;
             const bool reach = i == current.sector || j == current.sector;
             draw->AddLine(screen(map.at(i)), screen(map.at(j)),
-                          theme::U32(reach ? theme::kNavy : theme::kPaper4), reach ? 2.5f : 1.5f);
+                          theme::U32(reach ? theme::kAccent : theme::kFrameActive), reach ? 2.5f : 1.5f);
         }
 
     // Sectors: filled by threat once surveyed, a "?" before; a ring when
-    // visited, a red one when picked.
-    const ImU32 ink = theme::U32(theme::kInk);
-    const ImU32 halo = theme::U32(theme::kPaperLight);
+    // visited, an amber one when picked.
+    const ImU32 ink = theme::U32(theme::kText);
+    const ImU32 halo = theme::U32(theme::kInset);
     for (int i = 0; i < map.size(); ++i) {
         if (!map.known(i))
             continue;
@@ -2339,15 +2669,15 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
         if (s.surveyed) {
             draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.hostile() ? s.threat : 0)));
         } else {
-            draw->AddCircleFilled(c, r, theme::U32(theme::kPaper2));
+            draw->AddCircleFilled(c, r, theme::U32(theme::kFrame));
             const ImVec2 q = ImGui::CalcTextSize("?");
-            draw->AddText(ImVec2(c.x - q.x * 0.5f, c.y - q.y * 0.5f), theme::U32(theme::kInkDim), "?");
+            draw->AddText(ImVec2(c.x - q.x * 0.5f, c.y - q.y * 0.5f), theme::U32(theme::kTextDim), "?");
         }
-        draw->AddCircle(c, r, s.visited ? ink : theme::U32(theme::kInkDim), 0, s.visited ? 2.0f : 1.0f);
+        draw->AddCircle(c, r, s.visited ? ink : theme::U32(theme::kTextDim), 0, s.visited ? 2.0f : 1.0f);
         if (m.selected == i)
-            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kRed), 0, 2.5f);
+            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kAccent), 0, 2.5f);
         else if (hovered == i)
-            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kRed, 0.5f), 0, 1.5f);
+            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kAccent, 0.5f), 0, 1.5f);
         const char* label = s.surveyed ? s.name.c_str() : "";
         const ImVec2 ts = ImGui::CalcTextSize(label);
         theme::DrawHaloText(draw, ImVec2(c.x - ts.x * 0.5f, c.y + r + 3.0f), ink, halo, label);
@@ -2363,7 +2693,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
         const float h = r * 0.9f;
         draw->AddTriangleFilled(ImVec2(p.x, p.y - h * 0.6f), ImVec2(p.x + h * 0.5f, p.y + h * 0.5f),
                                 ImVec2(p.x - h * 0.5f, p.y + h * 0.5f),
-                                theme::U32(ship->id == current.id ? theme::kRed : theme::kNavy));
+                                theme::U32(ship->id == current.id ? theme::kAccent : theme::kSteel));
     }
     if (hovered)
         ImGui::SetTooltip("%s", map.at(*hovered).surveyed ? map.at(*hovered).name.c_str() : "Unsurveyed sector");
@@ -2371,7 +2701,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
 
     const float pad = ImGui::GetStyle().WindowPadding.x;
     ImGui::SetCursorScreenPos(ImVec2(canvas_min.x + pad, canvas_max.y - ImGui::GetTextLineHeight() - pad));
-    ImGui::TextColored(theme::kInkDim, "Click a sector for details. M: back to the ship");
+    ImGui::TextColored(theme::kTextDim, "Click a sector for details. M: back to the ship");
     if (m.selected)
         DrawSectorPanel(world, current, *m.selected, ImVec2(canvas_min.x + pad, canvas_min.y + pad));
 }
@@ -2519,7 +2849,7 @@ void DrawBlueprintLibrary(const fs::path& dir) {
     ImGui::Spacing();
 
     if (ui.slots.empty())
-        ImGui::TextColored(theme::kInkDim, "No blueprints yet: copy an area (%s+C), then save it here.", kCtrlName);
+        ImGui::TextColored(theme::kTextDim, "No blueprints yet: copy an area (%s+C), then save it here.", kCtrlName);
     const ImGuiTableFlags table_flags =
         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit;
     if (!ui.slots.empty() && ImGui::BeginTable("##blueprint_table", 3, table_flags)) {
@@ -2534,7 +2864,7 @@ void DrawBlueprintLibrary(const fs::path& dir) {
             if (!slot.blueprint) {
                 // Unreadable: it can only be deleted.
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(theme::kInkDim, "%s", slot.path.filename().string().c_str());
+                ImGui::TextColored(theme::kTextDim, "%s", slot.path.filename().string().c_str());
                 ImGui::SameLine();
                 theme::HelpMarker(("Can't be read: " + slot.error).c_str());
                 ImGui::TableNextColumn();
@@ -2640,7 +2970,7 @@ void DrawBlueprintLibrary(const fs::path& dir) {
         ImGui::Text("Delete \"%s\"? This can't be undone.", ui.deleting_name.c_str());
         ImGui::Spacing();
         bool close = false;
-        if (theme::PrimaryButton("Delete")) {
+        if (theme::DangerButton("Delete")) {
             std::string error;
             if (ui.deleting && !delete_blueprint(*ui.deleting, error))
                 say("Couldn't delete it: " + error, theme::kBad);
@@ -2689,15 +3019,22 @@ void DrawMainMenu(Screen& screen) {
     const float spacing = ImGui::GetStyle().ItemSpacing.y;
 
     // Title plus two buttons, as one block centered vertically.
-    ImGui::PushFont(nullptr, theme::kFontHuge);
+    theme::PushMono(theme::kFontHuge * 1.4f);
     const float title_h = ImGui::GetTextLineHeight();
-    ImGui::PopFont();
+    const float title_w = ImGui::CalcTextSize("ORE IN ORBIT").x;
+    theme::PopMono();
     const float block_h = title_h + fh * 1.5f + 2.0f * button_size.y + spacing;
     ImGui::SetCursorPosY((ImGui::GetWindowHeight() - block_h) * 0.5f);
 
-    ImGui::PushFont(nullptr, theme::kFontHuge);
-    CenteredText("ORE IN ORBIT", theme::kInk);
-    ImGui::PopFont();
+    theme::PushMono(theme::kFontHuge * 1.4f);
+    CenteredText("ORE IN ORBIT", theme::kText);
+    theme::PopMono();
+    // A hazard-striped rule under the title.
+    const ImVec2 title_max = ImGui::GetItemRectMax();
+    const float rule_w = std::max(title_w, button_size.x);
+    const ImVec2 rule_min((ImGui::GetWindowWidth() - rule_w) * 0.5f + ImGui::GetWindowPos().x, title_max.y + fh * 0.3f);
+    theme::DrawHazardStripes(ImGui::GetWindowDrawList(), rule_min,
+                             ImVec2(rule_min.x + rule_w, rule_min.y + fh * 0.35f), theme::kAccent);
     ImGui::Dummy({0.0f, fh * 1.5f - spacing});
 
     const float button_x = (ImGui::GetWindowWidth() - button_size.x) * 0.5f;
@@ -2746,7 +3083,7 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
     ImGui::Spacing();
 
     if (ui.slots.empty())
-        ImGui::TextColored(theme::kInkDim, "No saves yet: start a new game.");
+        ImGui::TextColored(theme::kTextDim, "No saves yet: start a new game.");
     const ImGuiTableFlags table_flags =
         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit;
     if (!ui.slots.empty() && ImGui::BeginTable("##save_table", 4, table_flags)) {
@@ -2762,7 +3099,7 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
             if (!slot.header) {
                 // Unreadable: it can only be deleted.
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextColored(theme::kInkDim, "%s", slot.path.filename().string().c_str());
+                ImGui::TextColored(theme::kTextDim, "%s", slot.path.filename().string().c_str());
                 ImGui::SameLine();
                 theme::HelpMarker(("Can't be loaded: " + slot.error).c_str());
                 ImGui::TableNextColumn();
@@ -2835,7 +3172,7 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
         ImGui::Text("Delete \"%s\"? This can't be undone.", ui.deleting_name.c_str());
         ImGui::Spacing();
         bool close = false;
-        if (theme::PrimaryButton("Delete")) {
+        if (theme::DangerButton("Delete")) {
             std::string error;
             message = !ui.deleting || delete_save(*ui.deleting, error) ? "" : "Couldn't delete it: " + error;
             refresh = close = true;
@@ -2894,6 +3231,130 @@ void LeaveGame(Screen& screen) {
     g_build.inspected_building = nullptr;
     LeaveBlueprintTool();  // the clipboard stays, to paste into another game
     g_blueprints.show_library = false;
+    g_build.show_keys = false;
+    g_settings = {};
+}
+
+// One hint in the bar under the grid: a key cap, then what it does.
+void Hint(const char* key, const char* does) {
+    theme::KeyCap(key);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::TextColored(theme::kTextDim, "%s", does);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 2.0f);
+}
+
+// The bar under the grid (`min`, `width` across): the keys that do
+// something now, for the tool in hand, and the "Keys" button that opens
+// the overlay of all of them.
+void DrawHintBar(ImVec2 min, float width) {
+    const float fh = ImGui::GetFrameHeight();
+    const BlueprintUiState& bp = g_blueprints;
+    ImGui::SetCursorScreenPos(min);
+    ImGui::BeginChild("##hints", ImVec2(width, fh), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    const char* keys_label = "? Keys";
+    const float keys_w = ImGui::CalcTextSize(keys_label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::PushClipRect(min, ImVec2(min.x + width - keys_w - ImGui::GetStyle().ItemSpacing.x, min.y + fh), true);
+    ImGui::SetCursorPosY((fh - ImGui::GetTextLineHeight()) * 0.5f);
+    if (g_map.shown) {
+        Hint("LMB", "sector details");
+        Hint("Drag", "pan");
+        Hint("Wheel", "zoom");
+        Hint("M", "back to the ship");
+    } else if (bp.tool == Tool::Copy) {
+        Hint("Drag", "box over what to copy");
+        Hint("RMB", "stop");
+        Hint("Esc", "stop");
+    } else if (bp.tool == Tool::Paste) {
+        Hint("LMB", "paste");
+        Hint("R", "turn");
+        Hint("RMB", "stop");
+        if (!bp.paste_status.empty())
+            ImGui::TextColored(theme::kBad, "%s", bp.paste_status.c_str());
+    } else if (ImGui::GetIO().KeyShift) {
+        Hint("Shift+RMB", "copy a building's settings");
+        Hint("Shift+LMB", "paste them (drag for several)");
+        if (g_settings.copied)
+            if (const char* name = SettingsName(*g_settings.copied))
+                ImGui::TextColored(theme::kAccent, "Holding: %s", name);
+    } else if (g_build.selected) {
+        Hint("LMB", "build");
+        Hint("RMB", "remove");
+        if (is_rotatable(*g_build.selected)) {
+            std::string facing = std::string("turn (now ") + DirectionName(g_build.facing) + ")";
+            Hint("R / Shift+R", facing.c_str());
+        }
+        Hint("Q", "pick / build nothing");
+        Hint("Shift", "settings");
+    } else {
+        Hint("LMB", "inspect");
+        Hint("RMB", "remove");
+        Hint("Q", "pick the building under the mouse");
+        Hint("1-9", "build");
+        Hint("Shift", "settings");
+    }
+    ImGui::PopClipRect();
+    ImGui::SetCursorPos(ImVec2(width - keys_w, 0.0f));
+    if (theme::SegmentedButton(keys_label, g_build.show_keys, ImVec2(keys_w, fh)))
+        g_build.show_keys = !g_build.show_keys;
+    ImGui::SetItemTooltip("Every key and mouse control (?)");
+    ImGui::EndChild();
+}
+
+// The keys overlay (? or the Keys button): every control, in a table.
+void DrawKeysWindow() {
+    if (!g_build.show_keys)
+        return;
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 22.0f, 0.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (!ImGui::Begin("Keys", &g_build.show_keys,
+                      ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::End();
+        return;
+    }
+    const std::string copy = std::string(kCtrlName) + "+C";
+    const std::string paste = std::string(kCtrlName) + "+V";
+    const struct {
+        const char* key;
+        const char* does;
+    } rows[] = {
+        {"LMB / drag", "Build the selected item; belts face the way you drag"},
+        {"LMB a building", "Inspect it: a machine's recipe, a collector's target, a sorter's filter"},
+        {"RMB / drag", "Remove buildings (refunded); again for the bare hull"},
+        {"Shift+RMB", "Copy a building's settings"},
+        {"Shift+LMB / drag", "Paste them onto buildings that can take them"},
+        {"Wheel", "Zoom"},
+        {"MMB drag, Space", "Pan"},
+        {"1-9", "Pick the item to build (again: build nothing)"},
+        {"RMB a palette icon", "Hand-craft one (Shift: 5)"},
+        {"R / Shift+R", "Turn what you're building, or the blueprint"},
+        {"Q", "Pick the building under the mouse, or build nothing"},
+        {copy.c_str(), "Copy an area (drag a box)"},
+        {paste.c_str(), "Pick the last copy up to paste"},
+        {"B", "Blueprint library"},
+        {"M", "Star map"},
+        {"[ / ]", "Previous / next ship"},
+        {"?", "This list"},
+        {"Esc", "Put the tool away, close what's open, then pause"},
+    };
+    if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        for (const auto& row : rows) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            theme::KeyCap(row.key);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(row.does);
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(fh * 20.0f);
+    ImGui::TextColored(theme::kTextDim,
+                       "New machines, collectors and sorters start with the settings last picked for their kind. "
+                       "Everything but hull needs a hull tile under it; the largest buildings need reinforced hull.");
+    ImGui::PopTextWrapPos();
+    ImGui::End();
 }
 
 // The end of a game whose fleet is lost: the news, and the way out.
@@ -2902,11 +3363,16 @@ void DrawFleetLost(Screen& screen) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetCursorPosY(viewport->WorkSize.y * 0.35f);
-    ImGui::PushFont(nullptr, theme::kFontHuge);
-    CenteredText("Fleet lost", theme::kBad);
-    ImGui::PopFont();
-    CenteredText("Every ship's bridge has been destroyed.", theme::kInk);
-    CenteredText("Load the last save (from a minute ago, at most) to try again.", theme::kInkDim);
+    // A band of red hazard stripes right across the screen, behind the news.
+    const ImVec2 band_min(viewport->WorkPos.x, ImGui::GetCursorScreenPos().y - fh * 0.5f);
+    theme::DrawHazardStripes(ImGui::GetWindowDrawList(), band_min,
+                             ImVec2(band_min.x + viewport->WorkSize.x, band_min.y + fh * 0.4f), theme::kBad, 0.8f);
+    ImGui::Dummy(ImVec2(0.0f, fh * 0.2f));
+    theme::PushMono(theme::kFontHuge);
+    CenteredText("FLEET LOST", theme::kBad);
+    theme::PopMono();
+    CenteredText("Every ship's bridge has been destroyed.", theme::kText);
+    CenteredText("Load the last save (from a minute ago, at most) to try again.", theme::kTextDim);
     ImGui::Dummy(ImVec2(0.0f, fh));
     const ImVec2 button(fh * 8.0f, fh * 1.6f);
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - button.x) * 0.5f);
@@ -2924,9 +3390,11 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         return;
     }
     // Escape opens the pause menu, or closes it again; first, though, it puts
-    // the copy / paste tool away, then closes the Blueprints window. Not when
-    // it closed a dropdown or tooltip popup: ImGui already did that before we
-    // got here, so look at whether one was open last frame.
+    // the copy / paste tool away, then closes what's open, one at a time:
+    // the Send cargo window, the inspector, the keys overlay, the star map,
+    // the Blueprints window. Not when it closed a dropdown or tooltip popup:
+    // ImGui already did that before we got here, so look at whether one was
+    // open last frame.
     static bool popup_was_open = false;
     BlueprintUiState& bp = g_blueprints;
     if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {
@@ -2934,6 +3402,15 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             paused = false;
         else if (bp.tool != Tool::Build)
             LeaveBlueprintTool();
+        else if (g_fleet.show_send)
+            g_fleet.show_send = false;
+        else if (g_build.inspected) {
+            g_build.inspected.reset();
+            g_build.inspected_building = nullptr;
+        } else if (g_build.show_keys)
+            g_build.show_keys = false;
+        else if (g_map.shown)
+            g_map.shown = false;
         else if (bp.show_library)
             bp.show_library = false;
         else
@@ -2954,14 +3431,33 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
                 ToggleSelected(list[i]);
         if (ShortcutPressed(ImGuiKey_Q)) {
-            g_build.selected.reset();
+            // Over a building: pick it, as it faces and with its settings for
+            // new ones. Anywhere else: build nothing.
             LeaveBlueprintTool();
+            const Building* b =
+                g_build.hover_cell && !g_map.shown ? ship.building_at(*g_build.hover_cell) : nullptr;
+            const std::optional<ItemKind> kind = b ? b->item_kind() : std::nullopt;
+            if (kind && is_placeable(*kind)) {
+                g_build.selected = kind;
+                if (is_rotatable(*kind))
+                    g_build.facing = b->facing();
+                if (const std::optional<BuildingSettings> settings = SettingsOf(*b))
+                    RememberSettings(*settings);
+            } else {
+                g_build.selected.reset();
+            }
         }
+        if (ShortcutPressed(ImGuiKey_Slash))
+            g_build.show_keys = !g_build.show_keys;
         if (ShortcutPressed(ImGuiKey_R)) {
+            // Shift turns it back the other way: three quarter turns, for a
+            // blueprint.
+            const bool back = ImGui::GetIO().KeyShift;
             if (bp.tool != Tool::Paste || !bp.held) {
-                g_build.facing = rotated_cw(g_build.facing);
+                g_build.facing = back ? rotated_ccw(g_build.facing) : rotated_cw(g_build.facing);
             } else if (can_rotate(*bp.held)) {
-                bp.held = rotated_cw(*bp.held);
+                for (int turns = back ? 3 : 1; turns > 0; --turns)
+                    bp.held = rotated_cw(*bp.held);
             } else {
                 for (const BlueprintBuilding& b : bp.held->buildings)
                     if (!is_rotatable(b.kind) && footprint_of(b.kind).w != footprint_of(b.kind).h) {
@@ -2992,29 +3488,36 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const float craft_w = fh * 12.0f;
     DrawBuildPalette(ship, palette_w);
     ImGui::SameLine(0.0f, gap);
-    // The middle column: the fleet's tabs, and the grid under them.
     const ImVec2 column_min = ImGui::GetCursorScreenPos();
     ImVec2 column_avail = ImGui::GetContentRegionAvail();
     column_avail.x = std::max(0.0f, column_avail.x - craft_w - gap);
+    // The middle column: the fleet's tabs, the grid under them, and the
+    // hint bar under that.
     DrawFleetStrip(world);
     const float strip_h = fh + ImGui::GetStyle().ItemSpacing.y;
     const ImVec2 grid_min(column_min.x, column_min.y + strip_h);
-    const ImVec2 grid_avail(column_avail.x, std::max(0.0f, column_avail.y - strip_h));
+    const ImVec2 grid_avail(column_avail.x, std::max(0.0f, column_avail.y - strip_h * 2.0f));
     ImGui::SetCursorScreenPos(grid_min);
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
-    if (g_map.shown)
+    if (g_map.shown) {
+        g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
-    else
+    } else {
         DrawShipGrid(shown.ship, shown.battle, world.get_tick(), grid_avail);
+    }
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
-    if (!g_map.shown)
-        DrawBattleBanner(shown, world.get_map().at(shown.sector), world.get_tick(), grid_min, grid_avail);
+    const float battle_h =
+        g_map.shown ? 0.0f
+                    : DrawBattleBanner(shown, world.get_map().at(shown.sector), world.get_tick(), grid_min, grid_avail);
+    DrawToast(grid_min, grid_avail, battle_h);
+    DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     DrawCraftPanel(world, shown, craft_w);
     if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
+        DrawKeysWindow();
     }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
 

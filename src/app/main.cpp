@@ -224,7 +224,7 @@ int main(int, char**)
     Session session;
     std::string save_list_message;  // why the last new game / load failed
     float tick_accumulator = 0.0f;
-    const ImVec4 clear_color = ui::theme::kMap;  // the parchment background behind every screen
+    const ImVec4 clear_color = ui::theme::kBackdrop;  // the dark steel behind every screen
 
     // Main loop
     bool done = false;

@@ -167,23 +167,39 @@ clipboard. A library file holds exactly that text.
 
 ## Controls
 
-- **Escape**: back to the main menu (from the game, the save list or the
-  credits), saving the game. In the game it opens the pause menu, after
-  putting away the copy / paste tool and closing the Blueprints window.
-- **Left click / drag**: build the selected item on the grid.
-- **Left click a building**: inspect it; pick a machine's recipe, a
-  collector's target or a sorter's item.
+- **Escape**: back to the main menu (from the save list or the credits). In
+  the game it first puts away the copy / paste tool, then closes what's
+  open, one at a time (Send cargo, the inspector, the keys overlay, the star
+  map, the Blueprints window), and then opens the pause menu, whose Main
+  menu saves the game.
+- **Left click / drag**: build the selected item on the grid. A quick drag
+  leaves no gaps, and belts drawn by dragging face the way the drag goes,
+  turning at corners.
+- **Left click a building**: inspect it (at the top of the right panel);
+  pick a machine's recipe, a collector's target or a sorter's item. New
+  machines, collectors and sorters start with the settings last picked for
+  their kind.
 - **Right click / drag**: remove buildings and refund them; a second press
   removes the bare hull underneath.
+- **Shift + right click a building**: copy its settings (recipe, target or
+  filter). **Shift + left click / drag**: paste them onto each building
+  that can take them.
+- **Right click an item in the build palette**: hand-craft one (Shift: 5).
 - **Mouse wheel**: zoom the grid (about the cursor).
 - **Middle drag, or hold Space and move the mouse**: pan the grid.
 - **M**: the star map; click a sector for its details, and to jump the
   ship shown there. Drag to pan, mouse wheel to zoom.
 - **[ / ]**: show the previous / next ship of the fleet (or click its tab
   above the grid; double-click a tab to rename the ship).
-- **1–9**: pick the item to build. **R**: rotate the transport belt.
-- **Q**, or the selected item's key or icon again: build nothing, so left
-  clicks only inspect.
+- **1–9**: pick the item to build. The palette lists every building
+  unlocked, in a fixed order (faded when there are none in the bridge), so
+  the keys stay put. **R** / **Shift+R**: turn what's being built (or a
+  blueprint being pasted) clockwise / back.
+- **Q** over a building: pick it to build, facing the same way and with its
+  settings for new ones. **Q** anywhere else, or the selected item's key or
+  icon again: build nothing, so left clicks only inspect.
+- **?** (the / key), or Keys under the grid: every control, in a list. The
+  bar under the grid shows the keys that do something right now.
 - **Ctrl+C** (Cmd+C on macOS): copy; drag a box over what to copy, and the
   copy is picked up to paste. **Ctrl+V** (Cmd+V): pick up the last copy.
   While pasting: **left click** pastes, **R** turns it, **right click**,
@@ -255,10 +271,13 @@ One directory per layer under `src/`; includes name their layer
   - `ui.cpp` — the main menu, save list, credits and game screens (the build grid and
     palette, with its zoom / pan camera, one per ship, the fleet's tabs,
     the star map,
-    the inspector, copy and paste, the Blueprints and Send cargo windows),
+    the inspector, copy and paste, the Blueprints, Send cargo and Keys
+    windows, the hint bar and message toasts),
     and the F1 / F2 demo windows.
-  - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
-    font and a few styled widgets. Every color comes from here.
+  - `ui_theme.h/.cpp` — the dark, industrial look: the palette, ImGui /
+    ImPlot styles, the embedded fonts (Roboto, and Cousine for headings and
+    numbers) and a few styled widgets (bevelled plates, hazard stripes, key
+    caps, collapsible headings). Every color comes from here.
   - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into
     one atlas texture at startup and looked up by item or building.
 - `src/app/` — `main.cpp` (window, GL context, screen switching,

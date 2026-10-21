@@ -1,5 +1,5 @@
-// ui_theme.h — the warm "postal" look shared by every presentation file:
-// the palette, the Dear ImGui / ImPlot style and embedded UI font
+// ui_theme.h — the dark, industrial look shared by every presentation file:
+// the palette, the Dear ImGui / ImPlot style and embedded UI fonts
 // (ApplyTheme), and a handful of styled widgets built on top of them.
 //
 // Every color the UI draws comes from here, so re-theming the app is an edit
@@ -23,58 +23,65 @@ constexpr ImU32 U32(ImVec4 c, float alpha = 1.0f) {
 }
 
 // ---------------------------------------------------------------------------
-// Palette: cream paper, navy ink, postal red.
+// Palette: gunmetal plates, pale text, hazard amber.
 // ---------------------------------------------------------------------------
 
-constexpr ImVec4 kPaper      = Rgb(246, 240, 228);  // window and panel background
-constexpr ImVec4 kPaperLight = Rgb(252, 249, 242);  // plot areas, inputs on paper
-constexpr ImVec4 kPaper2     = Rgb(236, 227, 210);  // frames, table headers, inset tiles
-constexpr ImVec4 kPaper3     = Rgb(222, 210, 188);  // hovered frames, borders
-constexpr ImVec4 kPaper4     = Rgb(204, 189, 162);  // pressed frames, scrollbar grabs
-constexpr ImVec4 kMap        = Rgb(231, 222, 203);  // main-area background (the GL clear color)
-constexpr ImVec4 kInk        = Rgb(32, 42, 68);     // text, icons
-constexpr ImVec4 kInkDim     = Rgb(118, 110, 96);   // secondary text, inactive icons
-constexpr ImVec4 kShadow     = Rgb(70, 50, 25);     // drop shadows (used at low alpha)
+constexpr ImVec4 kBackdrop    = Rgb(18, 20, 23);     // behind everything (the GL clear color), the grid
+constexpr ImVec4 kPanel       = Rgb(31, 35, 40);     // window and panel plates
+constexpr ImVec4 kInset       = Rgb(22, 25, 29);     // inputs, plot areas, popups: sunk into the plate
+constexpr ImVec4 kFrame       = Rgb(43, 48, 55);     // frames, buttons, icon tiles
+constexpr ImVec4 kFrameHover  = Rgb(54, 60, 69);     // hovered frames, rules
+constexpr ImVec4 kFrameActive = Rgb(67, 74, 85);     // pressed frames, scrollbar grabs
+constexpr ImVec4 kBevelLight  = Rgb(74, 82, 94);     // the lit top / left edge of a plate
+constexpr ImVec4 kBevelDark   = Rgb(11, 12, 14);     // the shaded bottom / right edge, borders
+constexpr ImVec4 kText        = Rgb(216, 219, 224);  // text, icons
+constexpr ImVec4 kTextDim     = Rgb(138, 145, 155);  // secondary text, inactive icons
+constexpr ImVec4 kShadow      = Rgb(0, 0, 0);        // drop shadows (used at low alpha)
 
-constexpr ImVec4 kRed        = Rgb(196, 52, 44);    // postal red: primary accent, selection
-constexpr ImVec4 kRedHover   = Rgb(214, 72, 62);
-constexpr ImVec4 kRedActive  = Rgb(164, 40, 34);
-constexpr ImVec4 kNavy       = Rgb(44, 66, 112);    // secondary accent: progress, counts
-constexpr ImVec4 kNavyHover  = Rgb(62, 88, 140);
+constexpr ImVec4 kAccent       = Rgb(242, 163, 43);  // hazard amber: primary accent, selection
+constexpr ImVec4 kAccentHover  = Rgb(255, 184, 74);
+constexpr ImVec4 kAccentActive = Rgb(201, 133, 22);
+constexpr ImVec4 kAccentText   = Rgb(20, 18, 14);    // text on amber
+constexpr ImVec4 kSteel        = Rgb(91, 120, 150);  // secondary accent: progress, links, counts
+constexpr ImVec4 kSteelHover   = Rgb(112, 145, 178);
 
-constexpr ImVec4 kGood       = Rgb(58, 135, 88);    // income, good outcomes
-constexpr ImVec4 kBad        = Rgb(186, 48, 40);    // losses, errors
-constexpr ImVec4 kWarn       = Rgb(214, 158, 46);   // nearly full, piling up
-constexpr ImVec4 kWarnText   = Rgb(160, 110, 18);   // kWarn darkened enough to read on paper
-constexpr ImVec4 kTeal       = Rgb(52, 128, 140);
-constexpr ImVec4 kPlum       = Rgb(120, 72, 110);
+constexpr ImVec4 kGood       = Rgb(95, 174, 110);   // income, good outcomes
+constexpr ImVec4 kBad        = Rgb(224, 69, 44);    // losses, errors
+constexpr ImVec4 kBadHover   = Rgb(240, 92, 66);
+constexpr ImVec4 kBadActive  = Rgb(184, 52, 32);
+constexpr ImVec4 kWarn       = Rgb(242, 193, 46);   // nearly full, piling up
+constexpr ImVec4 kWarnText   = kWarn;               // readable as is on the dark plates
+constexpr ImVec4 kTeal       = Rgb(72, 168, 178);
+constexpr ImVec4 kPlum       = Rgb(160, 108, 150);
 
 // Ship build grid (the game screen).
-constexpr ImVec4 kGridLine          = kPaper3;     // empty cells
-constexpr ImVec4 kTileHull          = kPaper4;
-constexpr ImVec4 kTileReinforcedHull = Rgb(168, 150, 120);  // kPaper4, a step darker
-constexpr ImVec4 kTileBridge        = kRed;
-constexpr ImVec4 kTileRockCollector = kPlum;
-constexpr ImVec4 kTileBelt          = kInkDim;
-constexpr ImVec4 kTileExpressBelt   = kWarnText;
-constexpr ImVec4 kTileTunnelMouth   = kInk;
-constexpr ImVec4 kTileStorage       = Rgb(140, 112, 72);  // cargo holds
-constexpr ImVec4 kTileMachine       = kNavyHover;
-constexpr ImVec4 kTilePower         = kGood;
-constexpr ImVec4 kTileSystem        = kRedActive;
-constexpr ImVec4 kTileTurret        = kInk;
-constexpr ImVec4 kTileGlyph         = kPaperLight; // letters and arrows on tiles
+constexpr ImVec4 kGridLine           = Rgb(44, 49, 56);    // empty cells
+constexpr ImVec4 kGridMajor          = Rgb(58, 65, 75);    // every kGridMajorEvery cells
+constexpr ImVec4 kTileHull           = Rgb(90, 97, 107);   // steel deck plating
+constexpr ImVec4 kTileReinforcedHull = Rgb(71, 77, 86);
+constexpr ImVec4 kTileBridge         = kAccentActive;
+constexpr ImVec4 kTileRockCollector  = Rgb(150, 92, 58);   // oxidized copper
+constexpr ImVec4 kTileBelt           = Rgb(64, 70, 79);
+constexpr ImVec4 kTileExpressBelt    = Rgb(150, 112, 40);
+constexpr ImVec4 kTileTunnelMouth    = kBevelDark;
+constexpr ImVec4 kTileStorage        = Rgb(112, 98, 72);   // cargo holds
+constexpr ImVec4 kTileMachine        = Rgb(70, 92, 116);   // blue-grey
+constexpr ImVec4 kTilePower          = Rgb(98, 120, 64);   // olive
+constexpr ImVec4 kTileSystem         = Rgb(150, 62, 48);   // oxide red
+constexpr ImVec4 kTileTurret         = Rgb(48, 52, 58);    // gunmetal
+constexpr ImVec4 kTileGlyph          = Rgb(236, 238, 241); // letters and arrows on tiles
+constexpr int kGridMajorEvery = 8;
 
 // Items on belts, by material family.
-constexpr ImVec4 kItemIron      = Rgb(118, 128, 142);
-constexpr ImVec4 kItemCopper    = Rgb(196, 112, 52);
-constexpr ImVec4 kItemSilica    = Rgb(224, 198, 140);
-constexpr ImVec4 kItemCarbon    = Rgb(62, 56, 52);
+constexpr ImVec4 kItemIron      = Rgb(150, 160, 174);
+constexpr ImVec4 kItemCopper    = Rgb(212, 124, 62);
+constexpr ImVec4 kItemSilica    = Rgb(228, 204, 150);
+constexpr ImVec4 kItemCarbon    = Rgb(52, 48, 46);
 constexpr ImVec4 kItemExotic    = kPlum;
 constexpr ImVec4 kItemChemical  = kGood;       // plastic
-constexpr ImVec4 kItemComponent = kNavy;
-constexpr ImVec4 kItemPlaceable = kRed;
-constexpr ImVec4 kItemOutline   = kInk;
+constexpr ImVec4 kItemComponent = kSteelHover;
+constexpr ImVec4 kItemPlaceable = kAccent;
+constexpr ImVec4 kItemOutline   = kBevelDark;
 
 // Unscaled font sizes, as passed to ImGui::PushFont(nullptr, size); the DPI
 // scale is applied on top by style.FontScaleDpi.
@@ -83,39 +90,66 @@ constexpr float kFontBody  = 16.0f;
 constexpr float kFontTitle = 20.0f;
 constexpr float kFontHuge  = 30.0f;
 
-// Loads the embedded UI font and installs the ImGui and ImPlot styles. Call
+// Loads the embedded UI fonts and installs the ImGui and ImPlot styles. Call
 // once, after both contexts exist and before the first frame.
 void ApplyTheme(float dpi_scale);
+
+// The monospace font (headings, numbers, key caps), at `size`: pair with
+// PopMono().
+void PushMono(float size = kFontBody);
+void PopMono();
 
 // ---------------------------------------------------------------------------
 // Styled widgets
 // ---------------------------------------------------------------------------
 
-// The main action of a panel: postal-red fill, paper text.
+// The main action of a panel: amber fill, dark text.
 bool PrimaryButton(const char* label, ImVec2 size = ImVec2(0.0f, 0.0f));
+
+// A destructive action (confirming a delete): red fill, hazard stripes
+// along its bottom edge while hovered.
+bool DangerButton(const char* label, ImVec2 size = ImVec2(0.0f, 0.0f));
 
 // A small, borderless button in the "bad" color, for removing things.
 bool DangerSmallButton(const char* label);
 
 // One option of a segmented control (lay several out with SameLine): the
-// selected one is filled navy. Returns true when clicked.
+// selected one is filled steel. Returns true when clicked.
 bool SegmentedButton(const char* label, bool selected, ImVec2 size = ImVec2(0.0f, 0.0f));
 
-// A small rounded tag ("LATE", a code), laid out like a text item.
+// A small square-cornered tag ("LATE", a code), laid out like a text item.
 void Pill(const char* text, ImVec4 bg, ImVec4 fg);
+
+// A key cap ("R", "LMB"): a small bevelled plate around mono text, laid
+// out like a text item.
+void KeyCap(const char* key);
 
 // A small square button with a drawn pencil icon, one text line tall, for
 // switching a displayed value into an edit field. Returns true when clicked.
 bool PencilButton(const char* str_id);
 
+// A small square button with a drawn cross, one text line tall, for closing
+// a section. Returns true when clicked.
+bool CloseButton(const char* str_id);
+
 // A dimmed "(?)" that shows `text` in a wrapped tooltip on hover.
 void HelpMarker(const char* text);
 
-// A larger heading underlined with a thin rule and a short red accent.
+// A heading: a short amber block, the title in capitals (monospace), and a
+// thin rule with tick marks under it.
 void SectionHeading(const char* text);
 
-// A paper card with a soft drop shadow, drawn straight into a draw list.
-void DrawShadowedPanel(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding);
+// SectionHeading() that folds what's under it away when clicked, with a
+// chevron saying which way it is; returns whether it's open. Its state is
+// kept by ImGui per label (in the current ID scope).
+bool CollapsingSection(const char* text, bool default_open = true);
+
+// A gunmetal plate with bevelled edges and a rivet in each corner, drawn
+// straight into a draw list.
+void DrawPlatePanel(ImDrawList* draw, ImVec2 min, ImVec2 max);
+
+// Diagonal hazard stripes in `color` over `min`..`max` (clipped to it).
+void DrawHazardStripes(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec4 color, float alpha = 1.0f);
 
 // Text with a one-pixel halo all around, so labels drawn over busy
 // backgrounds stay readable.

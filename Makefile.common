@@ -38,8 +38,8 @@ CXXFLAGS += $(PLATFORM_CXXFLAGS)
 # every file, so all of them see the same json.
 CXXFLAGS += -DJSON_DISABLE_ENUM_SERIALIZATION=1
 CXXFLAGS += -MMD -MP   # header dependency tracking
-# Build-time generated headers (logo_png.h, roboto_ttf.h, sprites_png.h: see
-# the embed rules below).
+# Build-time generated headers (logo_png.h, roboto_ttf.h, cousine_ttf.h,
+# sprites_png.h: see the embed rules below).
 GENERATED_DIR = $(BUILD_DIR)/generated
 CXXFLAGS += -I$(GENERATED_DIR)
 
@@ -146,7 +146,17 @@ $(FONT_HEADER): $(IMGUI_DIR)/misc/fonts/Roboto-Medium.ttf
 	  od -An -v -tx1 $< | sed 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
 	  echo '};'; } > $@
 
-$(BUILD_DIR)/src/ui/ui_theme.o: $(FONT_HEADER)
+# And the monospace font for headings and numbers (Cousine, also shipped
+# with imgui).
+MONO_FONT_HEADER = $(GENERATED_DIR)/cousine_ttf.h
+$(MONO_FONT_HEADER): $(IMGUI_DIR)/misc/fonts/Cousine-Regular.ttf
+	@mkdir -p $(dir $@)
+	{ echo '// Generated from $< by the makefile. Do not edit.'; \
+	  echo 'static const unsigned char kCousineTtf[] = {'; \
+	  od -An -v -tx1 $< | sed 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
+	  echo '};'; } > $@
+
+$(BUILD_DIR)/src/ui/ui_theme.o: $(FONT_HEADER) $(MONO_FONT_HEADER)
 
 # Embed every sprite under assets/sprites/ (see src/ui/sprites.h) the same
 # way: one array per PNG, plus kEmbeddedSprites[], the table of them by path
