@@ -4,6 +4,7 @@
 // files are refused with a reason (never an assert).
 #include "persistence/save_file.h"
 #include "sim/building.h"
+#include "sim/fleet.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/world.h"
@@ -54,10 +55,10 @@ const Recipe& recipe_named(const char* name) {
 // panel, a filter sorter with items queued on the belt into it, two machines
 // mid-craft (one on reinforced hull), a west-facing express belt, a junction
 // and a router holding items, and the bridge hand-crafting, part way through
-// a milestone.
+// a milestone; and a second ship, with cargo on its way to it.
 World busy_world() {
     World world;
-    world.get_ship().inventory().add({{ItemKind::Hull, 200},
+    world.flagship().inventory().add({{ItemKind::Hull, 200},
                                       {ItemKind::ReinforcedHull, 9},
                                       {ItemKind::TransportBelt, 10},
                                       {ItemKind::ExpressBelt, 1},
@@ -68,11 +69,11 @@ World busy_world() {
                                       {ItemKind::Refinery, 1}});
     // Two milestones done (the refinery's recipes need them), and some way
     // into the third.
-    Progress& progress = world.get_ship().get_bridge().get_progress();
+    Progress& progress = world.flagship().get_bridge().get_progress();
     assert(progress.complete_current() && progress.complete_current());
     for (int i = 0; i < 3; ++i)
         assert(!progress.on_delivered(ItemKind::AdvancedCircuit));
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     for (int y = c - 6; y <= c + 6; ++y)
         for (int x = x0; x <= x0 + 9; ++x)
             assert(ship.place(ItemKind::Hull, {x, y}) == BuildResult::Ok);
@@ -120,6 +121,14 @@ World busy_world() {
     }
     assert(ship.get_bridge().queue_craft(recipe_named("Gear")));
     assert(ship.get_bridge().queue_craft(recipe_named("Gear")));
+
+    // A second ship, renamed, and cargo on its way to it.
+    Fleet& fleet = world.get_fleet();
+    ship.inventory().add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 1}});
+    int launched = 0;
+    assert(fleet.launch(fleet.flagship().id, &launched) == FleetResult::Ok);
+    assert(fleet.rename(launched, "Tender"));
+    assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::Hull, 10}}, world.get_tick()) == FleetResult::Ok);
     run(world, 10);
     return world;
 }
@@ -128,7 +137,7 @@ World busy_world() {
 // saved; so does every recipe.
 void test_names() {
     World world;
-    Inventory& inv = world.get_ship().inventory();
+    Inventory& inv = world.flagship().inventory();
     inv = Inventory{};
     for (int i = 0; i < kItemKindCount; ++i)
         inv.add(static_cast<ItemKind>(i), i + 1);
@@ -136,7 +145,7 @@ void test_names() {
     const std::optional<LoadedSave> loaded = load_text(save_text(world), error);
     assert(loaded);
     for (int i = 0; i < kItemKindCount; ++i)
-        assert(loaded->world.get_ship().inventory().count(static_cast<ItemKind>(i)) == i + 1);
+        assert(loaded->world.flagship().inventory().count(static_cast<ItemKind>(i)) == i + 1);
 
     std::set<std::string> recipes;
     for (const Recipe& r : all_recipes())
@@ -146,7 +155,7 @@ void test_names() {
 // Save, load and save again: the same text, so nothing was lost.
 void test_round_trip() {
     const World world = busy_world();
-    const Ship& ship = world.get_ship();
+    const Ship& ship = world.flagship();
     // Everything is mid-flight.
     assert(ship.get_bridge().craft_queue().size() == 2);
     assert(dynamic_cast<const Machine&>(*ship.building_at({x0, c})).crafting());
@@ -164,7 +173,7 @@ void test_round_trip() {
     assert(save_text(loaded->world) == text);
 
     // Spot checks through the public API.
-    const Ship& copy = loaded->world.get_ship();
+    const Ship& copy = loaded->world.flagship();
     assert(copy.hull_at({x0 + 6, c + 3}) == ItemKind::ReinforcedHull);
     assert(copy.get_bridge().get_inventory().count(ItemKind::Hull) == ship.inventory().count(ItemKind::Hull));
     const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
@@ -175,6 +184,16 @@ void test_round_trip() {
     assert(junction && junction->lane(Direction::East).size() == 2);
     const auto* router = dynamic_cast<const Router*>(copy.building_at({x0 + 7, c + 6}));
     assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
+
+    // The fleet: both ships share the loaded progress.
+    const Fleet& fleet = loaded->world.get_fleet();
+    assert(fleet.get_ships().size() == 2);
+    const FleetShip& tender = *fleet.get_ships()[1];
+    assert(tender.name == "Tender");
+    assert(&tender.ship.get_bridge().get_progress() == &fleet.get_progress());
+    assert(&copy.get_bridge().get_progress() == &fleet.get_progress());
+    assert(fleet.get_progress().delivered_count(ItemKind::AdvancedCircuit) == 3);
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].to == tender.id);
 }
 
 // A loaded game carries on exactly as the original does.
@@ -197,8 +216,11 @@ void test_header_only() {
     assert(header && header->name == "Test ship" && header->played == 42);
 }
 
-Json& hull(Json& save) { return save["world"]["ship"]["hull"]; }
-Json& buildings(Json& save) { return save["world"]["ship"]["buildings"]; }
+Json& fleet(Json& save) { return save["world"]["fleet"]; }
+Json& progress(Json& save) { return fleet(save)["progress"]; }
+Json& first_ship(Json& save) { return fleet(save)["ships"][0]; }
+Json& hull(Json& save) { return first_ship(save)["ship"]["hull"]; }
+Json& buildings(Json& save) { return first_ship(save)["ship"]["buildings"]; }
 Json& bridge(Json& save) { return buildings(save)[0]; }
 
 // Hull tiles on the square of side `side` from (x, y).
@@ -214,12 +236,16 @@ static_assert(kBridgeSize == 6, "the hand-written saves below place things aroun
 Json minimal() {
     Json save = Json::parse(R"({
         "format": "ore-in-orbit-save", "version": 0, "name": "T", "saved_at": 0, "played": 0,
-        "world": {"tick": 0, "ship": {
-            "hull": [],
-            "buildings": [
-                {"kind": "Bridge", "x": 64, "y": 64, "facing": "North", "output_side": 0,
-                 "inventory": {}, "queue": [], "milestone": 0, "delivered": {}}
-            ]}}})");
+        "world": {"tick": 100, "fleet": {
+            "next_ship_id": 2,
+            "progress": {"milestone": 0, "delivered": {}},
+            "ships": [{"id": 1, "name": "Flagship", "sector": 0, "ship": {
+                "hull": [],
+                "buildings": [
+                    {"kind": "Bridge", "x": 64, "y": 64, "facing": "North", "output_side": 0,
+                     "inventory": {}, "queue": []}
+                ]}}],
+            "transfers": []}}})");
     save["version"] = kSaveVersion;
     add_hull(save, 64, 64, 6);
     return save;
@@ -275,12 +301,12 @@ void test_refused() {
     refused_after(save, "a recipe that isn't unlocked yet", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
     });
-    refused_after(save, "a milestone past the last", [](Json& j) { bridge(j)["milestone"] = 99; });
-    refused_after(save, "no milestone", [](Json& j) { bridge(j).erase("milestone"); });
+    refused_after(save, "a milestone past the last", [](Json& j) { progress(j)["milestone"] = 99; });
+    refused_after(save, "no milestone", [](Json& j) { progress(j).erase("milestone"); });
     refused_after(save, "more delivered than the milestone needs",
-                  [](Json& j) { bridge(j)["delivered"] = {{"IronPlate", 51}}; });
+                  [](Json& j) { progress(j)["delivered"] = {{"IronPlate", 51}}; });
     refused_after(save, "a delivery the milestone doesn't need",
-                  [](Json& j) { bridge(j)["delivered"] = {{"Gear", 1}}; });
+                  [](Json& j) { progress(j)["delivered"] = {{"Gear", 1}}; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Glass", "elapsed": 0}])");
     });
@@ -293,6 +319,16 @@ void test_refused() {
     refused_after(save, "two tiles on one cell", [](Json& j) { hull(j).push_back(hull(j)[0]); });
     refused_after(save, "no bridge", [](Json& j) { buildings(j) = Json::array(); });
     refused_after(save, "the bridge off hull", [](Json& j) { hull(j)[0]["x"] = 63; });
+    refused_after(save, "no ships", [](Json& j) { fleet(j)["ships"] = Json::array(); });
+    refused_after(save, "a ship id not given out yet", [](Json& j) { first_ship(j)["id"] = 2; });
+    refused_after(save, "a ship id of 0", [](Json& j) { first_ship(j)["id"] = 0; });
+    refused_after(save, "a ship with no name", [](Json& j) { first_ship(j).erase("name"); });
+    refused_after(save, "a ship in a sector that doesn't exist", [](Json& j) { first_ship(j)["sector"] = 5; });
+    refused_after(save, "two ships with one id", [](Json& j) {
+        fleet(j)["next_ship_id"] = 3;
+        fleet(j)["ships"].push_back(first_ship(j));
+    });
+    refused_after(save, "no transfers list", [](Json& j) { fleet(j).erase("transfers"); });
     refused_after(save, "two bridges", [](Json& j) {
         add_hull(j, 70, 64, 6);
         Json second = bridge(j);
@@ -341,6 +377,19 @@ void test_refused() {
     refused(with_building(R"({"kind": "Router", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "held": "Gear", "came_from": "Up", "elapsed": 0, "next_out": "North"})"),
             "a router item from an unknown side");
+}
+
+// Cargo in flight names ships by id, and lands after the save's tick, by
+// no more than the time it takes.
+void test_transfers_refused() {
+    Json save = minimal();
+    fleet(save)["transfers"].push_back(Json::parse(R"({"from": 1, "to": 1, "items": {"Gear": 5}, "arrives": 200})"));
+    assert(loads(save.dump()));
+    auto transfer = [](Json& j) -> Json& { return fleet(j)["transfers"][0]; };
+    refused_after(save, "cargo to a ship id not given out yet", [&](Json& j) { transfer(j)["to"] = 7; });
+    refused_after(save, "cargo that should have landed", [&](Json& j) { transfer(j)["arrives"] = 100; });
+    refused_after(save, "cargo that takes too long", [&](Json& j) { transfer(j)["arrives"] = 100 + kTransferTicks + 1; });
+    refused_after(save, "cargo with an unknown item", [&](Json& j) { transfer(j)["items"] = {{"Unobtainium", 1}}; });
 }
 
 // Machines check their recipe and progress, collectors their target, and
@@ -398,6 +447,7 @@ int main() {
     test_determinism();
     test_header_only();
     test_refused();
+    test_transfers_refused();
     test_machine_refused();
     std::puts("test_save_file: all passed");
     return 0;

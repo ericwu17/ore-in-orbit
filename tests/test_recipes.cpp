@@ -165,7 +165,7 @@ void test_machines() {
 
 void test_hand_crafting() {
     World world;
-    Bridge& bridge = world.get_ship().get_bridge();
+    Bridge& bridge = world.flagship().get_bridge();
     Inventory& inv = bridge.get_inventory();
     const Recipe& gear = *recipe_for(ItemKind::Gear);
     const int plates = inv.count(ItemKind::IronPlate);

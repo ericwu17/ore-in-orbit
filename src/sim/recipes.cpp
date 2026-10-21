@@ -99,6 +99,13 @@ std::vector<Recipe> make_recipes() {
             .in(StructuralFrame, 5).in(IridiumPlate, 5).in(Processor, 5)
             .out(IonThruster),
         R(Assemble, 12).in(FabricatorMk2).in(Processor, 4).in(IridiumPlate, 5).out(FabricatorMk3),
+
+        // Fleet: a new ship (launched from the bridge), and the pods that
+        // carry cargo between ships.
+        R(Assemble, 10)
+            .in(StructuralFrame, 10).in(AdvancedCircuit, 5).in(Hull, 40).in(Circuit, 10)
+            .out(ShipStarterPack),
+        R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
     };
 }
 

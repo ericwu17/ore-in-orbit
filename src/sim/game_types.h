@@ -121,6 +121,9 @@ enum class ItemKind {
     StructuralFrame,
     AdvancedCircuit,
     Processor,
+    // Fleet: launching ships and moving cargo between them.
+    ShipStarterPack,
+    CargoPod,
     Count,  // not a kind: the number of kinds
 };
 

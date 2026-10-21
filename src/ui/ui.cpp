@@ -9,6 +9,7 @@
 #include "persistence/blueprint_file.h"
 #include "persistence/save_slots.h"
 #include "sim/blueprint.h"
+#include "sim/fleet.h"
 #include "sim/ship.h"
 #include "sim/world.h"
 
@@ -24,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -135,6 +137,43 @@ void LeaveBlueprintTool() {
     g_blueprints.copy_start.reset();
     g_blueprints.held.reset();
     g_blueprints.paste_status.clear();
+}
+
+// Which ship the game screen shows, and the views onto the others, kept
+// while the player looks at another. UI-only, like BuildUiState.
+struct FleetUiState {
+    int current = 0;  // ship id; one that isn't there (a new or loaded game): the flagship
+    std::unordered_map<int, Camera> cameras;  // by ship id, for the ships not shown
+    std::optional<int> renaming;               // the ship whose tab is a name field
+    char rename[64] = {};
+    bool focus_rename = false;
+    // The Send cargo window: where to, and what.
+    bool show_send = false;
+    int send_to = 0;
+    std::vector<ItemStack> cargo;
+};
+FleetUiState g_fleet;
+
+// Shows ship `id` (its own camera, nothing inspected).
+void SwitchToShip(int id) {
+    FleetUiState& f = g_fleet;
+    if (id == f.current)
+        return;
+    f.cameras[f.current] = g_camera;
+    g_camera = f.cameras[id];  // a ship not seen yet: centred on its bridge
+    f.cameras.erase(id);
+    f.current = id;
+    f.renaming.reset();
+    g_build.inspected.reset();
+    g_build.inspected_building = nullptr;
+}
+
+// The ship the game screen shows: the one picked, or the flagship.
+FleetShip& CurrentShip(Fleet& fleet) {
+    if (FleetShip* s = fleet.find(g_fleet.current))
+        return *s;
+    g_fleet.current = fleet.flagship().id;
+    return fleet.flagship();
 }
 
 // Picks up `blueprint` to paste.
@@ -1036,6 +1075,14 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
 }
 
 // Whether `text` contains `part`, ignoring case.
+// `s` without whitespace at either end.
+std::string Trimmed(const std::string& s) {
+    const std::size_t first = s.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return {};
+    return s.substr(first, s.find_last_not_of(" \t") - first + 1);
+}
+
 bool ContainsIgnoringCase(std::string_view text, std::string_view part) {
     const auto same = [](char a, char b) {
         return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
@@ -1275,9 +1322,198 @@ void DrawMilestone(const Progress& progress) {
     }
 }
 
-// The right panel: the current milestone, the inspector, hand-crafting at
-// the bridge, its queue, and the recipe book for everything else.
-void DrawCraftPanel(Ship& ship, float width) {
+// The tabs over the grid, one per ship: a click shows that ship, a
+// double-click renames it.
+void DrawFleetStrip(Fleet& fleet) {
+    FleetUiState& f = g_fleet;
+    const float fh = ImGui::GetFrameHeight();
+    std::optional<int> show;
+    bool first = true;
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships()) {
+        if (!first)
+            ImGui::SameLine();
+        first = false;
+        ImGui::PushID(s->id);
+        if (f.renaming == s->id) {
+            if (f.focus_rename) {
+                ImGui::SetKeyboardFocusHere();
+                f.focus_rename = false;
+            }
+            ImGui::SetNextItemWidth(fh * 8.0f);
+            const bool done = ImGui::InputText("##rename", f.rename, sizeof f.rename,
+                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+            if (done || ImGui::IsItemDeactivated()) {
+                if (!Trimmed(f.rename).empty())
+                    fleet.rename(s->id, Trimmed(f.rename));
+                f.renaming.reset();
+            }
+        } else {
+            if (theme::SegmentedButton(s->name.c_str(), s->id == f.current))
+                show = s->id;
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                f.renaming = s->id;
+                std::snprintf(f.rename, sizeof f.rename, "%s", s->name.c_str());
+                f.focus_rename = true;
+            }
+            ImGui::SetItemTooltip("%s\nDouble-click to rename", s->name.c_str());
+        }
+        ImGui::PopID();
+    }
+    if (fleet.get_ships().size() > 1) {
+        ImGui::SameLine();
+        ImGui::TextColored(theme::kInkDim, "[ ] switch ships");
+    }
+    if (show)
+        SwitchToShip(*show);
+}
+
+// The ship before or after the one shown (`step` -1 or 1), going round.
+void CycleShip(const Fleet& fleet, int step) {
+    const auto& ships = fleet.get_ships();
+    const auto n = static_cast<int>(ships.size());
+    for (int i = 0; i < n; ++i)
+        if (ships[static_cast<std::size_t>(i)]->id == g_fleet.current) {
+            SwitchToShip(ships[static_cast<std::size_t>((i + step + n) % n)]->id);
+            return;
+        }
+}
+
+// The fleet, in the right panel: launching a new ship, sending cargo, and
+// the cargo on its way to or from the ship shown.
+void DrawFleetSection(World& world, const FleetShip& current) {
+    Fleet& fleet = world.get_fleet();
+    theme::SectionHeading("Fleet");
+    const FleetResult launch = fleet.can_launch(current.id);
+    ImGui::BeginDisabled(launch != FleetResult::Ok);
+    if (ImGui::Button("Launch a new ship", ImVec2(-1.0f, 0.0f))) {
+        int id = 0;
+        if (fleet.launch(current.id, &id) == FleetResult::Ok)
+            SetMessage("Launched " + fleet.find(id)->name + ": its tab is above the grid", theme::kGood);
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("%s", launch == FleetResult::Ok ? "Uses one ship starter pack from this bridge"
+                                                          : describe(launch));
+    if (ImGui::Button("Send cargo...", ImVec2(-1.0f, 0.0f)))
+        g_fleet.show_send = true;
+    ImGui::SetItemTooltip("Send items from this bridge to another ship's, in cargo pods (%d items a pod)",
+                          kPodCapacity);
+
+    const Tick now = world.get_tick();
+    for (const Transfer& t : fleet.in_flight()) {
+        if (t.from != current.id && t.to != current.id)
+            continue;
+        const FleetShip* other = fleet.find(t.from == current.id ? t.to : t.from);
+        int n = 0;
+        for (const ItemStack& item : t.items)
+            n += item.count;
+        const double seconds = static_cast<double>(t.arrives - now) / static_cast<double>(kTicksPerSecond);
+        ImGui::TextColored(theme::kInkDim, "%s %s: %d items, %.0f s", t.from == current.id ? "To" : "From",
+                           other ? other->name.c_str() : "(lost)", n, std::ceil(seconds));
+    }
+}
+
+// The Send cargo window: from the ship shown to another in its sector, the
+// items picked (from its bridge inventory) and the pods they take.
+void DrawSendCargoWindow(World& world, FleetShip& current) {
+    FleetUiState& f = g_fleet;
+    if (!f.show_send)
+        return;
+    Fleet& fleet = world.get_fleet();
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 18.0f, 0.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (!ImGui::Begin("Send cargo", &f.show_send, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    const Inventory& inv = current.ship.inventory();
+    ImGui::Text("From %s", current.name.c_str());
+
+    // Where to: another ship in the same sector.
+    const FleetShip* to = fleet.find(f.send_to);
+    if (to && (to->id == current.id || to->sector != current.sector))
+        to = nullptr;
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo("##send_to", to ? to->name.c_str() : "Pick a ship")) {
+        bool any = false;
+        for (const std::unique_ptr<FleetShip>& s : fleet.get_ships()) {
+            if (s->id == current.id || s->sector != current.sector)
+                continue;
+            any = true;
+            ImGui::PushID(s->id);
+            if (ImGui::Selectable(s->name.c_str(), to == s.get()))
+                f.send_to = s->id;
+            ImGui::PopID();
+        }
+        if (!any)
+            ImGui::TextColored(theme::kInkDim, "No other ship in this sector");
+        ImGui::EndCombo();
+    }
+
+    // What: one row per item, its count capped at what the bridge holds.
+    std::optional<std::size_t> remove;
+    int total = 0;
+    for (std::size_t i = 0; i < f.cargo.size(); ++i) {
+        ItemStack& stack = f.cargo[i];
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::AlignTextToFramePadding();
+        IconImage(ItemIcon(stack.kind), fh);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(fh * 6.0f);
+        ImGui::InputInt("##count", &stack.count, 1, 10);
+        stack.count = std::clamp(stack.count, 0, inv.count(stack.kind));
+        ImGui::SameLine();
+        ImGui::TextColored(theme::kInkDim, "/ %d", inv.count(stack.kind));
+        ImGui::SameLine();
+        if (theme::DangerSmallButton("Remove"))
+            remove = i;
+        ImGui::PopID();
+        total += stack.count;
+    }
+    if (remove)
+        f.cargo.erase(f.cargo.begin() + static_cast<std::ptrdiff_t>(*remove));
+
+    ImGui::SetNextItemWidth(-1.0f);
+    if (BeginIconCombo("##add_cargo", Icon{}, "Add an item")) {
+        BeginComboSearch();
+        for (const ItemStack& held : inv.stacks()) {
+            const bool listed = std::any_of(f.cargo.begin(), f.cargo.end(),
+                                            [&](const ItemStack& c) { return c.kind == held.kind; });
+            if (listed || !ComboSearchShows(item_name(held.kind)))
+                continue;
+            ImGui::PushID(static_cast<int>(held.kind));
+            if (ComboSearchOption(ItemIcon(held.kind), false))
+                f.cargo.push_back({held.kind, std::min(held.count, kPodCapacity)});
+            ImGui::SetItemTooltip("%s (%d)", item_name(held.kind), held.count);
+            ImGui::PopID();
+        }
+        EndComboSearch();
+        ImGui::EndCombo();
+    }
+
+    const int pods = pods_needed(total);
+    const int have_pods = inv.count(ItemKind::CargoPod);
+    AmountLine(ItemIcon(ItemKind::CargoPod), Fraction(have_pods, pods),
+               have_pods >= pods ? theme::kInk : theme::kBad, false, " cargo pods needed");
+    const FleetResult result =
+        to ? fleet.can_send(current.id, to->id, f.cargo) : FleetResult::NoSuchShip;
+    ImGui::BeginDisabled(result != FleetResult::Ok);
+    if (theme::PrimaryButton("Send", ImVec2(-1.0f, 0.0f))) {
+        fleet.send(current.id, to->id, f.cargo, world.get_tick());
+        SetMessage("Cargo on its way to " + to->name, theme::kGood);
+        f.cargo.clear();
+    }
+    ImGui::EndDisabled();
+    if (result != FleetResult::Ok)
+        ImGui::TextColored(theme::kInkDim, "%s", to ? describe(result) : "Pick a ship to send to");
+    ImGui::End();
+}
+
+// The right panel: the current milestone, the inspector, the fleet,
+// hand-crafting at the bridge, its queue, and the recipe book for
+// everything else.
+void DrawCraftPanel(World& world, FleetShip& current, float width) {
+    Ship& ship = current.ship;
     const ImVec2 size(width, ImGui::GetContentRegionAvail().y);
     const ImVec2 min = ImGui::GetCursorScreenPos();
     theme::DrawShadowedPanel(ImGui::GetWindowDrawList(), min, ImVec2(min.x + size.x, min.y + size.y),
@@ -1288,6 +1524,7 @@ void DrawCraftPanel(Ship& ship, float width) {
     DrawMilestone(bridge.get_progress());
     ImGui::PushTextWrapPos(0.0f);
     DrawInspector(ship);
+    DrawFleetSection(world, current);
     ImGui::PopTextWrapPos();
 
     const float icon = ImGui::GetFrameHeight() * 1.6f;
@@ -1363,11 +1600,11 @@ void DrawCraftPanel(Ship& ship, float width) {
     ImGui::EndChild();
 }
 
-// The banner over the grid when a milestone is completed: the bridge whose
+// The banner over the grid when a milestone is completed: the fleet
 // progress it follows, the milestone it last saw being worked on, and until
 // when (ImGui::GetTime()) it shows.
 struct MilestoneBanner {
-    const Bridge* bridge = nullptr;
+    const Progress* progress = nullptr;
     std::size_t seen = 0;
     double until = 0.0;
 };
@@ -1375,12 +1612,11 @@ MilestoneBanner g_banner;
 
 // Announces a milestone just completed, for a few seconds, at the top of
 // the grid (`grid_min`, `grid_size`).
-void DrawMilestoneBanner(const Bridge& bridge, ImVec2 grid_min, ImVec2 grid_size) {
-    const Progress& progress = bridge.get_progress();
+void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
     const std::size_t current = progress.current_index();
     MilestoneBanner& banner = g_banner;
-    if (banner.bridge != &bridge)
-        banner = {&bridge, current, 0.0};  // a new or loaded game: nothing to announce
+    if (banner.progress != &progress)
+        banner = {&progress, current, 0.0};  // a new or loaded game: nothing to announce
     if (current > banner.seen)
         banner.until = ImGui::GetTime() + 5.0;
     banner.seen = current;
@@ -1781,14 +2017,6 @@ std::string FormatPlayed(Tick ticks) {
     std::snprintf(text, sizeof text, "%llu:%02llu:%02llu", static_cast<unsigned long long>(seconds / 3600),
                   static_cast<unsigned long long>(seconds / 60 % 60), static_cast<unsigned long long>(seconds % 60));
     return text;
-}
-
-// `s` without whitespace at either end.
-std::string Trimmed(const std::string& s) {
-    const std::size_t first = s.find_first_not_of(" \t");
-    if (first == std::string::npos)
-        return {};
-    return s.substr(first, s.find_last_not_of(" \t") - first + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -2271,8 +2499,13 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             paused = true;
     }
 
-    Ship& ship = world.get_ship();
+    FleetShip& current = CurrentShip(world.get_fleet());
+    Ship& ship = current.ship;
     if (!paused) {
+        if (ShortcutPressed(ImGuiKey_LeftBracket))
+            CycleShip(world.get_fleet(), -1);
+        if (ShortcutPressed(ImGuiKey_RightBracket))
+            CycleShip(world.get_fleet(), 1);
         const std::vector<ItemKind> list = BuildList(ship);
         for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
             if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
@@ -2316,15 +2549,25 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const float craft_w = fh * 12.0f;
     DrawBuildPalette(ship, palette_w);
     ImGui::SameLine(0.0f, gap);
-    const ImVec2 grid_min = ImGui::GetCursorScreenPos();
-    ImVec2 grid_avail = ImGui::GetContentRegionAvail();
-    grid_avail.x = std::max(0.0f, grid_avail.x - craft_w - gap);
-    DrawShipGrid(ship, grid_avail);
-    DrawMilestoneBanner(ship.get_bridge(), grid_min, grid_avail);
-    ImGui::SetCursorScreenPos(ImVec2(grid_min.x + grid_avail.x + gap, grid_min.y));
-    DrawCraftPanel(ship, craft_w);
-    if (!paused)
+    // The middle column: the fleet's tabs, and the grid under them.
+    const ImVec2 column_min = ImGui::GetCursorScreenPos();
+    ImVec2 column_avail = ImGui::GetContentRegionAvail();
+    column_avail.x = std::max(0.0f, column_avail.x - craft_w - gap);
+    DrawFleetStrip(world.get_fleet());
+    const float strip_h = fh + ImGui::GetStyle().ItemSpacing.y;
+    const ImVec2 grid_min(column_min.x, column_min.y + strip_h);
+    const ImVec2 grid_avail(column_avail.x, std::max(0.0f, column_avail.y - strip_h));
+    ImGui::SetCursorScreenPos(grid_min);
+    // The strip may have switched ships, or renamed this one.
+    FleetShip& shown = CurrentShip(world.get_fleet());
+    DrawShipGrid(shown.ship, grid_avail);
+    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
+    ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
+    DrawCraftPanel(world, shown, craft_w);
+    if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
+        DrawSendCargoWindow(world, shown);
+    }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
 
     // The pause menu: a modal over the game, which dims it and takes the
@@ -2343,6 +2586,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             paused = false;
             screen = Screen::MainMenu;
             g_camera = {};  // the next game starts centred on its bridge
+            g_fleet = {};
             g_banner = {};
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -2437,17 +2681,18 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
         ImGui::SetNextItemWidth(fh * 6.0f);
         if (ImGui::InputInt("Count", &give.count, 1, 100))
             give.count = std::max(give.count, 1);
-        Inventory& inventory = world.get_ship().inventory();
+        FleetShip& current = CurrentShip(world.get_fleet());
+        Inventory& inventory = current.ship.inventory();
         if (ImGui::Button("Give"))
             inventory.add(give.kind, give.count);
         ImGui::SameLine();
         if (ImGui::Button("Give every item"))
             for (int i = 0; i < kItemKindCount; ++i)
                 inventory.add(static_cast<ItemKind>(i), give.count);
-        ImGui::TextDisabled("In the bridge: %d", inventory.count(give.kind));
+        ImGui::TextDisabled("In %s's bridge: %d", current.name.c_str(), inventory.count(give.kind));
 
         ImGui::SeparatorText("Milestones");
-        Progress& progress = world.get_ship().get_bridge().get_progress();
+        Progress& progress = world.get_fleet().get_progress();
         ImGui::Text("Done: %zu / %zu", progress.current_index(), all_milestones().size());
         ImGui::BeginDisabled(progress.all_complete());
         if (ImGui::Button("Complete milestone"))

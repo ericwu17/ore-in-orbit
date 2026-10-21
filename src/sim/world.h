@@ -2,6 +2,7 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 #pragma once
 
+#include "sim/fleet.h"
 #include "sim/game_types.h"
 #include "sim/ship.h"
 
@@ -12,7 +13,7 @@ private:
     friend struct SaveAccess;
 
     Tick current_tick = 0;
-    Ship ship = Ship::new_game();
+    Fleet fleet = Fleet::new_game();
 
 public:
     // One fixed simulation step (kTicksPerSecond of them per real second).
@@ -20,6 +21,9 @@ public:
 
     Tick get_tick() const { return current_tick; }
 
-    Ship& get_ship() { return ship; }
-    const Ship& get_ship() const { return ship; }
+    Fleet& get_fleet() { return fleet; }
+    const Fleet& get_fleet() const { return fleet; }
+    // The fleet's oldest ship (a new game's only one).
+    Ship& flagship() { return fleet.flagship().ship; }
+    const Ship& flagship() const { return fleet.flagship().ship; }
 };

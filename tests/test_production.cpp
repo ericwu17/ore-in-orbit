@@ -87,7 +87,7 @@ void test_targets() {
 // take its catch, removing one refunds it along with the building.
 void test_on_ship() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     assert(ship.place(ItemKind::AsteroidCollector, kOnHull) == BuildResult::Ok);
     const auto* c = dynamic_cast<const Collector*>(ship.building_at(kOnHull));
     assert(c);

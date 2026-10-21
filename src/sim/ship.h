@@ -39,6 +39,9 @@ constexpr int kShipGridSize = 128;
 // with the bridge in its middle, its top-left cell at kStartBridgePos.
 constexpr int kStartHullSide = 48;
 constexpr GridPos kStartBridgePos{(kShipGridSize - kBridgeSize) / 2, (kShipGridSize - kBridgeSize) / 2};
+// A ship launched from a starter pack (Ship::new_launched): a smaller patch,
+// the bridge in the same place.
+constexpr int kLaunchedHullSide = 12;
 
 // Why a place() or remove_*() call did (or didn't) change the ship.
 enum class BuildResult {
@@ -102,6 +105,9 @@ private:
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
     void add_building(GridPos p, std::unique_ptr<Building> building);
+    // A square hull patch of side `side`, centered on the grid, with the
+    // bridge in the middle and nothing in its inventory.
+    static Ship with_hull_patch(int side);
 
 public:
     // An empty grid (no hull, no bridge). Games start from new_game().
@@ -110,6 +116,10 @@ public:
     // The starting ship: a kStartHullSide hull patch with the bridge in the
     // middle, and the bridge inventory stocked.
     static Ship new_game();
+    // A ship launched from a starter pack: a kLaunchedHullSide hull patch
+    // with the bridge in the middle, and a little hull in its inventory to
+    // grow from.
+    static Ship new_launched();
 
     int size() const { return kShipGridSize; }
     bool in_bounds(GridPos p) const;

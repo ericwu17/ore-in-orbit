@@ -35,7 +35,7 @@ Ship stocked_ship() {
 
 void test_new_game() {
     World world;
-    const Ship& ship = world.get_ship();
+    const Ship& ship = world.flagship();
     const Building* bridge = ship.building_at(kCenter);
     assert(bridge == &ship.get_bridge());
     assert(!bridge->item_kind());

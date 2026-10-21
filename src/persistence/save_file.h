@@ -9,7 +9,11 @@
 //     "name": "Ship 1",
 //     "saved_at": 1760000000,      (Unix seconds)
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
-//     "world": { "tick": 3600, "ship": { "hull": [...], "buildings": [...] } }
+//     "world": { "tick": 3600, "fleet": {
+//       "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
+//       "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
+//                    "ship": { "hull": [...], "buildings": [...] } } ],
+//       "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] } }
 //   }
 #pragma once
 
@@ -25,7 +29,7 @@
 // when the format changes (or an item or recipe is renamed or removed, or a
 // building's footprint changes, which can leave saved ones overlapping or
 // off their hull).
-constexpr int kSaveVersion = 5;
+constexpr int kSaveVersion = 6;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

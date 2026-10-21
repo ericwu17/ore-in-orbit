@@ -27,6 +27,18 @@ other way round (the one picked turns, the rest go straight); junctions let
 two belt lines cross, each item leaving by the side opposite the one it came
 in by; routers pass each item on to their other three sides in turn.
 
+The player commands a fleet. A ship starter pack (unlocked by the "Deep
+space" milestone) in a bridge's inventory launches a new ship ("Launch a
+new ship", in the right panel's Fleet section): a 12x12 hull patch with its
+own bridge, and a little hull to grow from. Every ship keeps running while
+another is on screen; the tabs above the grid (or `[` and `]`) switch
+between them, and double-clicking a tab renames that ship. Milestones are
+the fleet's: a delivery to any bridge counts, and a recipe unlocked is
+unlocked on every ship. "Send cargo..." moves items from one bridge's
+inventory to another's, between ships in the same sector: each 50 items
+use up a cargo pod, and they land 5 seconds later (cargo, like
+hand-crafting, doesn't count toward a milestone).
+
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot, and nlohmann::json (vendored in
 `third_party/nlohmann/`, for save files). Runs on macOS, Linux and Windows.
 
@@ -141,6 +153,8 @@ clipboard. A library file holds exactly that text.
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).
 - **Middle drag, or hold Space and move the mouse**: pan the grid.
+- **[ / ]**: show the previous / next ship of the fleet (or click its tab
+  above the grid; double-click a tab to rename the ship).
 - **1–9**: pick the item to build. **R**: rotate the transport belt.
 - **Q**, or the selected item's key or icon again: build nothing, so left
   clicks only inspect.
@@ -175,15 +189,20 @@ One directory per layer under `src/`; includes name their layer
     nothing (each piece checked by `Ship::can_place` against the ones
     before it, `PlannedChanges`).
   - `milestones.h/.cpp` — the milestones (what to deliver, what each
-    unlocks) and `Progress`, the bridge's way through them, which gates
-    hand-crafting and machine recipes.
-  - `world.h/.cpp` — `World`: owns all state (the ship), `advance_tick()`
+    unlocks) and `Progress`, the fleet's way through them (every bridge
+    shares one), which gates hand-crafting and machine recipes.
+  - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
+    name, a `Ship` and the sector it's in), the `Progress` they share,
+    launching a new ship from a starter pack, and cargo pods in flight
+    between ships (`Transfer`).
+  - `world.h/.cpp` — `World`: owns all state (the fleet), `advance_tick()`
     steps it.
 - `src/persistence/` — save files, also headless (the tests link it). The
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
   - `save_file.h/.cpp` — the save format, a JSON document: a header (name,
-    when, play time) and the whole `World`, with items, directions and
+    when, play time) and the whole `World` (every ship of the fleet, the
+    shared milestone progress and the cargo in flight), with items, directions and
     recipes written by name, and loading that checks everything (a bad
     save is refused with a reason, never trusted).
   - `save_slots.h/.cpp` — the saves folder: listing, writing (atomically,
@@ -198,8 +217,9 @@ One directory per layer under `src/`; includes name their layer
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
   - `ui.cpp` — the main menu, save list, credits and game screens (the build grid and
-    palette, with its zoom / pan camera, the inspector, copy and paste and
-    the Blueprints window), and the F1 / F2 demo windows.
+    palette, with its zoom / pan camera, one per ship, the fleet's tabs,
+    the inspector, copy and paste, the Blueprints and Send cargo windows),
+    and the F1 / F2 demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded
     font and a few styled widgets. Every color comes from here.
   - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into

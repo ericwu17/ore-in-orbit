@@ -106,6 +106,8 @@ ITEMS = {
     "StructuralFrame":   ("plate", ITEM_COMPONENT, "Fr"),
     "AdvancedCircuit":   ("plate", ITEM_COMPONENT, "AC"),
     "Processor":         ("plate", ITEM_COMPONENT, "CPU"),
+    "ShipStarterPack":   ("plate", RED, "SHIP"),
+    "CargoPod":          ("plate", STORAGE, "Pod"),
 }
 
 

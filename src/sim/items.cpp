@@ -43,6 +43,8 @@ const char* item_name(ItemKind kind) {
     case ItemKind::StructuralFrame:   return "Structural frame";
     case ItemKind::AdvancedCircuit:   return "Advanced circuit";
     case ItemKind::Processor:         return "Processor";
+    case ItemKind::ShipStarterPack:   return "Ship starter pack";
+    case ItemKind::CargoPod:          return "Cargo pod";
     case ItemKind::Count:             break;
     }
     return "?";
@@ -90,6 +92,8 @@ const char* item_id(ItemKind kind) {
     case ItemKind::StructuralFrame:   return "StructuralFrame";
     case ItemKind::AdvancedCircuit:   return "AdvancedCircuit";
     case ItemKind::Processor:         return "Processor";
+    case ItemKind::ShipStarterPack:   return "ShipStarterPack";
+    case ItemKind::CargoPod:          return "CargoPod";
     case ItemKind::Count:             break;
     }
     return "?";

@@ -143,11 +143,11 @@ Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize
 
 void Bridge::receive(ItemKind kind) {
     inventory.add(kind);
-    progress.on_delivered(kind);
+    progress->on_delivered(kind);
 }
 
 bool Bridge::can_hand_craft(const Recipe& recipe) const {
-    return recipe.hand_craftable && progress.unlocked(recipe) && inventory.has(recipe.inputs);
+    return recipe.hand_craftable && progress->unlocked(recipe) && inventory.has(recipe.inputs);
 }
 
 bool Bridge::queue_craft(const Recipe& recipe) {

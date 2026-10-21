@@ -20,6 +20,11 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::CopperPlate, 10},
 };
 
+// What a launched ship's bridge starts with (the starter pack's hull).
+constexpr ItemStack kLaunchedInventory[] = {
+    {ItemKind::Hull, 40},
+};
+
 }  // namespace
 
 const char* describe(BuildResult result) {
@@ -59,20 +64,33 @@ Ship::Ship()
         row.resize(kGridSize);
 }
 
-Ship Ship::new_game() {
+Ship Ship::with_hull_patch(int side) {
     Ship ship;
-    static_assert(kStartHullSide >= kBridgeSize && (kStartHullSide - kBridgeSize) % 2 == 0,
-                  "the bridge sits in the middle of the starting hull");
-    const int lo = (kShipGridSize - kStartHullSide) / 2;
-    for (int y = lo; y < lo + kStartHullSide; ++y)
-        for (int x = lo; x < lo + kStartHullSide; ++x)
+    const int lo = (kShipGridSize - side) / 2;
+    for (int y = lo; y < lo + side; ++y)
+        for (int x = lo; x < lo + side; ++x)
             at(ship.hull, {x, y}) = ItemKind::Hull;
 
     auto bridge = std::make_unique<Bridge>();
     ship.bridge = bridge.get();
     ship.add_building(kStartBridgePos, std::move(bridge));
+    return ship;
+}
 
+Ship Ship::new_game() {
+    static_assert(kStartHullSide >= kBridgeSize && (kStartHullSide - kBridgeSize) % 2 == 0,
+                  "the bridge sits in the middle of the starting hull");
+    Ship ship = with_hull_patch(kStartHullSide);
     for (const ItemStack& s : kStartInventory)
+        ship.inventory().add(s.kind, s.count);
+    return ship;
+}
+
+Ship Ship::new_launched() {
+    static_assert(kLaunchedHullSide >= kBridgeSize && (kLaunchedHullSide - kBridgeSize) % 2 == 0,
+                  "the bridge sits in the middle of a launched ship's hull");
+    Ship ship = with_hull_patch(kLaunchedHullSide);
+    for (const ItemStack& s : kLaunchedInventory)
         ship.inventory().add(s.kind, s.count);
     return ship;
 }

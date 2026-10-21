@@ -3,8 +3,8 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 //   Building (abstract)
-//   ├── Bridge       the ship's command tile; owns the inventory and the
-//   │                milestone progress, hand-crafts
+//   ├── Bridge       the ship's command tile; owns the inventory, follows
+//   │                the fleet's milestone progress, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
 //   │                yet)
@@ -125,7 +125,10 @@ private:
 
     Inventory inventory;
     std::deque<CraftJob> queue;  // front is in progress
-    Progress progress;
+    // The milestones are the fleet's: every ship's bridge shares one
+    // Progress (see Fleet), and deliveries to any of them count. A bridge
+    // on its own (a lone Ship) has one of its own.
+    std::shared_ptr<Progress> progress = std::make_shared<Progress>();
 
 public:
     Bridge();
@@ -141,8 +144,11 @@ public:
 
     Inventory& get_inventory() { return inventory; }
     const Inventory& get_inventory() const { return inventory; }
-    Progress& get_progress() { return progress; }
-    const Progress& get_progress() const { return progress; }
+    Progress& get_progress() { return *progress; }
+    const Progress& get_progress() const { return *progress; }
+    const std::shared_ptr<Progress>& shared_progress() const { return progress; }
+    // Follows `shared` from now on, instead of the progress it had.
+    void share_progress(std::shared_ptr<Progress> shared) { progress = std::move(shared); }
 
     // Whether queue_craft(recipe) would succeed now.
     bool can_hand_craft(const Recipe& recipe) const;

@@ -138,7 +138,7 @@ void test_progress() {
 // don't; locked recipes are refused by hand and in machines.
 void test_on_ship() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     Bridge& bridge = ship.get_bridge();
     const Progress& progress = bridge.get_progress();
 

@@ -55,7 +55,7 @@ const Machine& machine_at(const Ship& ship, GridPos p) {
 // in exactly three cells' travel time.
 void test_belt_to_bridge() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     for (int x = b1 + 1; x <= b1 + 3; ++x) {
         ensure_hull(ship, {x, c});
         assert(ship.place(ItemKind::TransportBelt, {x, c}, Direction::West) == BuildResult::Ok);
@@ -81,7 +81,7 @@ void test_belt_to_bridge() {
 // removing it refunds what was on it.
 void test_belt_jam() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos p{c, b0 - 2};  // pointing north, into nothing
     assert(ship.place(ItemKind::TransportBelt, p, Direction::North) == BuildResult::Ok);
     const GridPos behind{p.x, p.y + 1};
@@ -107,7 +107,7 @@ void test_belt_jam() {
 // behind is a corner, and side input starts at its back.
 void test_belt_sides() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos p{c, b0 - 2};
     assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
@@ -130,7 +130,7 @@ void test_belt_sides() {
 void test_collector_feeds() {
     {
         World world;
-        Ship& ship = world.get_ship();
+        Ship& ship = world.flagship();
         assert(ship.place(ItemKind::AsteroidCollector, {b1 + 1, c}) == BuildResult::Ok);
         const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({b1 + 1, c}));
         const int before = ship.inventory().total();
@@ -140,7 +140,7 @@ void test_collector_feeds() {
     }
     {
         World world;
-        Ship& ship = world.get_ship();
+        Ship& ship = world.flagship();
         assert(ship.place(ItemKind::AsteroidCollector, {b1 + 1, b1 + 1}) == BuildResult::Ok);
         assert(ship.place(ItemKind::TransportBelt, {b1, b1 + 1}, Direction::North) == BuildResult::Ok);
         const auto& collector = dynamic_cast<const Collector&>(*ship.building_at({b1 + 1, b1 + 1}));
@@ -155,7 +155,7 @@ void test_collector_feeds() {
 
 void test_machine_recipe() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos p{b1 + 1, b1 + 1};  // diagonal from the bridge: no neighbors
     const GridPos east{b1 + 3, b1 + 1}, from_east{b1 + 2, b1 + 1};
     assert(ship.place(ItemKind::SolarFurnace, p) == BuildResult::Ok);
@@ -206,7 +206,7 @@ void test_machine_recipe() {
 // once kOutputCrafts crafts' worth is waiting.
 void test_machine_output_full() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos p{b1 + 1, b1 + 1};
     ship.inventory().add(ItemKind::FabricatorMk1, 1);
     for (int y = b1 + 1; y <= b1 + 3; ++y)
@@ -230,7 +230,7 @@ void test_machine_output_full() {
 // furnace's recipe doesn't take, the collector backs up until it stalls.
 void test_chain() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     // North of the bridge, a row apart from it: the belt between them
     // leads into it.
     for (int y = b0 - 3; y <= b0 - 2; ++y)
@@ -259,7 +259,7 @@ void test_chain() {
 
 void test_cargo_hold() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos p{b1 + 1, b1 + 1};
     assert(ship.place(ItemKind::CargoHold, p) == BuildResult::Ok);
     int stored = 0;
@@ -293,7 +293,7 @@ struct SorterRig {
 // What the filter matches carries straight on; the rest turns.
 void test_sorter_straight() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship);
     const Building& sorter = *ship.building_at(rig.sorter);
     assert(sorter.footprint() == (GridSize{1, 1}) && !sorter.rotatable());
@@ -314,7 +314,7 @@ void test_sorter_straight() {
 // item is refused.
 void test_sorter_alternates() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship);
     const Tick per_cell = belt_cell_ticks();
     for (int i = 0; i < 4; ++i) {
@@ -341,7 +341,7 @@ void test_sorter_alternates() {
 
 void test_sorter_filter() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship);
     const auto& sorter = dynamic_cast<const Sorter&>(*ship.building_at(rig.sorter));
     assert(!sorter.get_filter());
@@ -364,7 +364,7 @@ void test_sorter_filter() {
 void test_sorter_chain() {
     {
         World world;
-        Ship& ship = world.get_ship();
+        Ship& ship = world.flagship();
         ship.inventory().add(ItemKind::FilterSorter, 3);
         const int y = b0 - 2;  // a row apart from the bridge
         for (int x = c + 1; x <= c + 3; ++x) {
@@ -380,7 +380,7 @@ void test_sorter_chain() {
     }
     {
         World world;
-        Ship& ship = world.get_ship();
+        Ship& ship = world.flagship();
         ship.inventory().add(ItemKind::FilterSorter, 4);
         // Diagonally off the bridge's bottom-right corner, touching nothing.
         for (int y = b1 + 1; y <= b1 + 2; ++y)
@@ -395,7 +395,7 @@ void test_sorter_chain() {
 // into a cargo hold.
 void test_sorter_feeds() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     for (int y = c - 1; y <= c; ++y)
         for (int x = b1 + 3; x <= b1 + 4; ++x)
             ensure_hull(ship, {x, y});
@@ -426,7 +426,7 @@ void test_sorter_feeds() {
 // furnace (and jam there, as the furnace won't take plates).
 void test_sorter_not_back_into_source() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const GridPos furnace{b1 + 4, b1 + 2};
     for (int y = b1 + 1; y <= b1 + 4; ++y)
         for (int x = b1 + 1; x <= b1 + 5; ++x)
@@ -455,7 +455,7 @@ void test_sorter_not_back_into_source() {
 // straight on; with no filter, everything goes straight.
 void test_reverse_sorter() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship, ItemKind::ReverseSorter);
     const auto& sorter = dynamic_cast<const Sorter&>(*ship.building_at(rig.sorter));
     assert(sorter.inverted());
@@ -481,7 +481,7 @@ void test_reverse_sorter() {
 // the far side, and gives back what it holds when removed.
 void test_junction() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship, ItemKind::Junction);
 
     assert(ship.insert_item(rig.sorter, rig.west, ItemKind::IronPlate));
@@ -520,7 +520,7 @@ void test_junction() {
 // Two belt lines cross through a junction without mixing.
 void test_junction_crossing() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const int y = b0 - 4;  // the column down stops a row short of the bridge
     const GridPos junction{c, y};
     ship.inventory().add(ItemKind::Junction, 1);
@@ -557,7 +557,7 @@ void test_junction_crossing() {
 // other three sides in turn, never back the way it came.
 void test_router() {
     World world;
-    Ship& ship = world.get_ship();
+    Ship& ship = world.flagship();
     const SorterRig rig(ship, ItemKind::Router);
     const auto& router = dynamic_cast<const Router&>(*ship.building_at(rig.sorter));
 

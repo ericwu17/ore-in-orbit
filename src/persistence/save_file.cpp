@@ -18,6 +18,7 @@
 
 #include "persistence/json_io.h"
 #include "sim/building.h"
+#include "sim/fleet.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -102,13 +103,6 @@ struct SaveAccess {
             for (const CraftJob& job : bridge->queue)
                 jobs.push_back({{"recipe", save_recipe(job.recipe)}, {"elapsed", job.elapsed}});
             j["queue"] = std::move(jobs);
-            j["milestone"] = bridge->progress.current;
-            // Delivered toward it, as item counts.
-            Json delivered = Json::object();
-            for (int i = 0; i < kItemKindCount; ++i)
-                if (const int n = bridge->progress.delivered[static_cast<std::size_t>(i)]; n > 0)
-                    delivered[item_id(static_cast<ItemKind>(i))] = n;
-            j["delivered"] = std::move(delivered);
         } else if (const auto* c = dynamic_cast<const Collector*>(&b)) {
             j["progress"] = c->progress;
             j["target"] = item_id(c->target);
@@ -148,26 +142,42 @@ struct SaveAccess {
         // Power and ship systems hold no state yet.
     }
 
-    // Reads a building's own state from `j` into the new building `b`.
+    // The fleet's milestone progress: the milestone being worked on, and
+    // what has been delivered toward it, as item counts.
+    static Json save_progress(const Progress& progress) {
+        Json delivered = Json::object();
+        for (int i = 0; i < kItemKindCount; ++i)
+            if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n > 0)
+                delivered[item_id(static_cast<ItemKind>(i))] = n;
+        return {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
+    }
+
+    static Progress load_progress_of(const Json& j) {
+        Progress progress;
+        progress.current = static_cast<std::size_t>(
+            load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
+        const Inventory delivered = load_inventory(j.at("delivered"));
+        const Milestone* milestone = progress.current_milestone();
+        for (const ItemStack& s : delivered.stacks()) {
+            int need = 0;
+            if (milestone)
+                for (const ItemStack& d : milestone->deliver)
+                    if (d.kind == s.kind)
+                        need = d.count;
+            if (s.count > need)
+                throw LoadError(std::string("more ") + item_id(s.kind) + " delivered than the milestone needs");
+            progress.delivered[static_cast<std::size_t>(s.kind)] = s.count;
+        }
+        return progress;
+    }
+
+    // Reads a building's own state from `j` into the new building `b`. A
+    // bridge already follows the fleet's progress (loaded first: the craft
+    // queue may only hold unlocked recipes).
     static void load_state(const Json& j, Building& b) {
         if (auto* bridge = dynamic_cast<Bridge*>(&b)) {
             bridge->inventory = load_inventory(j.at("inventory"));
-            // Progress first: the queue may only hold unlocked recipes.
-            Progress& progress = bridge->progress;
-            progress.current = static_cast<std::size_t>(
-                load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
-            const Inventory delivered = load_inventory(j.at("delivered"));
-            const Milestone* milestone = progress.current_milestone();
-            for (const ItemStack& s : delivered.stacks()) {
-                int need = 0;
-                if (milestone)
-                    for (const ItemStack& d : milestone->deliver)
-                        if (d.kind == s.kind)
-                            need = d.count;
-                if (s.count > need)
-                    throw LoadError(std::string("more ") + item_id(s.kind) + " delivered than the milestone needs");
-                progress.delivered[static_cast<std::size_t>(s.kind)] = s.count;
-            }
+            const Progress& progress = *bridge->progress;
             const Json& jobs = load_array(j.at("queue"), "crafts");
             if (jobs.size() > kMaxSavedQueue)
                 throw LoadError("too many crafts queued");
@@ -260,8 +270,8 @@ struct SaveAccess {
 
     // Rebuilds the grids through Ship::add_building, so the anchor and
     // placement order come out as placing them would make them, checking the
-    // placement rules a game can't break.
-    static Ship load_ship(const Json& j) {
+    // placement rules a game can't break. Its bridge follows `progress`.
+    static Ship load_ship(const Json& j, const std::shared_ptr<Progress>& progress) {
         Ship ship;
         for (const Json& t : load_array(j.at("hull"), "hull tiles")) {
             const GridPos p{load_coord(t.at("x")), load_coord(t.at("y"))};
@@ -274,19 +284,21 @@ struct SaveAccess {
             tile = kind;
         }
         for (const Json& b : load_array(j.at("buildings"), "buildings"))
-            load_building(b, ship);
+            load_building(b, ship, progress);
         if (!ship.bridge)
             throw LoadError("the ship has no bridge");
         return ship;
     }
 
-    static void load_building(const Json& j, Ship& ship) {
+    static void load_building(const Json& j, Ship& ship, const std::shared_ptr<Progress>& progress) {
         const Json& kind_json = j.at("kind");
         std::unique_ptr<Building> b;
         if (kind_json == kBridgeId) {
             if (ship.bridge)
                 throw LoadError("more than one bridge");
-            b = std::make_unique<Bridge>();
+            auto bridge = std::make_unique<Bridge>();
+            bridge->share_progress(progress);
+            b = std::move(bridge);
         } else {
             const ItemKind kind = load_item(kind_json);
             if (!is_placeable(kind) || kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull)
@@ -316,14 +328,64 @@ struct SaveAccess {
         ship.add_building(p, std::move(b));
     }
 
+    // The ships, oldest first, and the cargo in flight between them.
+    static Json save_fleet(const Fleet& fleet) {
+        Json ships = Json::array();
+        for (const std::unique_ptr<FleetShip>& s : fleet.ships)
+            ships.push_back({{"id", s->id}, {"name", s->name}, {"sector", s->sector}, {"ship", save_ship(s->ship)}});
+        Json transfers = Json::array();
+        for (const Transfer& t : fleet.transfers) {
+            Inventory items;
+            items.add(t.items);
+            transfers.push_back(
+                {{"from", t.from}, {"to", t.to}, {"items", save_inventory(items)}, {"arrives", t.arrives}});
+        }
+        return {
+            {"next_ship_id", fleet.next_id},
+            {"progress", save_progress(*fleet.progress)},
+            {"ships", std::move(ships)},
+            {"transfers", std::move(transfers)},
+        };
+    }
+
+    // `now`: the World's tick, which cargo in flight lands after.
+    static Fleet load_fleet(const Json& j, Tick now) {
+        Fleet fleet;
+        fleet.next_id = static_cast<int>(load_int(j.at("next_ship_id"), 2, 1'000'000));
+        *fleet.progress = load_progress_of(j.at("progress"));
+        for (const Json& s : load_array(j.at("ships"), "ships")) {
+            const int id = static_cast<int>(load_int(s.at("id"), 1, fleet.next_id - 1));
+            if (fleet.find(id))
+                throw LoadError("two ships with id " + std::to_string(id));
+            std::string name = load_string(s.at("name"), "a ship name");
+            const int sector = static_cast<int>(load_int(s.at("sector"), 0, 0));
+            fleet.ships.push_back(std::make_unique<FleetShip>(
+                FleetShip{id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector}));
+        }
+        if (fleet.ships.empty())
+            throw LoadError("the fleet has no ships");
+        for (const Json& t : load_array(j.at("transfers"), "transfers")) {
+            // The ships either end may be gone (the cargo is lost when it lands).
+            Transfer transfer;
+            transfer.from = static_cast<int>(load_int(t.at("from"), 1, fleet.next_id - 1));
+            transfer.to = static_cast<int>(load_int(t.at("to"), 1, fleet.next_id - 1));
+            transfer.items = load_inventory(t.at("items")).stacks();
+            transfer.arrives = load_tick(t.at("arrives"), now + kTransferTicks);
+            if (transfer.arrives <= now)
+                throw LoadError("cargo that should have landed already");
+            fleet.transfers.push_back(std::move(transfer));
+        }
+        return fleet;
+    }
+
     static Json save_world(const World& world) {
-        return {{"tick", world.current_tick}, {"ship", save_ship(world.ship)}};
+        return {{"tick", world.current_tick}, {"fleet", save_fleet(world.fleet)}};
     }
 
     static World load_world(const Json& j) {
         World world;
-        world.current_tick = load_tick(j.at("tick"));
-        world.ship = load_ship(j.at("ship"));
+        world.current_tick = load_tick(j.at("tick"), std::numeric_limits<Tick>::max() - kTransferTicks);
+        world.fleet = load_fleet(j.at("fleet"), world.current_tick);
         return world;
     }
 };
