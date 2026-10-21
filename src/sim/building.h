@@ -14,7 +14,8 @@
 //   ├── CargoHold    item storage
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── PowerPlant   solar panel / array, battery bank
-//   └── ShipSystem   survey scanner, ion thruster
+//   ├── Thruster     ion thruster: charged with fuel cells for a jump
+//   └── ShipSystem   survey scanner
 //
 // One class per family, not per building: each building's footprint and
 // whether it rotates is data (footprint_of, is_rotatable), looked up by item
@@ -180,9 +181,12 @@ private:
     friend struct SaveAccess;
 
     const CollectorSpec* spec;
-    Tick progress = 0;  // ticks toward the next catch
+    // Toward the next catch, in hundredths of a tick at a yield of 100%
+    // (a catch at spec->interval * 100).
+    Tick progress = 0;
     Inventory caught;   // raw resources
     ItemKind target;    // what it catches, one of spec->targets
+    int yield = 100;    // of `target` where the ship is: % of the home sector's
 
 public:
     explicit Collector(ItemKind k);
@@ -194,8 +198,12 @@ public:
     // Aims it at `kind`, which can_target() must allow. What it already
     // caught stays in the buffer.
     void set_target(ItemKind kind);
-    // Gathers, unless the buffer is full.
+    // Gathers at the yield last set, unless the buffer is full.
     void tick() override;
+    // The yield of its target where the ship is (see Ship::set_yields): it
+    // gathers that many % as fast as at home; 0 stalls it.
+    int get_yield() const { return yield; }
+    void set_yield(int percent) { yield = percent; }
     std::vector<ItemStack> contents() const override { return caught.stacks(); }
     Inventory* output_buffer() override { return &caught; }
 
@@ -205,7 +213,7 @@ public:
     int stored() const { return caught.total(); }
     int capacity() const { return spec->capacity; }
     bool full() const { return stored() >= capacity(); }
-    // Items gathered per second while not full.
+    // Items gathered per second while not full, at its yield.
     double rate_per_second() const;
     // How far along the next catch is, 0 to 1.
     float catch_progress() const;
@@ -438,6 +446,33 @@ public:
     explicit PowerPlant(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 };
 
+// Fuel cells an ion thruster holds: full, it's charged for a jump.
+constexpr int kThrusterCharge = 10;
+
+// The ion thruster: takes fuel cells from belts until charged. A jump
+// needs every thruster on the ship charged, and uses it all (see
+// World::jump).
+class Thruster : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    int fuel = 0;  // fuel cells, up to kThrusterCharge
+
+public:
+    Thruster() : Building(ItemKind::IonThruster, Direction::North, footprint_of(ItemKind::IonThruster)) {}
+
+    int get_fuel() const { return fuel; }
+    bool charged() const { return fuel >= kThrusterCharge; }
+    // Burns all its fuel (a jump).
+    void burn() { fuel = 0; }
+    std::vector<ItemStack> contents() const override;
+    bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged(); }
+    void receive(ItemKind) override { ++fuel; }
+};
+
+// The survey scanner: surveys the sectors next to the ship's (see World).
 class ShipSystem : public Building {
 public:
     explicit ShipSystem(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}

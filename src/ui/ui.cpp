@@ -154,6 +154,18 @@ struct FleetUiState {
 };
 FleetUiState g_fleet;
 
+// The star map view (M), shown instead of the grid: whether it's up, the
+// sector picked on it, and the view onto it. UI-only.
+struct MapUiState {
+    bool shown = false;
+    std::optional<int> selected;  // a sector index
+    bool placed = false;          // false: fit the map in, next frame
+    float scale = 1.0f;           // screen pixels per map unit
+    ImVec2 offset;                // where home is, relative to the canvas
+    bool dragged = false;         // the press on the map became a pan, not a click
+};
+MapUiState g_map;
+
 // Shows ship `id` (its own camera, nothing inspected).
 void SwitchToShip(int id) {
     FleetUiState& f = g_fleet;
@@ -1017,8 +1029,15 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         const CollectorSpec& spec = collector->get_spec();
         const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
-        ImGui::TextColored(theme::kInkDim, "Gathers %s: 1 every %.1f s  (%.0f / min)",
-                           item_name(collector->get_target()), seconds, collector->rate_per_second() * 60.0);
+        if (collector->get_yield() == 0) {
+            ImGui::TextColored(theme::kWarnText, "No %s in this sector: aim it at something else",
+                               item_name(collector->get_target()));
+        } else {
+            ImGui::TextColored(theme::kInkDim, "Gathers %s: %.0f / min (%d%% of home)",
+                               item_name(collector->get_target()), collector->rate_per_second() * 60.0,
+                               collector->get_yield());
+            ImGui::TextColored(theme::kInkDim, "At home: 1 every %.1f s", seconds);
+        }
         const bool full = collector->full();
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");
         ImGui::Text("Buffer: %d / %d", collector->stored(), collector->capacity());
@@ -1063,6 +1082,16 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         if (const std::optional<ItemKind> held = router->get_held())
             AmountLine(ItemIcon(*held), item_name(*held), theme::kInk, in_tooltip);
     }
+    if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
+        const std::string fuel = Fraction(thruster->get_fuel(), kThrusterCharge) + " fuel cells";
+        ImGui::ProgressBar(static_cast<float>(thruster->get_fuel()) / static_cast<float>(kThrusterCharge),
+                           ImVec2(bar_w, 0.0f), fuel.c_str());
+        ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kInkDim, "%s",
+                           thruster->charged() ? "Charged: ready to jump (see the map, M)"
+                                               : "Belt fuel cells into it to charge it");
+    }
+    if (kind == ItemKind::SurveyScanner)
+        ImGui::TextColored(theme::kInkDim, "Surveys the sectors next to the ship's");
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);
         for (const ItemStack& s : hold->get_stored().stacks())
@@ -1324,8 +1353,13 @@ void DrawMilestone(const Progress& progress) {
 
 // The tabs over the grid, one per ship: a click shows that ship, a
 // double-click renames it.
-void DrawFleetStrip(Fleet& fleet) {
+void DrawFleetStrip(World& world) {
+    Fleet& fleet = world.get_fleet();
     FleetUiState& f = g_fleet;
+    if (theme::SegmentedButton("Map", g_map.shown))
+        g_map.shown = !g_map.shown;
+    ImGui::SetItemTooltip("The star map (M): sectors, and jumping between them");
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
     std::optional<int> show;
     bool first = true;
@@ -1333,6 +1367,7 @@ void DrawFleetStrip(Fleet& fleet) {
         if (!first)
             ImGui::SameLine();
         first = false;
+        const Sector& sector = world.get_map().at(s->sector);
         ImGui::PushID(s->id);
         if (f.renaming == s->id) {
             if (f.focus_rename) {
@@ -1348,14 +1383,15 @@ void DrawFleetStrip(Fleet& fleet) {
                 f.renaming.reset();
             }
         } else {
-            if (theme::SegmentedButton(s->name.c_str(), s->id == f.current))
+            const std::string label = s->name + "  \xc2\xb7  " + sector.name;
+            if (theme::SegmentedButton(label.c_str(), s->id == f.current))
                 show = s->id;
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 f.renaming = s->id;
                 std::snprintf(f.rename, sizeof f.rename, "%s", s->name.c_str());
                 f.focus_rename = true;
             }
-            ImGui::SetItemTooltip("%s\nDouble-click to rename", s->name.c_str());
+            ImGui::SetItemTooltip("%s, in %s\nDouble-click to rename", s->name.c_str(), sector.name.c_str());
         }
         ImGui::PopID();
     }
@@ -1978,6 +2014,220 @@ void DrawShipGrid(Ship& ship, ImVec2 avail) {
 }
 
 // ---------------------------------------------------------------------------
+// Star map
+// ---------------------------------------------------------------------------
+
+// The color of a sector's threat: green when safe, then amber, then red.
+ImVec4 ThreatColor(int threat) {
+    if (threat == 0)
+        return theme::kGood;
+    if (threat <= 2)
+        return theme::kWarn;
+    return theme::kRed;
+}
+
+// A threat as a row of kMaxThreat dots, `threat` of them filled, laid out
+// like a text item.
+void ThreatPips(int threat) {
+    const float h = ImGui::GetTextLineHeight();
+    const float r = h * 0.28f;
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(static_cast<float>(kMaxThreat) * r * 2.8f, h));
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 color = theme::U32(ThreatColor(threat));
+    for (int i = 0; i < kMaxThreat; ++i) {
+        const ImVec2 c(min.x + r * 1.4f + static_cast<float>(i) * r * 2.8f, min.y + h * 0.5f);
+        if (i < threat)
+            draw->AddCircleFilled(c, r, color);
+        else
+            draw->AddCircle(c, r, theme::U32(theme::kInkDim), 0, 1.0f);
+    }
+}
+
+// The picked sector's details, over the map's top-left corner: what's
+// known of it, the ships there, and for the ship shown, jumping there.
+void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 min) {
+    const StarMap& map = world.get_map();
+    const Sector& s = map.at(index);
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetCursorScreenPos(min);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kPaper);
+    ImGui::BeginChild("##sector", ImVec2(fh * 13.0f, 0.0f),
+                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::PushFont(nullptr, theme::kFontTitle);
+    ImGui::TextUnformatted(s.surveyed ? s.name.c_str() : "Unsurveyed sector");
+    ImGui::PopFont();
+    if (index == 0)
+        ImGui::TextColored(theme::kInkDim, "Home");
+    if (!s.surveyed) {
+        ImGui::TextColored(theme::kInkDim,
+                           "Visit it, or bring a ship with a survey scanner next door, to learn what's there.");
+    } else {
+        ImGui::TextUnformatted("Threat");
+        ImGui::SameLine();
+        if (s.threat == 0)
+            ImGui::TextColored(theme::kGood, "none");
+        else
+            ThreatPips(s.threat);
+        ImGui::TextColored(theme::kInkDim, "Yields (home: 100%%)");
+        for (int r = 0; r < kRawResourceCount; ++r) {
+            const int y = s.yields[static_cast<std::size_t>(r)];
+            AmountLine(ItemIcon(kRawResources[r]), y > 0 ? std::to_string(y) + "%" : "none",
+                       y > 100 ? theme::kGood : y > 0 ? theme::kInk : theme::kInkDim, false);
+        }
+    }
+    std::string here;
+    for (const std::unique_ptr<FleetShip>& ship : world.get_fleet().get_ships())
+        if (ship->sector == index)
+            here += (here.empty() ? "" : ", ") + ship->name;
+    if (!here.empty())
+        ImGui::Text("Here: %s", here.c_str());
+
+    // Jumping the ship shown here.
+    if (index != current.sector) {
+        ImGui::Separator();
+        const std::vector<const Thruster*> thrusters = current.ship.thrusters();
+        const auto charged = std::count_if(thrusters.begin(), thrusters.end(),
+                                           [](const Thruster* t) { return t->charged(); });
+        const int needed = thrusters_needed(current.ship.hull_count());
+        ImGui::TextColored(theme::kInkDim, "%s's ion thrusters: %d of %zu charged, %d needed", current.name.c_str(),
+                           static_cast<int>(charged), thrusters.size(), needed);
+        const JumpResult can = world.can_jump(current.id, index);
+        ImGui::BeginDisabled(can != JumpResult::Ok);
+        if (theme::PrimaryButton("Jump here", ImVec2(-1.0f, 0.0f)) &&
+            world.jump(current.id, index) == JumpResult::Ok)
+            SetMessage(current.name + " jumped to " + s.name, theme::kGood);
+        ImGui::EndDisabled();
+        if (can != JumpResult::Ok)
+            ImGui::TextColored(theme::kWarnText, "%s", describe(can));
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
+    const StarMap& map = world.get_map();
+    MapUiState& m = g_map;
+    const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
+    const ImVec2 canvas_size(std::max(avail.x, 1.0f), std::max(avail.y, 1.0f));
+    const ImVec2 canvas_max(canvas_min.x + canvas_size.x, canvas_min.y + canvas_size.y);
+    ImGui::InvisibleButton("##star_map", canvas_size,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+    const ImGuiIO& io = ImGui::GetIO();
+
+    // The view: fit the whole map at first; the wheel zooms about the mouse,
+    // and a drag (left on empty space, or middle) pans.
+    float extent = 1.0f;
+    for (const Sector& s : map.all())
+        extent = std::max({extent, std::abs(s.x), std::abs(s.y)});
+    const float fit = std::min(canvas_size.x, canvas_size.y) * 0.5f / (extent * 1.15f);
+    if (!m.placed) {
+        m.scale = fit;
+        m.offset = ImVec2(canvas_size.x * 0.5f, canvas_size.y * 0.5f);
+        m.placed = true;
+    }
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f) {
+        const float new_scale = std::clamp(m.scale * std::pow(kZoomStep, io.MouseWheel), fit * 0.5f, fit * 5.0f);
+        const ImVec2 p(io.MousePos.x - canvas_min.x, io.MousePos.y - canvas_min.y);
+        const float k = new_scale / m.scale;
+        m.offset = ImVec2(p.x - (p.x - m.offset.x) * k, p.y - (p.y - m.offset.y) * k);
+        m.scale = new_scale;
+    }
+    const auto screen = [&](const Sector& s) {
+        return ImVec2(canvas_min.x + m.offset.x + s.x * m.scale, canvas_min.y + m.offset.y + s.y * m.scale);
+    };
+    const float fh = ImGui::GetFrameHeight();
+    const float r = std::max(fh * 0.35f, 6.0f);
+
+    // The sector under the mouse, among those shown.
+    std::optional<int> hovered;
+    if (ImGui::IsItemHovered())
+        for (int i = 0; i < map.size(); ++i) {
+            const ImVec2 c = screen(map.at(i));
+            if (map.known(i) && std::hypot(io.MousePos.x - c.x, io.MousePos.y - c.y) <= r * 1.6f)
+                hovered = i;
+        }
+    if (ImGui::IsItemActivated())
+        m.dragged = false;
+    if (ImGui::IsItemActive() && (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f) ||
+                                  ImGui::IsMouseDown(ImGuiMouseButton_Middle))) {
+        m.dragged = true;
+        m.offset.x += io.MouseDelta.x;
+        m.offset.y += io.MouseDelta.y;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    } else if (ImGui::IsItemDeactivated() && !m.dragged) {
+        m.selected = hovered;  // a click: pick a sector, or nothing
+    }
+    if (m.selected && (*m.selected >= map.size() || !map.known(*m.selected)))
+        m.selected.reset();
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->PushClipRect(canvas_min, canvas_max, true);
+    draw->AddRectFilled(canvas_min, canvas_max, theme::U32(theme::kPaperLight), ImGui::GetStyle().WindowRounding);
+
+    // Links between known sectors; those out of the shown ship's sector,
+    // where it can jump, stand out.
+    for (int i = 0; i < map.size(); ++i)
+        for (const int j : map.at(i).neighbors) {
+            if (j < i || !map.known(i) || !map.known(j))
+                continue;
+            const bool reach = i == current.sector || j == current.sector;
+            draw->AddLine(screen(map.at(i)), screen(map.at(j)),
+                          theme::U32(reach ? theme::kNavy : theme::kPaper4), reach ? 2.5f : 1.5f);
+        }
+
+    // Sectors: filled by threat once surveyed, a "?" before; a ring when
+    // visited, a red one when picked.
+    const ImU32 ink = theme::U32(theme::kInk);
+    const ImU32 halo = theme::U32(theme::kPaperLight);
+    for (int i = 0; i < map.size(); ++i) {
+        if (!map.known(i))
+            continue;
+        const Sector& s = map.at(i);
+        const ImVec2 c = screen(s);
+        if (s.surveyed) {
+            draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.threat)));
+        } else {
+            draw->AddCircleFilled(c, r, theme::U32(theme::kPaper2));
+            const ImVec2 q = ImGui::CalcTextSize("?");
+            draw->AddText(ImVec2(c.x - q.x * 0.5f, c.y - q.y * 0.5f), theme::U32(theme::kInkDim), "?");
+        }
+        draw->AddCircle(c, r, s.visited ? ink : theme::U32(theme::kInkDim), 0, s.visited ? 2.0f : 1.0f);
+        if (m.selected == i)
+            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kRed), 0, 2.5f);
+        else if (hovered == i)
+            draw->AddCircle(c, r + 4.0f, theme::U32(theme::kRed, 0.5f), 0, 1.5f);
+        const char* label = s.surveyed ? s.name.c_str() : "";
+        const ImVec2 ts = ImGui::CalcTextSize(label);
+        theme::DrawHaloText(draw, ImVec2(c.x - ts.x * 0.5f, c.y + r + 3.0f), ink, halo, label);
+    }
+
+    // Ships: a marker per ship beside its sector, the one shown in red.
+    std::vector<int> drawn(static_cast<std::size_t>(map.size()), 0);
+    for (const std::unique_ptr<FleetShip>& ship : world.get_fleet().get_ships()) {
+        const ImVec2 c = screen(map.at(ship->sector));
+        int& k = drawn[static_cast<std::size_t>(ship->sector)];
+        const ImVec2 p(c.x + r + 6.0f + static_cast<float>(k) * r * 1.1f, c.y - r);
+        ++k;
+        const float h = r * 0.9f;
+        draw->AddTriangleFilled(ImVec2(p.x, p.y - h * 0.6f), ImVec2(p.x + h * 0.5f, p.y + h * 0.5f),
+                                ImVec2(p.x - h * 0.5f, p.y + h * 0.5f),
+                                theme::U32(ship->id == current.id ? theme::kRed : theme::kNavy));
+    }
+    if (hovered)
+        ImGui::SetTooltip("%s", map.at(*hovered).surveyed ? map.at(*hovered).name.c_str() : "Unsurveyed sector");
+    draw->PopClipRect();
+
+    const float pad = ImGui::GetStyle().WindowPadding.x;
+    ImGui::SetCursorScreenPos(ImVec2(canvas_min.x + pad, canvas_max.y - ImGui::GetTextLineHeight() - pad));
+    ImGui::TextColored(theme::kInkDim, "Click a sector for details. M: back to the ship");
+    if (m.selected)
+        DrawSectorPanel(world, current, *m.selected, ImVec2(canvas_min.x + pad, canvas_min.y + pad));
+}
+
+// ---------------------------------------------------------------------------
 // Save list
 // ---------------------------------------------------------------------------
 
@@ -2506,6 +2756,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             CycleShip(world.get_fleet(), -1);
         if (ShortcutPressed(ImGuiKey_RightBracket))
             CycleShip(world.get_fleet(), 1);
+        if (ShortcutPressed(ImGuiKey_M))
+            g_map.shown = !g_map.shown;
         const std::vector<ItemKind> list = BuildList(ship);
         for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
             if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
@@ -2553,14 +2805,17 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const ImVec2 column_min = ImGui::GetCursorScreenPos();
     ImVec2 column_avail = ImGui::GetContentRegionAvail();
     column_avail.x = std::max(0.0f, column_avail.x - craft_w - gap);
-    DrawFleetStrip(world.get_fleet());
+    DrawFleetStrip(world);
     const float strip_h = fh + ImGui::GetStyle().ItemSpacing.y;
     const ImVec2 grid_min(column_min.x, column_min.y + strip_h);
     const ImVec2 grid_avail(column_avail.x, std::max(0.0f, column_avail.y - strip_h));
     ImGui::SetCursorScreenPos(grid_min);
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
-    DrawShipGrid(shown.ship, grid_avail);
+    if (g_map.shown)
+        DrawStarMap(world, shown, grid_avail);
+    else
+        DrawShipGrid(shown.ship, grid_avail);
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     DrawCraftPanel(world, shown, craft_w);
@@ -2587,6 +2842,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             screen = Screen::MainMenu;
             g_camera = {};  // the next game starts centred on its bridge
             g_fleet = {};
+            g_map = {};
             g_banner = {};
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -2690,6 +2946,19 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
             for (int i = 0; i < kItemKindCount; ++i)
                 inventory.add(static_cast<ItemKind>(i), give.count);
         ImGui::TextDisabled("In %s's bridge: %d", current.name.c_str(), inventory.count(give.kind));
+
+        ImGui::SeparatorText("Travel");
+        if (ImGui::Button("Reveal the map"))
+            world.reveal_map();
+        ImGui::SameLine();
+        if (ImGui::Button("Charge thrusters")) {
+            // Fed from the cell above, as from a belt.
+            for (const GridPos p : current.ship.placement_order())
+                if (dynamic_cast<const Thruster*>(current.ship.building_anchored_at(p)))
+                    while (current.ship.insert_item(p, {p.x, p.y - 1}, ItemKind::FuelCell)) {
+                    }
+        }
+        ImGui::SetItemTooltip("Fills every ion thruster on %s with fuel cells", current.name.c_str());
 
         ImGui::SeparatorText("Milestones");
         Progress& progress = world.get_fleet().get_progress();

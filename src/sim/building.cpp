@@ -211,18 +211,25 @@ void Collector::set_target(ItemKind kind) {
 void Collector::tick() {
     if (full())
         return;
-    if (++progress < spec->interval)
+    progress += static_cast<Tick>(yield);
+    if (progress < spec->interval * 100)
         return;
-    progress = 0;
+    progress -= spec->interval * 100;
     caught.add(target);
 }
 
 double Collector::rate_per_second() const {
-    return static_cast<double>(kTicksPerSecond) / static_cast<double>(spec->interval);
+    return static_cast<double>(kTicksPerSecond) * yield / 100.0 / static_cast<double>(spec->interval);
 }
 
 float Collector::catch_progress() const {
-    return static_cast<float>(progress) / static_cast<float>(spec->interval);
+    return static_cast<float>(progress) / static_cast<float>(spec->interval * 100);
+}
+
+std::vector<ItemStack> Thruster::contents() const {
+    if (fuel == 0)
+        return {};
+    return {{ItemKind::FuelCell, fuel}};
 }
 
 int belt_speed(ItemKind kind) {
@@ -444,8 +451,9 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::SolarArray:
     case ItemKind::BatteryBank:
         return std::make_unique<PowerPlant>(kind);
-    case ItemKind::SurveyScanner:
     case ItemKind::IonThruster:
+        return std::make_unique<Thruster>();
+    case ItemKind::SurveyScanner:
         return std::make_unique<ShipSystem>(kind);
     default:
         break;

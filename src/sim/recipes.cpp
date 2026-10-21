@@ -58,6 +58,7 @@ std::vector<Recipe> make_recipes() {
         R(Refine, 1).in(Carbon, 2).out(Plastic),
         R(Refine, 2).in(Silica).in(Carbon).out(Silicon),
         R(Refine, 4).in(IridiumOre, 2).out(IridiumPlate),
+        R(Refine, 2).in(Carbon, 4).out(FuelCell),
 
         // Components (all hand-craftable).
         R(Assemble, 0.5).in(IronPlate, 2).out(Gear).hand(),

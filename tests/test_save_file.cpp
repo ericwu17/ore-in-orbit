@@ -55,7 +55,8 @@ const Recipe& recipe_named(const char* name) {
 // panel, a filter sorter with items queued on the belt into it, two machines
 // mid-craft (one on reinforced hull), a west-facing express belt, a junction
 // and a router holding items, and the bridge hand-crafting, part way through
-// a milestone; and a second ship, with cargo on its way to it.
+// a milestone; an ion thruster part charged; and a second ship, with cargo
+// on its way to it.
 World busy_world() {
     World world;
     world.flagship().inventory().add({{ItemKind::Hull, 200},
@@ -66,6 +67,7 @@ World busy_world() {
                                       {ItemKind::Junction, 1},
                                       {ItemKind::Router, 1},
                                       {ItemKind::SolarPanel, 1},
+                                      {ItemKind::IonThruster, 1},
                                       {ItemKind::Refinery, 1}});
     // Two milestones done (the refinery's recipes need them), and some way
     // into the third.
@@ -87,6 +89,9 @@ World busy_world() {
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
     assert(ship.place(ItemKind::SolarPanel, {x0 + 8, c - 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::IonThruster, {x0 + 8, c - 3}) == BuildResult::Ok);
+    for (int i = 0; i < 3; ++i)
+        assert(ship.insert_item({x0 + 8, c - 3}, {x0 + 8, c - 4}, ItemKind::FuelCell));
 
     assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
@@ -184,6 +189,11 @@ void test_round_trip() {
     assert(junction && junction->lane(Direction::East).size() == 2);
     const auto* router = dynamic_cast<const Router*>(copy.building_at({x0 + 7, c + 6}));
     assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
+    const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({x0 + 9, c - 1}));
+    assert(thruster && thruster->get_fuel() == 3);
+    // The same star map.
+    assert(loaded->world.get_map().size() == world.get_map().size());
+    assert(loaded->world.get_map().at(3).name == world.get_map().at(3).name);
 
     // The fleet: both ships share the loaded progress.
     const Fleet& fleet = loaded->world.get_fleet();
@@ -217,6 +227,7 @@ void test_header_only() {
 }
 
 Json& fleet(Json& save) { return save["world"]["fleet"]; }
+Json& sectors(Json& save) { return save["world"]["star_map"]["sectors"]; }
 Json& progress(Json& save) { return fleet(save)["progress"]; }
 Json& first_ship(Json& save) { return fleet(save)["ships"][0]; }
 Json& hull(Json& save) { return first_ship(save)["ship"]["hull"]; }
@@ -236,7 +247,15 @@ static_assert(kBridgeSize == 6, "the hand-written saves below place things aroun
 Json minimal() {
     Json save = Json::parse(R"({
         "format": "ore-in-orbit-save", "version": 0, "name": "T", "saved_at": 0, "played": 0,
-        "world": {"tick": 100, "fleet": {
+        "world": {"tick": 100,
+          "star_map": {"sectors": [
+            {"name": "Home", "x": 0, "y": 0, "neighbors": [1],
+             "yields": {"IronOre": 100, "CopperOre": 100, "Silica": 100, "Carbon": 100, "IridiumOre": 100},
+             "threat": 0, "visited": true, "surveyed": true},
+            {"name": "Next door", "x": 10, "y": -5.5, "neighbors": [0],
+             "yields": {"IronOre": 0, "CopperOre": 150, "Silica": 100, "Carbon": 100, "IridiumOre": 0},
+             "threat": 1, "visited": false, "surveyed": false}]},
+          "fleet": {
             "next_ship_id": 2,
             "progress": {"milestone": 0, "delivered": {}},
             "ships": [{"id": 1, "name": "Flagship", "sector": 0, "ship": {
@@ -329,6 +348,26 @@ void test_refused() {
         fleet(j)["ships"].push_back(first_ship(j));
     });
     refused_after(save, "no transfers list", [](Json& j) { fleet(j).erase("transfers"); });
+    refused_after(save, "a ship in a sector never visited", [](Json& j) { first_ship(j)["sector"] = 1; });
+    refused_after(save, "no star map", [](Json& j) { j["world"].erase("star_map"); });
+    refused_after(save, "no sectors", [](Json& j) { sectors(j) = Json::array(); });
+    refused_after(save, "a link to a sector that isn't there", [](Json& j) { sectors(j)[0]["neighbors"] = {1, 2}; });
+    refused_after(save, "a link only one way", [](Json& j) { sectors(j)[1]["neighbors"] = Json::array(); });
+    refused_after(save, "a sector out of reach", [](Json& j) {
+        sectors(j)[0]["neighbors"] = Json::array();
+        sectors(j)[1]["neighbors"] = Json::array();
+    });
+    refused_after(save, "a sector linked to itself", [](Json& j) { sectors(j)[0]["neighbors"] = {0, 1}; });
+    refused_after(save, "a sector linked twice", [](Json& j) {
+        sectors(j)[0]["neighbors"] = {1, 1};
+        sectors(j)[1]["neighbors"] = {0, 0};
+    });
+    refused_after(save, "a yield for a plate", [](Json& j) { sectors(j)[1]["yields"]["IronPlate"] = 100; });
+    refused_after(save, "a missing yield", [](Json& j) { sectors(j)[1]["yields"].erase("Carbon"); });
+    refused_after(save, "a negative yield", [](Json& j) { sectors(j)[1]["yields"]["Carbon"] = -1; });
+    refused_after(save, "a threat past the highest", [](Json& j) { sectors(j)[1]["threat"] = kMaxThreat + 1; });
+    refused_after(save, "a sector at infinity", [](Json& j) { sectors(j)[1]["x"] = 1e300; });
+    refused_after(save, "a visited sector not surveyed", [](Json& j) { sectors(j)[1]["visited"] = true; });
     refused_after(save, "two bridges", [](Json& j) {
         add_hull(j, 70, 64, 6);
         Json second = bridge(j);

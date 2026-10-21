@@ -38,6 +38,7 @@ const char* item_name(ItemKind kind) {
     case ItemKind::Silicon:           return "Silicon";
     case ItemKind::IridiumPlate:      return "Iridium plate";
     case ItemKind::Plastic:           return "Plastic";
+    case ItemKind::FuelCell:          return "Fuel cell";
     case ItemKind::Gear:              return "Gear";
     case ItemKind::Circuit:           return "Circuit";
     case ItemKind::StructuralFrame:   return "Structural frame";
@@ -87,6 +88,7 @@ const char* item_id(ItemKind kind) {
     case ItemKind::Silicon:           return "Silicon";
     case ItemKind::IridiumPlate:      return "IridiumPlate";
     case ItemKind::Plastic:           return "Plastic";
+    case ItemKind::FuelCell:          return "FuelCell";
     case ItemKind::Gear:              return "Gear";
     case ItemKind::Circuit:           return "Circuit";
     case ItemKind::StructuralFrame:   return "StructuralFrame";

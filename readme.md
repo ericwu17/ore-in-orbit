@@ -39,6 +39,17 @@ inventory to another's, between ships in the same sector: each 50 items
 use up a cargo pod, and they land 5 seconds later (cargo, like
 hand-crafting, doesn't count toward a milestone).
 
+Beyond home lies a star map of sectors (M, or the Map button above the
+grid), a new one for each game. Each sector has its own yields of the raw
+resources (as a % of home's: a collector aimed at something a sector lacks
+stalls there) and a threat, which grows with the distance from home. A
+sector a ship has been to is visited; its neighbors show on the map, and
+their yields and threat once surveyed: visited, or next to a ship with a
+survey scanner. Ships jump to a linked sector at once, when every ion
+thruster on board is charged (10 fuel cells each, refined from carbon and
+delivered by belt), and the ship has enough of them: one per 1,500 hull
+tiles. The jump burns all their fuel.
+
 C++20, SDL2, Dear ImGui (OpenGL3), ImPlot, and nlohmann::json (vendored in
 `third_party/nlohmann/`, for save files). Runs on macOS, Linux and Windows.
 
@@ -153,6 +164,8 @@ clipboard. A library file holds exactly that text.
   removes the bare hull underneath.
 - **Mouse wheel**: zoom the grid (about the cursor).
 - **Middle drag, or hold Space and move the mouse**: pan the grid.
+- **M**: the star map; click a sector for its details, and to jump the
+  ship shown there. Drag to pan, mouse wheel to zoom.
 - **[ / ]**: show the previous / next ship of the fleet (or click its tab
   above the grid; double-click a tab to rename the ship).
 - **1–9**: pick the item to build. **R**: rotate the transport belt.
@@ -183,7 +196,12 @@ One directory per layer under `src/`; includes name their layer
     `Inventory` (the bridge's, and building buffers).
   - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
     their top-left cell), placement / removal rules, the starting ship, and
-    moving items between neighboring buildings each tick.
+    moving items between neighboring buildings each tick; the yields of the
+    sector it's in, which its collectors gather at.
+  - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, threat,
+    what the player knows of each) and generating it from a seed.
+  - `rng.h` — `Rng`: a small random number generator whose whole state is
+    one number, so saves keep it.
   - `blueprint.h/.cpp` — `Blueprint`: copying part of a ship (hull,
     buildings and their settings), turning it, and pasting it all or
     nothing (each piece checked by `Ship::can_place` against the ones
@@ -195,14 +213,15 @@ One directory per layer under `src/`; includes name their layer
     name, a `Ship` and the sector it's in), the `Progress` they share,
     launching a new ship from a starter pack, and cargo pods in flight
     between ships (`Transfer`).
-  - `world.h/.cpp` — `World`: owns all state (the fleet), `advance_tick()`
-    steps it.
+  - `world.h/.cpp` — `World`: owns all state (the star map and the fleet),
+    `advance_tick()` steps it; jumping between sectors, and survey
+    scanners.
 - `src/persistence/` — save files, also headless (the tests link it). The
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
   - `save_file.h/.cpp` — the save format, a JSON document: a header (name,
-    when, play time) and the whole `World` (every ship of the fleet, the
-    shared milestone progress and the cargo in flight), with items, directions and
+    when, play time) and the whole `World` (the star map, every ship of the
+    fleet, the shared milestone progress and the cargo in flight), with items, directions and
     recipes written by name, and loading that checks everything (a bad
     save is refused with a reason, never trusted).
   - `save_slots.h/.cpp` — the saves folder: listing, writing (atomically,
@@ -218,6 +237,7 @@ One directory per layer under `src/`; includes name their layer
     `main.cpp` calls each frame.
   - `ui.cpp` — the main menu, save list, credits and game screens (the build grid and
     palette, with its zoom / pan camera, one per ship, the fleet's tabs,
+    the star map,
     the inspector, copy and paste, the Blueprints and Send cargo windows),
     and the F1 / F2 demo windows.
   - `ui_theme.h/.cpp` — the palette, ImGui / ImPlot styles, the embedded

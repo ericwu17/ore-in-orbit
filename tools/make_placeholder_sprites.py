@@ -101,6 +101,7 @@ ITEMS = {
     "Silicon":           ("plate", ITEM_SILICA, "Si"),
     "IridiumPlate":      ("plate", ITEM_EXOTIC, "Ir"),
     "Plastic":           ("plate", ITEM_CHEMICAL, "Pl"),
+    "FuelCell":          ("plate", WARN, "Fu"),
     "Gear":              ("plate", ITEM_COMPONENT, "Gr"),
     "Circuit":           ("plate", ITEM_COMPONENT, "Ci"),
     "StructuralFrame":   ("plate", ITEM_COMPONENT, "Fr"),

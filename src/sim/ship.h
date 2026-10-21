@@ -24,6 +24,7 @@
 
 #include "sim/building.h"
 #include "sim/game_types.h"
+#include "sim/sector.h"
 
 #include <memory>
 #include <optional>
@@ -85,6 +86,13 @@ private:
     Grid<std::optional<GridPos>> anchor;         // per cell: top-left of the building covering it
     std::vector<GridPos> placed;                 // every building's top-left cell, oldest first
     Bridge* bridge = nullptr;                    // owned by `buildings`
+    // Where the ship is: the sector's yields, which its collectors gather
+    // at. Not saved: the World sets them from the sector.
+    Yields yields = [] {
+        Yields all;
+        all.fill(100);
+        return all;
+    }();
 
     Building* building_at_mut(GridPos p);
     // Offers one item from `b`'s output buffer to its neighbors, round
@@ -105,6 +113,8 @@ private:
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
     void add_building(GridPos p, std::unique_ptr<Building> building);
+    // Sets a collector's yield from `yields`, for its target.
+    void update_yield(Collector& collector) const;
     // A square hull patch of side `side`, centered on the grid, with the
     // bridge in the middle and nothing in its inventory.
     static Ship with_hull_patch(int side);
@@ -135,6 +145,19 @@ public:
     const Building* building_anchored_at(GridPos p) const;
     // Every building's top-left cell, oldest first (the order they tick in).
     const std::vector<GridPos>& placement_order() const { return placed; }
+    // How many cells have hull.
+    int hull_count() const;
+    // Every ion thruster on board.
+    std::vector<const Thruster*> thrusters() const;
+    // Burns every thruster's fuel (a jump).
+    void burn_thrusters();
+    // Whether a building of kind `kind` is on board.
+    bool has_building(ItemKind kind) const;
+
+    // The yields of the sector the ship is in: its collectors gather at
+    // them from now on (100 each, as at home, until set).
+    void set_yields(const Yields& sector_yields);
+    const Yields& get_yields() const { return yields; }
 
     Bridge& get_bridge() { return *bridge; }
     const Bridge& get_bridge() const { return *bridge; }

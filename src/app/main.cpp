@@ -33,9 +33,11 @@
 #include "ui/ui.h"
 #include "ui/ui_theme.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
+#include <random>
 #include <string>
 #include <utility>
 
@@ -95,7 +97,9 @@ static bool start_session(Session& session, const SaveSelectResult& request, con
         const std::optional<std::filesystem::path> path = new_save_path(saves_dir, error);
         if (!path)
             return false;
-        Session fresh{World{}, *path, next_default_name(list_saves(saves_dir))};
+        // Each new game gets its own star map.
+        const std::uint64_t map_seed = (static_cast<std::uint64_t>(std::random_device{}()) << 32) ^ std::random_device{}();
+        Session fresh{World{map_seed}, *path, next_default_name(list_saves(saves_dir))};
         if (!write_save_file(fresh.save_path, fresh.name, fresh.world, error))
             return false;
         session = std::move(fresh);

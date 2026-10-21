@@ -6,7 +6,8 @@
 // The production chain:
 //   collectors gather one raw resource each: ores, silica, carbon
 //   ore, silica, carbon --Smelting--> plates, glass, steel
-//   carbon, silica, iridium ore --Refining--> plastic, silicon, iridium plate
+//   carbon, silica, iridium ore --Refining--> plastic, silicon, iridium plate,
+//                                             fuel cells
 //   plates        --Assembly--> components --Assembly--> buildings
 #pragma once
 

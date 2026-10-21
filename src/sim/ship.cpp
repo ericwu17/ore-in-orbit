@@ -121,6 +121,8 @@ const Building* Ship::building_anchored_at(GridPos p) const {
 }
 
 void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
+    if (auto* collector = dynamic_cast<Collector*>(building.get()))
+        update_yield(*collector);
     const GridSize size = building->footprint();
     for (int y = p.y; y < p.y + size.h; ++y)
         for (int x = p.x; x < p.x + size.w; ++x) {
@@ -130,6 +132,45 @@ void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
         }
     at(buildings, p) = std::move(building);
     placed.push_back(p);
+}
+
+void Ship::update_yield(Collector& collector) const {
+    const std::optional<int> i = raw_resource_index(collector.get_target());
+    collector.set_yield(i ? yields[static_cast<std::size_t>(*i)] : 0);
+}
+
+void Ship::set_yields(const Yields& sector_yields) {
+    yields = sector_yields;
+    for (const GridPos p : placed)
+        if (auto* collector = dynamic_cast<Collector*>(at(buildings, p).get()))
+            update_yield(*collector);
+}
+
+int Ship::hull_count() const {
+    int n = 0;
+    for (const auto& row : hull)
+        for (const std::optional<ItemKind>& tile : row)
+            n += tile ? 1 : 0;
+    return n;
+}
+
+std::vector<const Thruster*> Ship::thrusters() const {
+    std::vector<const Thruster*> list;
+    for (const GridPos p : placed)
+        if (const auto* t = dynamic_cast<const Thruster*>(at(buildings, p).get()))
+            list.push_back(t);
+    return list;
+}
+
+void Ship::burn_thrusters() {
+    for (const GridPos p : placed)
+        if (auto* t = dynamic_cast<Thruster*>(at(buildings, p).get()))
+            t->burn();
+}
+
+bool Ship::has_building(ItemKind kind) const {
+    return std::any_of(placed.begin(), placed.end(),
+                       [&](GridPos p) { return at(buildings, p)->item_kind() == kind; });
 }
 
 Building* Ship::building_at_mut(GridPos p) {
@@ -335,6 +376,7 @@ bool Ship::set_collector_target(GridPos p, ItemKind target) {
     if (!collector || !collector->can_target(target))
         return false;
     collector->set_target(target);
+    update_yield(*collector);
     return true;
 }
 

@@ -21,9 +21,12 @@
 #include "sim/fleet.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
+#include "sim/sector.h"
 #include "sim/ship.h"
 #include "sim/world.h"
 
+#include <algorithm>
+#include <cmath>
 #include <istream>
 #include <limits>
 #include <memory>
@@ -66,6 +69,13 @@ Tick load_progress(const Json& j, Tick ticks) {
 
 int load_coord(const Json& j) {
     return static_cast<int>(load_int(j, 0, kShipGridSize - 1));
+}
+
+// A number from -limit to limit.
+float load_float(const Json& j, float limit) {
+    if (!j.is_number() || !std::isfinite(j.get<double>()) || std::abs(j.get<double>()) > limit)
+        throw LoadError("expected a number up to " + std::to_string(limit) + " either way, not " + j.dump());
+    return j.get<float>();
 }
 
 // An inventory: an object of counts by item, {"IronPlate": 200, ...}.
@@ -132,6 +142,8 @@ struct SaveAccess {
             j["next_out"] = direction_id(router->next_out);
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
+        } else if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
+            j["fuel"] = thruster->fuel;
         } else if (const auto* m = dynamic_cast<const Machine*>(&b)) {
             j["recipe"] = save_recipe(m->recipe);
             // How far along the craft under way is, or null when idle.
@@ -139,7 +151,7 @@ struct SaveAccess {
             j["input"] = save_inventory(m->input);
             j["output"] = save_inventory(m->output);
         }
-        // Power and ship systems hold no state yet.
+        // Power plants and survey scanners hold no state.
     }
 
     // The fleet's milestone progress: the milestone being worked on, and
@@ -190,8 +202,9 @@ struct SaveAccess {
                 bridge->queue.push_back({recipe, load_progress(job.at("elapsed"), recipe->ticks)});
             }
         } else if (auto* c = dynamic_cast<Collector*>(&b)) {
-            // Progress goes back to 0 when it reaches the interval.
-            c->progress = load_progress(j.at("progress"), c->spec->interval);
+            // A catch takes progress back down when it reaches the
+            // interval (in hundredths of a tick).
+            c->progress = load_progress(j.at("progress"), c->spec->interval * 100);
             const ItemKind target = load_item(j.at("target"));
             if (!c->can_target(target))
                 throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(target));
@@ -225,6 +238,8 @@ struct SaveAccess {
             router->next_out = load_direction(j.at("next_out"));
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
+        } else if (auto* thruster = dynamic_cast<Thruster*>(&b)) {
+            thruster->fuel = static_cast<int>(load_int(j.at("fuel"), 0, kThrusterCharge));
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
             const Recipe* recipe = load_recipe(j.at("recipe"));
             if (recipe && !m->can_run(*recipe))
@@ -348,8 +363,9 @@ struct SaveAccess {
         };
     }
 
-    // `now`: the World's tick, which cargo in flight lands after.
-    static Fleet load_fleet(const Json& j, Tick now) {
+    // `now`: the World's tick, which cargo in flight lands after; ships are
+    // in one of `map`'s visited sectors.
+    static Fleet load_fleet(const Json& j, Tick now, const StarMap& map) {
         Fleet fleet;
         fleet.next_id = static_cast<int>(load_int(j.at("next_ship_id"), 2, 1'000'000));
         *fleet.progress = load_progress_of(j.at("progress"));
@@ -358,7 +374,9 @@ struct SaveAccess {
             if (fleet.find(id))
                 throw LoadError("two ships with id " + std::to_string(id));
             std::string name = load_string(s.at("name"), "a ship name");
-            const int sector = static_cast<int>(load_int(s.at("sector"), 0, 0));
+            const int sector = static_cast<int>(load_int(s.at("sector"), 0, map.size() - 1));
+            if (!map.at(sector).visited)
+                throw LoadError("a ship in a sector never visited");
             fleet.ships.push_back(std::make_unique<FleetShip>(
                 FleetShip{id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector}));
         }
@@ -378,14 +396,94 @@ struct SaveAccess {
         return fleet;
     }
 
+    // Every sector, home first: where it is on the map, its links (by
+    // index), its yields (by raw resource) and threat, and what the player
+    // knows of it.
+    static Json save_map(const StarMap& map) {
+        Json sectors = Json::array();
+        for (const Sector& s : map.sectors) {
+            Json yields = Json::object();
+            for (int r = 0; r < kRawResourceCount; ++r)
+                yields[item_id(kRawResources[r])] = s.yields[static_cast<std::size_t>(r)];
+            sectors.push_back({
+                {"name", s.name},
+                {"x", s.x},
+                {"y", s.y},
+                {"neighbors", s.neighbors},
+                {"yields", std::move(yields)},
+                {"threat", s.threat},
+                {"visited", s.visited},
+                {"surveyed", s.surveyed},
+            });
+        }
+        return {{"sectors", std::move(sectors)}};
+    }
+
+    // Checks the links: both ways, none to itself or twice, and every
+    // sector reachable from home.
+    static StarMap load_map(const Json& j) {
+        StarMap map;
+        const Json& sectors = load_array(j.at("sectors"), "sectors");
+        if (sectors.empty() || sectors.size() > 1'000)
+            throw LoadError("expected 1 to 1000 sectors");
+        const auto n = static_cast<std::int64_t>(sectors.size());
+        for (const Json& js : sectors) {
+            Sector s;
+            s.name = load_string(js.at("name"), "a sector name");
+            s.x = load_float(js.at("x"), 10'000.0f);
+            s.y = load_float(js.at("y"), 10'000.0f);
+            for (const Json& link : load_array(js.at("neighbors"), "sector links"))
+                s.neighbors.push_back(static_cast<int>(load_int(link, 0, n - 1)));
+            const Json& yields = js.at("yields");
+            for (int r = 0; r < kRawResourceCount; ++r)
+                s.yields[static_cast<std::size_t>(r)] =
+                    static_cast<int>(load_int(yields.at(item_id(kRawResources[r])), 0, 1'000));
+            if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
+                throw LoadError("a yield for something that isn't a raw resource");
+            s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
+            s.visited = js.at("visited").get<bool>();
+            s.surveyed = js.at("surveyed").get<bool>();
+            if (s.visited && !s.surveyed)
+                throw LoadError("a sector visited but not surveyed");
+            map.sectors.push_back(std::move(s));
+        }
+        std::vector<bool> reached(map.sectors.size(), false);
+        std::vector<int> stack{0};
+        reached[0] = true;
+        for (int i = 0; i < map.size(); ++i) {
+            const std::vector<int>& links = map.at(i).neighbors;
+            for (std::size_t k = 0; k < links.size(); ++k) {
+                if (links[k] == i || std::find(links.begin(), links.begin() + static_cast<std::ptrdiff_t>(k),
+                                               links[k]) != links.begin() + static_cast<std::ptrdiff_t>(k))
+                    throw LoadError("a sector linked to itself, or twice to another");
+                if (!map.linked(links[k], i))
+                    throw LoadError("a sector link only one way");
+            }
+        }
+        while (!stack.empty()) {
+            const int i = stack.back();
+            stack.pop_back();
+            for (const int k : map.at(i).neighbors)
+                if (!reached[static_cast<std::size_t>(k)]) {
+                    reached[static_cast<std::size_t>(k)] = true;
+                    stack.push_back(k);
+                }
+        }
+        if (std::find(reached.begin(), reached.end(), false) != reached.end())
+            throw LoadError("a sector out of reach of home");
+        return map;
+    }
+
     static Json save_world(const World& world) {
-        return {{"tick", world.current_tick}, {"fleet", save_fleet(world.fleet)}};
+        return {{"tick", world.current_tick}, {"star_map", save_map(world.map)}, {"fleet", save_fleet(world.fleet)}};
     }
 
     static World load_world(const Json& j) {
         World world;
         world.current_tick = load_tick(j.at("tick"), std::numeric_limits<Tick>::max() - kTransferTicks);
-        world.fleet = load_fleet(j.at("fleet"), world.current_tick);
+        world.map = load_map(j.at("star_map"));
+        world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map);
+        world.update_yields();
         return world;
     }
 };

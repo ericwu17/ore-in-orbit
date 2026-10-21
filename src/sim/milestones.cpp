@@ -20,7 +20,7 @@ const std::vector<Milestone>& all_milestones() {
           CargoPod}},
         {"Escape velocity",
          {{Processor, 20}},
-         {FabricatorMk3, IonThruster}},
+         {FabricatorMk3, IonThruster, FuelCell}},
     };
     return milestones;
 }

@@ -66,7 +66,9 @@ FleetResult Fleet::launch(int from, int* launched) {
     assert(taken);
     (void)taken;
     const int sector = source.sector;  // `source` may move when the list grows
-    FleetShip& added = add("Ship " + std::to_string(next_id), Ship::new_launched(), sector);
+    Ship ship = Ship::new_launched();
+    ship.set_yields(source.ship.get_yields());  // the same sector's
+    FleetShip& added = add("Ship " + std::to_string(next_id), std::move(ship), sector);
     if (launched)
         *launched = added.id;
     return FleetResult::Ok;

@@ -115,6 +115,7 @@ enum class ItemKind {
     Silicon,
     IridiumPlate,
     Plastic,
+    FuelCell,
     // Components.
     Gear,
     Circuit,
