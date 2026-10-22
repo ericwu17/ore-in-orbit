@@ -12,7 +12,9 @@ const char* describe(FleetResult result) {
     case FleetResult::NoSuchShip:     return "No such ship";
     case FleetResult::SameShip:       return "A ship can't send cargo to itself";
     case FleetResult::OtherSector:    return "Ships can only trade within a sector";
+    case FleetResult::LayoutLocked:   return "Not unlocked yet";
     case FleetResult::NoStarterPack:  return "Needs a ship starter pack in the bridge inventory";
+    case FleetResult::NotEnoughForLayout: return "Not everything it costs is in the bridge inventory";
     case FleetResult::NothingToSend:  return "Nothing to send";
     case FleetResult::NotEnoughItems: return "Not that many in the bridge inventory";
     case FleetResult::NotEnoughPods:  return "Not enough cargo pods in the bridge inventory";
@@ -48,25 +50,41 @@ const FleetShip* Fleet::find(int id) const {
     return const_cast<Fleet*>(this)->find(id);
 }
 
-FleetResult Fleet::can_launch(int from) const {
+namespace {
+
+// What building a ship in `layout` takes: its cost and a starter pack.
+std::vector<ItemStack> launch_cost(const ShipLayout& layout) {
+    std::vector<ItemStack> all = layout.cost;
+    all.push_back({ItemKind::ShipStarterPack, 1});
+    return all;
+}
+
+}  // namespace
+
+FleetResult Fleet::can_launch(int from, const ShipLayout& layout) const {
     const FleetShip* source = find(from);
     if (!source)
         return FleetResult::NoSuchShip;
-    if (source->ship.inventory().count(ItemKind::ShipStarterPack) <= 0)
+    if (!layout_unlocked(layout, *progress))
+        return FleetResult::LayoutLocked;
+    const Inventory& inv = source->ship.inventory();
+    if (inv.count(ItemKind::ShipStarterPack) <= 0)
         return FleetResult::NoStarterPack;
+    if (!inv.has(launch_cost(layout)))
+        return FleetResult::NotEnoughForLayout;
     return FleetResult::Ok;
 }
 
-FleetResult Fleet::launch(int from, int* launched) {
-    const FleetResult result = can_launch(from);
+FleetResult Fleet::launch(int from, const ShipLayout& layout, int* launched) {
+    const FleetResult result = can_launch(from, layout);
     if (result != FleetResult::Ok)
         return result;
     FleetShip& source = *find(from);
-    const bool taken = source.ship.inventory().take(ItemKind::ShipStarterPack);
+    const bool taken = source.ship.inventory().take(launch_cost(layout));
     assert(taken);
     (void)taken;
     const int sector = source.sector;  // `source` may move when the list grows
-    Ship ship = Ship::new_launched();
+    Ship ship = Ship::from_layout(layout);
     ship.set_yields(source.ship.get_yields());  // the same sector's
     FleetShip& added = add("Ship " + std::to_string(next_id), std::move(ship), sector);
     if (launched)

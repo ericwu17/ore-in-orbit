@@ -23,30 +23,11 @@ namespace {
 constexpr const char* kFormat = "ore-in-orbit-blueprint";
 constexpr const char* kExtension = ".json";
 
-char hull_char(std::optional<ItemKind> tile) {
-    if (!tile)
-        return '.';
-    return *tile == ItemKind::ReinforcedHull ? 'R' : 'H';
-}
-
-std::optional<ItemKind> load_hull_char(char c) {
-    switch (c) {
-    case '.': return std::nullopt;
-    case 'H': return ItemKind::Hull;
-    case 'R': return ItemKind::ReinforcedHull;
-    default:
-        throw LoadError(std::string("unknown hull tile '") + c + "' (expected . H or R)");
-    }
-}
+// Version 1 blueprints also carried hull rows, from when the player laid
+// hull; they still load, the hull left out.
+constexpr int kHullBlueprintVersion = 1;
 
 Json save_blueprint(const Blueprint& blueprint) {
-    Json rows = Json::array();
-    for (int y = 0; y < blueprint.size.h; ++y) {
-        std::string row;
-        for (int x = 0; x < blueprint.size.w; ++x)
-            row += hull_char(blueprint.hull_at({x, y}));
-        rows.push_back(std::move(row));
-    }
     Json buildings = Json::array();
     for (const BlueprintBuilding& b : blueprint.buildings) {
         Json j = {
@@ -69,7 +50,6 @@ Json save_blueprint(const Blueprint& blueprint) {
         {"name", blueprint.name},
         {"width", blueprint.size.w},
         {"height", blueprint.size.h},
-        {"hull", std::move(rows)},
         {"buildings", std::move(buildings)},
     };
 }
@@ -78,7 +58,7 @@ Json save_blueprint(const Blueprint& blueprint) {
 // the ones before (`taken`, per cell), and that its settings suit it.
 void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken) {
     const ItemKind kind = load_item(j.at("kind"));
-    if (!is_placeable(kind) || kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull)
+    if (!is_placeable(kind))
         throw LoadError(std::string("not a building: ") + item_id(kind));
     BlueprintBuilding b;
     b.kind = kind;
@@ -132,26 +112,14 @@ Blueprint load_blueprint(const Json& j) {
     if (format == j.end() || *format != kFormat)
         throw LoadError("not an Ore in Orbit blueprint");
     const Json& version = j.at("version");
-    if (version != kBlueprintVersion)
+    if (version != kBlueprintVersion && version != kHullBlueprintVersion)
         throw LoadError("made by another version of the game (format " + version.dump() + ")");
 
     Blueprint blueprint;
     blueprint.name = load_string(j.at("name"), "a name");
     blueprint.size = {static_cast<int>(load_int(j.at("width"), 1, kShipGridSize)),
                       static_cast<int>(load_int(j.at("height"), 1, kShipGridSize))};
-    const Json& rows = load_array(j.at("hull"), "hull rows");
-    if (rows.size() != static_cast<std::size_t>(blueprint.size.h))
-        throw LoadError("expected " + std::to_string(blueprint.size.h) + " hull rows, not " +
-                        std::to_string(rows.size()));
-    for (const Json& row_json : rows) {
-        const std::string row = load_string(row_json, "a hull row");
-        if (row.size() != static_cast<std::size_t>(blueprint.size.w))
-            throw LoadError("expected hull rows " + std::to_string(blueprint.size.w) + " long, not " +
-                            std::to_string(row.size()));
-        for (const char c : row)
-            blueprint.hull.push_back(load_hull_char(c));
-    }
-    std::vector<bool> taken(blueprint.hull.size());
+    std::vector<bool> taken(static_cast<std::size_t>(blueprint.size.w * blueprint.size.h));
     for (const Json& b : load_array(j.at("buildings"), "buildings"))
         load_building(b, blueprint, taken);
     return blueprint;

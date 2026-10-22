@@ -14,10 +14,6 @@ bool overlaps(GridPos a, GridSize as, GridPos b, GridSize bs) {
     return a.x < b.x + bs.w && b.x < a.x + as.w && a.y < b.y + bs.h && b.y < a.y + as.h;
 }
 
-bool contains(GridPos min, GridPos max, GridPos p) {
-    return p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y;
-}
-
 }  // namespace
 
 std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
@@ -26,8 +22,8 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
     const GridPos hi{std::clamp(std::max(a.x, b.x), 0, last), std::clamp(std::max(a.y, b.y), 0, last)};
     const GridSize box{hi.x - lo.x + 1, hi.y - lo.y + 1};
 
-    // The buildings touching the box (never the bridge), and the cells
-    // whose hull comes along: the box's, and those under those buildings.
+    // The buildings touching the box (never the layout's own: the bridge
+    // and engines).
     struct Taken {
         GridPos at;
         const Building* building;
@@ -35,15 +31,9 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
     std::vector<Taken> taken;
     for (const GridPos p : ship.placement_order()) {
         const Building* building = ship.building_anchored_at(p);
-        if (building->item_kind() && overlaps(p, building->footprint(), lo, box))
+        if (building->removable() && overlaps(p, building->footprint(), lo, box))
             taken.push_back({p, building});
     }
-    const auto hull_comes = [&](GridPos p) {
-        if (contains(lo, hi, p))
-            return true;
-        const std::optional<GridPos> anchor = ship.anchor_of(p);
-        return anchor && std::any_of(taken.begin(), taken.end(), [&](const Taken& t) { return t.at == *anchor; });
-    };
 
     // Trimmed to what is taken.
     GridPos min{ship.size(), ship.size()};
@@ -57,21 +47,11 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
         include(t.at);
         include({t.at.x + size.w - 1, t.at.y + size.h - 1});
     }
-    for (int y = lo.y; y <= hi.y; ++y)
-        for (int x = lo.x; x <= hi.x; ++x)
-            if (ship.has_hull({x, y}))
-                include({x, y});
     if (max.x < 0)
         return std::nullopt;
 
     Blueprint blueprint;
     blueprint.size = {max.x - min.x + 1, max.y - min.y + 1};
-    blueprint.hull.resize(static_cast<std::size_t>(blueprint.size.w * blueprint.size.h));
-    for (int y = min.y; y <= max.y; ++y)
-        for (int x = min.x; x <= max.x; ++x)
-            if (hull_comes({x, y}))
-                blueprint.hull[static_cast<std::size_t>((y - min.y) * blueprint.size.w + (x - min.x))] =
-                    ship.hull_at({x, y});
     for (const Taken& t : taken) {
         BlueprintBuilding copy;
         copy.kind = *t.building->item_kind();
@@ -88,24 +68,12 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
     return blueprint;
 }
 
-bool can_rotate(const Blueprint& blueprint) {
-    return std::all_of(blueprint.buildings.begin(), blueprint.buildings.end(), [](const BlueprintBuilding& b) {
-        const GridSize size = footprint_of(b.kind);
-        return is_rotatable(b.kind) || size.w == size.h;
-    });
-}
-
 Blueprint rotated_cw(const Blueprint& blueprint) {
-    assert(can_rotate(blueprint));
     // Cell (x, y) goes to (h - 1 - y, x).
     const GridSize old = blueprint.size;
     Blueprint turned;
     turned.name = blueprint.name;
     turned.size = {old.h, old.w};
-    turned.hull.resize(blueprint.hull.size());
-    for (int y = 0; y < old.h; ++y)
-        for (int x = 0; x < old.w; ++x)
-            turned.hull[static_cast<std::size_t>(x * turned.size.w + (old.h - 1 - y))] = blueprint.hull_at({x, y});
     for (BlueprintBuilding b : blueprint.buildings) {
         // Its footprint's bottom-left cell becomes the new top-left one.
         const GridSize size = footprint_of(b.kind, b.facing);
@@ -130,11 +98,7 @@ PastePlan plan_paste(const Ship& ship, const Blueprint& blueprint, GridPos origi
 
     const auto add = [&](PasteEntry entry) {
         if (!entry.satisfied && entry.result == BuildResult::Ok) {
-            if (left.take(entry.kind)) {
-                // Upgrading plain hull gives the plain tile back.
-                if (entry.kind == ItemKind::ReinforcedHull && ship.hull_at(entry.at) == ItemKind::Hull)
-                    left.add(ItemKind::Hull);
-            } else {
+            if (!left.take(entry.kind)) {
                 short_of.add(entry.kind);
                 entry.result = BuildResult::NoneInInventory;
             }
@@ -143,25 +107,6 @@ PastePlan plan_paste(const Ship& ship, const Blueprint& blueprint, GridPos origi
         }
         plan.entries.push_back(entry);
     };
-
-    // Reinforced hull first: upgrades give back plain hull for the rest.
-    for (const ItemKind kind : {ItemKind::ReinforcedHull, ItemKind::Hull})
-        for (int y = 0; y < blueprint.size.h; ++y)
-            for (int x = 0; x < blueprint.size.w; ++x) {
-                if (blueprint.hull_at({x, y}) != kind)
-                    continue;
-                PasteEntry entry;
-                entry.at = {origin.x + x, origin.y + y};
-                entry.kind = kind;
-                const std::optional<ItemKind> there = ship.hull_at(entry.at);
-                entry.satisfied = there == kind || there == ItemKind::ReinforcedHull;
-                if (!entry.satisfied) {
-                    entry.result = ship.can_place(kind, entry.at, Direction::North, planned);
-                    if (entry.result == BuildResult::Ok)
-                        planned.hull[PlannedChanges::cell_key(entry.at)] = kind;
-                }
-                add(entry);
-            }
 
     for (std::size_t i = 0; i < blueprint.buildings.size(); ++i) {
         const BlueprintBuilding& b = blueprint.buildings[i];
@@ -217,9 +162,7 @@ PasteResult paste(Ship& ship, const Blueprint& blueprint, GridPos origin) {
         const BuildResult placed = ship.place(entry.kind, entry.at, entry.facing);
         assert(placed == BuildResult::Ok && "plan_paste and Ship::place disagree");
         (void)placed;
-        if (!entry.building)
-            continue;
-        const BlueprintBuilding& b = blueprint.buildings[*entry.building];
+        const BlueprintBuilding& b = blueprint.buildings[entry.building];
         if (b.recipe && !ship.set_recipe(entry.at, b.recipe))
             ++result.settings_skipped;
         if (b.target)

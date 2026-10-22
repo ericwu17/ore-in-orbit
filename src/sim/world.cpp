@@ -4,10 +4,6 @@
 
 #include <algorithm>
 
-int thrusters_needed(int hull_tiles) {
-    return std::max(1, (hull_tiles + kHullPerThruster - 1) / kHullPerThruster);
-}
-
 const char* describe(JumpResult result) {
     switch (result) {
     case JumpResult::Ok:              return "Ok";
@@ -15,7 +11,7 @@ const char* describe(JumpResult result) {
     case JumpResult::NoSuchSector:    return "No such sector";
     case JumpResult::NotLinked:       return "Only a sector linked to this one is in reach";
     case JumpResult::NoThrusters:     return "Needs ion thrusters";
-    case JumpResult::TooFewThrusters: return "Too few ion thrusters for a ship this size";
+    case JumpResult::EngineOffline:   return "An ion thruster is knocked offline: wait for it to mend";
     case JumpResult::NotCharged:      return "Not every ion thruster is charged with fuel cells";
     }
     return "?";
@@ -93,8 +89,8 @@ JumpResult World::can_jump(int ship, int sector) const {
     const std::vector<const Thruster*> thrusters = s->ship.thrusters();
     if (thrusters.empty())
         return JumpResult::NoThrusters;
-    if (static_cast<int>(thrusters.size()) < thrusters_needed(s->ship.hull_count()))
-        return JumpResult::TooFewThrusters;
+    if (std::any_of(thrusters.begin(), thrusters.end(), [](const Thruster* t) { return t->offline(); }))
+        return JumpResult::EngineOffline;
     if (!std::all_of(thrusters.begin(), thrusters.end(), [](const Thruster* t) { return t->charged(); }))
         return JumpResult::NotCharged;
     return JumpResult::Ok;

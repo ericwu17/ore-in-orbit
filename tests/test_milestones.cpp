@@ -7,6 +7,7 @@
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <algorithm>
@@ -17,8 +18,9 @@
 namespace {
 
 // The cell just east of the bridge's east side, on the starting hull.
-constexpr GridPos kBesideBridge{kStartBridgePos.x + kBridgeSize, kStartBridgePos.y};
-constexpr GridPos kBridgeEdge{kStartBridgePos.x + kBridgeSize - 1, kStartBridgePos.y};
+const GridPos kBridgePos = layout_to_grid(starter_layout(), starter_layout().bridge);
+const GridPos kBesideBridge{kBridgePos.x + kBridgeSize, kBridgePos.y};
+const GridPos kBridgeEdge{kBridgePos.x + kBridgeSize - 1, kBridgePos.y};
 
 void test_table() {
     const std::vector<Milestone>& milestones = all_milestones();
@@ -35,7 +37,7 @@ void test_table() {
         }
     }
     // The first line needs nothing unlocked.
-    for (const ItemKind kind : {ItemKind::Hull, ItemKind::TransportBelt, ItemKind::AsteroidCollector,
+    for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector,
                                 ItemKind::SolarFurnace, ItemKind::FabricatorMk1, ItemKind::IronPlate,
                                 ItemKind::CopperPlate, ItemKind::Gear, ItemKind::Circuit})
         assert(!milestone_unlocking(kind));
@@ -94,6 +96,8 @@ void test_no_dead_ends() {
         }
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
+        if (is_layout_part(kind))
+            continue;  // comes with a ship's layout, never made
         if (!reachable(kind, milestones.size()))
             std::printf("unreachable: %s\n", item_name(kind));
         assert(reachable(kind, milestones.size()));

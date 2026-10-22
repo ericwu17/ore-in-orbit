@@ -7,10 +7,11 @@
 Needs Pillow (pip install pillow). Files go under assets/sprites/ (see the
 readme's "Sprites" section):
 
-    items/<ItemId>.png       64x64 icon for every item, placeables included
-    buildings/<ItemId>.png   built look of every placeable, 64 px per cell,
+    items/<ItemId>.png       64x64 icon for every item, buildings included
+    buildings/<ItemId>.png   built look of every building, 64 px per cell,
                              facing North
     buildings/Bridge.png     the 6x6 bridge
+    buildings/Hull.png       one cell of hull
 
 Without --force, files that already exist are left alone, so real art is
 never overwritten. The look copies the game's procedural drawing
@@ -45,7 +46,6 @@ WARN = (242, 193, 46)            # kWarn
 PLUM = (160, 108, 150)           # kPlum
 STEEL_HOVER = (112, 145, 178)    # kSteelHover
 HULL = (90, 97, 107)             # kTileHull: steel deck plating
-REINFORCED_HULL = (71, 77, 86)   # kTileReinforcedHull
 BELT = (64, 70, 79)              # kTileBelt
 EXPRESS_BELT = (150, 112, 40)    # kTileExpressBelt
 STORAGE = (112, 98, 72)          # kTileStorage
@@ -64,11 +64,9 @@ ITEM_EXOTIC = PLUM
 ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = STEEL_HOVER
 
-# Placeables: id -> (width, height in cells, look, color, label).
+# Buildings: id -> (width, height in cells, look, color, label).
 # Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, tile.
 BUILDINGS = {
-    "Hull":              (1, 1, "hull", HULL, ""),
-    "ReinforcedHull":    (1, 1, "hull", REINFORCED_HULL, ""),
     "TransportBelt":     (1, 1, "belt", BELT, ""),
     "ExpressBelt":       (1, 1, "belt", EXPRESS_BELT, ""),
     "BeltTunnel":        (1, 1, "tunnel", BELT, ""),
@@ -93,6 +91,7 @@ BUILDINGS = {
     "Railgun":           (3, 3, "turret", TURRET, "RG"),
 }
 BRIDGE = (6, 6, "bridge", BRIDGE_COLOR, "BRIDGE")
+HULL_TILE = (1, 1, "hull", HULL, "")
 
 # Everything else: id -> (shape, color, label). Shapes: lump (round: raw
 # resources), plate (square: made things).
@@ -215,14 +214,10 @@ def building_image(w, h, look, color, label):
 
     if look == "hull":
         # A steel deck plate: bevelled, a seam inset all round, a rivet in
-        # each corner; reinforced hull is braced corner to corner as well.
+        # each corner.
         bevel(d, (0, 0, W - 1, H - 1), color, edge)
         seam = s * 0.14
         d.rectangle((seam, seam, W - seam, H - seam), outline=darker(color, 0.8), width=max(1, edge // 2))
-        if color == REINFORCED_HULL:
-            for a, b in (((seam, seam), (W - seam, H - seam)), ((W - seam, seam), (seam, H - seam))):
-                d.line(a + b, fill=darker(color, 0.7), width=edge)
-                d.line((a[0] + edge / 2, a[1], b[0] + edge / 2, b[1]), fill=lighter(color, 0.15), width=max(1, edge // 3))
         rivets(d, (0, 0, W, H), s * 0.05, s * 0.08, color)
     elif look in ("belt", "tunnel", "sorter", "reverse_sorter"):
         # A dark rubber belt between steel rails.
@@ -334,6 +329,7 @@ def main():
         write(f"buildings/{item_id}.png", lambda spec=spec: building_image(*spec))
         write(f"items/{item_id}.png", lambda item_id=item_id: placeable_icon(item_id))
     write("buildings/Bridge.png", lambda: building_image(*BRIDGE))
+    write("buildings/Hull.png", lambda: building_image(*HULL_TILE))
     for item_id, spec in ITEMS.items():
         write(f"items/{item_id}.png", lambda spec=spec: item_image(*spec))
 

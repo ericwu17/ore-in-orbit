@@ -1,9 +1,10 @@
-// test_ship.cpp — headless tests for the ship build grid: the starting ship,
-// placement rules, multi-cell and rotated footprints, reinforced hull, the
-// bridge inventory and removal refunds.
+// test_ship.cpp — headless tests for the ship build grid: the starting ship
+// and its layout, placement rules, multi-cell and rotated footprints, the
+// layout's fixed parts, the bridge inventory and removal refunds.
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <cassert>
@@ -11,47 +12,60 @@
 
 namespace {
 
-// The middle of the grid, under the bridge.
-constexpr GridPos kCenter{kShipGridSize / 2, kShipGridSize / 2};
-// The bridge's last column (and row), and the starting hull's.
-constexpr int kBridgeEnd = kStartBridgePos.x + kBridgeSize - 1;
-constexpr int kHullStart = (kShipGridSize - kStartHullSide) / 2;
-constexpr int kHullEnd = kHullStart + kStartHullSide - 1;
-// Just outside the starting hull patch.
-constexpr GridPos kOffHull{kHullEnd + 1, kCenter.y};
-// On the starting hull, next to the bridge.
-constexpr GridPos kOnHull{kBridgeEnd + 1, kCenter.y};
+// A layout-coordinate cell of the starter layout, on the build grid.
+GridPos on_grid(GridPos p) {
+    return layout_to_grid(starter_layout(), p);
+}
 
-// A new game's ship, with a few of every building and plenty of hull to
-// try placing.
+// The starter layout's bridge on the grid, its middle, and its last column
+// (and row).
+const GridPos kBridgePos = on_grid(starter_layout().bridge);
+const GridPos kCenter{kBridgePos.x + kBridgeSize / 2, kBridgePos.y + kBridgeSize / 2};
+const int kBridgeEnd = kBridgePos.x + kBridgeSize - 1;
+// On the hull, next to the bridge.
+const GridPos kOnHull{kBridgeEnd + 1, kCenter.y};
+// The hull's last column on the bridge's rows, and the cell just past it.
+const GridPos kHullEdge = on_grid({layout_bounds(starter_layout()).w - 1, kCenter.y - on_grid({0, 0}).y});
+const GridPos kOffHull{kHullEdge.x + 1, kHullEdge.y};
+
+// A new game's ship, with a few of every building to try placing.
 Ship stocked_ship() {
     Ship ship = Ship::new_game();
     for (int i = 0; i < kItemKindCount; ++i)
         if (is_placeable(static_cast<ItemKind>(i)))
             ship.inventory().add(static_cast<ItemKind>(i), 10);
-    ship.inventory().add(ItemKind::Hull, 100);
     return ship;
 }
 
 void test_new_game() {
     World world;
     const Ship& ship = world.flagship();
+    const ShipLayout& layout = starter_layout();
+    assert(ship.get_layout() == &layout);
     const Building* bridge = ship.building_at(kCenter);
     assert(bridge == &ship.get_bridge());
     assert(!bridge->item_kind());
     assert(bridge->footprint() == (GridSize{kBridgeSize, kBridgeSize}));
-    assert(ship.building_anchored_at(kStartBridgePos) == bridge);
+    assert(ship.building_anchored_at(kBridgePos) == bridge);
     assert(ship.building_at({kBridgeEnd, kBridgeEnd}) == bridge);
     assert(ship.building_at({kBridgeEnd + 1, kBridgeEnd}) == nullptr);
+    // The hull is the layout's, all of it and only it.
+    assert(ship.hull_count() == layout_hull_count(layout));
+    assert(ship.hull_bounds().second == layout_bounds(layout));
     assert(ship.has_hull(kCenter));
-    assert(ship.has_hull({kHullStart, kHullStart}));
-    assert(ship.has_hull({kHullEnd, kHullEnd}));
-    assert(!ship.has_hull({kHullStart - 1, kHullStart}));
+    assert(ship.has_hull(kHullEdge));
     assert(!ship.has_hull(kOffHull));
+    // Its engines, where the layout has them.
+    assert(ship.thrusters().size() == layout.engines.size());
+    for (const GridPos e : layout.engines) {
+        const Building* engine = ship.building_anchored_at(on_grid(e));
+        assert(dynamic_cast<const Thruster*>(engine) != nullptr);
+        assert(engine->item_kind() == ItemKind::IonThruster);
+    }
     // Enough for a first line (collectors into furnaces, belts back to the
     // bridge), and only hand-craftable buildings: the rest is built.
-    for (const ItemKind kind : {ItemKind::Hull, ItemKind::TransportBelt, ItemKind::AsteroidCollector,
-                                ItemKind::SolarFurnace, ItemKind::FabricatorMk1})
+    for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
+                                ItemKind::FabricatorMk1})
         assert(ship.inventory().count(kind) > 0);
     for (const ItemStack& s : ship.inventory().stacks())
         if (const Recipe* r = recipe_for(s.kind); r && is_placeable(s.kind))
@@ -61,20 +75,24 @@ void test_new_game() {
     assert(world.get_tick() == 10);
 }
 
+void test_every_layout() {
+    for (const ShipLayout& layout : all_layouts()) {
+        const Ship ship = Ship::from_layout(layout);
+        assert(ship.get_layout() == &layout);
+        assert(ship.hull_count() == layout_hull_count(layout));
+        assert(ship.thrusters().size() == layout.engines.size());
+        assert(ship.inventory().total() == 0);
+        assert(ship.building_anchored_at(layout_to_grid(layout, layout.bridge)) == &ship.get_bridge());
+    }
+}
+
 void test_needs_hull() {
     Ship ship = stocked_ship();
     const int junctions = ship.inventory().count(ItemKind::Junction);
-    const int hull = ship.inventory().count(ItemKind::Hull);
-
     assert(ship.place(ItemKind::Junction, kOffHull) == BuildResult::NoHull);
     assert(ship.inventory().count(ItemKind::Junction) == junctions);
-
-    assert(ship.place(ItemKind::Hull, kOffHull) == BuildResult::Ok);
-    assert(ship.has_hull(kOffHull));
-    assert(ship.inventory().count(ItemKind::Hull) == hull - 1);
-
-    assert(ship.place(ItemKind::Junction, kOffHull) == BuildResult::Ok);
-    assert(ship.building_at(kOffHull)->item_kind() == ItemKind::Junction);
+    assert(ship.place(ItemKind::Junction, kHullEdge) == BuildResult::Ok);
+    assert(ship.building_at(kHullEdge)->item_kind() == ItemKind::Junction);
     assert(ship.inventory().count(ItemKind::Junction) == junctions - 1);
 }
 
@@ -83,11 +101,9 @@ void test_rejections() {
     assert(ship.place(ItemKind::TransportBelt, kCenter) == BuildResult::Occupied);
     assert(ship.place(ItemKind::TransportBelt, kOnHull) == BuildResult::Ok);
     assert(ship.place(ItemKind::Junction, kOnHull) == BuildResult::Occupied);
-    assert(ship.place(ItemKind::Hull, kOnHull) == BuildResult::HullAlreadyThere);
-    assert(ship.place(ItemKind::Hull, {-1, 0}) == BuildResult::OutOfBounds);
-    assert(ship.place(ItemKind::Hull, {0, kShipGridSize}) == BuildResult::OutOfBounds);
+    assert(ship.place(ItemKind::Junction, {-1, 0}) == BuildResult::OutOfBounds);
+    assert(ship.place(ItemKind::Junction, {0, kShipGridSize}) == BuildResult::OutOfBounds);
     assert(ship.remove_building({kShipGridSize, 0}) == BuildResult::OutOfBounds);
-    assert(ship.remove_hull({0, -1}) == BuildResult::OutOfBounds);
 }
 
 void test_empty_inventory() {
@@ -103,28 +119,40 @@ void test_empty_inventory() {
 void test_remove_refunds() {
     Ship ship = stocked_ship();
     const int collectors = ship.inventory().count(ItemKind::AsteroidCollector);
-    const int hull = ship.inventory().count(ItemKind::Hull);
 
     assert(ship.place(ItemKind::AsteroidCollector, kOnHull) == BuildResult::Ok);
-    // Hull can't come out from under a building.
-    assert(ship.remove_hull(kOnHull) == BuildResult::HullNotEmpty);
-    assert(ship.has_hull(kOnHull));
-    // The building comes off alone; the hull stays...
     assert(ship.remove_building(kOnHull) == BuildResult::Ok);
     assert(ship.building_at(kOnHull) == nullptr);
     assert(ship.has_hull(kOnHull));
     assert(ship.inventory().count(ItemKind::AsteroidCollector) == collectors);
-    assert(ship.inventory().count(ItemKind::Hull) == hull);
     assert(ship.remove_building(kOnHull) == BuildResult::NothingThere);
-    // ...then the bare hull.
-    assert(ship.remove_hull(kOnHull) == BuildResult::Ok);
-    assert(!ship.has_hull(kOnHull));
-    assert(ship.inventory().count(ItemKind::Hull) == hull + 1);
-    assert(ship.remove_hull(kOnHull) == BuildResult::NothingThere);
+}
 
+void test_layout_parts_stay() {
+    Ship ship = stocked_ship();
+    // The bridge and the engines can't come off.
     assert(ship.remove_building(kCenter) == BuildResult::NotRemovable);
-    assert(ship.remove_hull(kCenter) == BuildResult::HullNotEmpty);
     assert(ship.building_at(kCenter) == &ship.get_bridge());
+    const GridPos engine = on_grid(starter_layout().engines.front());
+    assert(ship.remove_building(engine) == BuildResult::NotRemovable);
+    assert(dynamic_cast<const Thruster*>(ship.building_at(engine)) != nullptr);
+    assert(ship.inventory().count(ItemKind::IonThruster) == 0);
+    // Nor are engines items to place.
+    assert(!is_placeable(ItemKind::IonThruster));
+    assert(is_building(ItemKind::IonThruster));
+    assert(recipe_for(ItemKind::IonThruster) == nullptr);
+}
+
+void test_engine_offline() {
+    Thruster thruster;
+    assert(!thruster.offline());
+    assert(thruster.accepts(ItemKind::FuelCell));
+    assert(thruster.take_damage(thruster.max_hp()));
+    assert(thruster.offline());
+    assert(!thruster.accepts(ItemKind::FuelCell));
+    thruster.repair(1);
+    assert(!thruster.offline());
+    assert(thruster.accepts(ItemKind::FuelCell));
 }
 
 void test_belt_direction() {
@@ -146,9 +174,8 @@ void test_footprints() {
     assert(footprint_of(ItemKind::AsteroidCollector) == (GridSize{2, 2}));
     assert(footprint_of(ItemKind::Junction) == (GridSize{1, 1}));
 
-    // On the starting hull's last column, a collector would stick out past it.
-    const GridPos edge{kHullEnd, kCenter.y};
-    assert(ship.place(ItemKind::AsteroidCollector, edge) == BuildResult::NoHull);
+    // On the hull's last column, a collector would stick out past it.
+    assert(ship.place(ItemKind::AsteroidCollector, kHullEdge) == BuildResult::NoHull);
     // Overlapping the bridge, even by one cell.
     assert(ship.place(ItemKind::AsteroidCollector, {kBridgeEnd, kBridgeEnd}) == BuildResult::Occupied);
     // Hanging off the grid's last row / column.
@@ -195,11 +222,14 @@ void test_hierarchy() {
 
 void test_rotated_footprint() {
     Ship ship = stocked_ship();
-    // Every rotatable building is square, so turning one leaves its
-    // footprint alone.
+    // Every placeable building is square or rotatable, and every rotatable
+    // one is square, so turning one leaves its footprint alone.
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
-        if (is_placeable(kind) && is_rotatable(kind))
+        if (!is_placeable(kind))
+            continue;
+        assert(footprint_of(kind).w == footprint_of(kind).h);
+        if (is_rotatable(kind))
             assert(footprint_of(kind, Direction::East) == footprint_of(kind, Direction::North));
     }
     // Not rotatable: facing doesn't matter.
@@ -210,52 +240,21 @@ void test_rotated_footprint() {
     assert(ship.building_at(kOnHull)->footprint() == (GridSize{1, 1}));
 }
 
-void test_reinforced_hull() {
-    Ship ship = stocked_ship();
-    ship.inventory().add(ItemKind::Refinery, 1);
-    ship.inventory().add(ItemKind::ReinforcedHull, 9);
-    // A 3x3 patch of plain hull just east of the start hull.
-    const GridPos corner = kOffHull;
-    for (int y = 0; y < 3; ++y)
-        for (int x = 0; x < 3; ++x)
-            assert(ship.place(ItemKind::Hull, {corner.x + x, corner.y + y}) == BuildResult::Ok);
-    const int hull = ship.inventory().count(ItemKind::Hull);
-
-    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::NeedsReinforcedHull);
-    // Upgrading plain hull refunds it.
-    for (int y = 0; y < 3; ++y)
-        for (int x = 0; x < 2; ++x)
-            assert(ship.place(ItemKind::ReinforcedHull, {corner.x + x, corner.y + y}) == BuildResult::Ok);
-    assert(ship.inventory().count(ItemKind::Hull) == hull + 6);
-    assert(ship.hull_at(corner) == ItemKind::ReinforcedHull);
-    assert(ship.place(ItemKind::ReinforcedHull, corner) == BuildResult::HullAlreadyThere);
-    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::NeedsReinforcedHull);
-    for (int y = 0; y < 3; ++y)
-        assert(ship.place(ItemKind::ReinforcedHull, {corner.x + 2, corner.y + y}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Refinery, corner) == BuildResult::Ok);
-
-    // Smaller buildings stand on it too, and it refunds as reinforced.
-    assert(ship.remove_building(corner) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Junction, corner) == BuildResult::Ok);
-    assert(ship.remove_building(corner) == BuildResult::Ok);
-    const int reinforced = ship.inventory().count(ItemKind::ReinforcedHull);
-    assert(ship.remove_hull(corner) == BuildResult::Ok);
-    assert(ship.inventory().count(ItemKind::ReinforcedHull) == reinforced + 1);
-}
-
 }  // namespace
 
 int main() {
     test_new_game();
+    test_every_layout();
     test_needs_hull();
     test_rejections();
     test_empty_inventory();
     test_remove_refunds();
+    test_layout_parts_stay();
+    test_engine_offline();
     test_belt_direction();
     test_footprints();
     test_hierarchy();
     test_rotated_footprint();
-    test_reinforced_hull();
     std::puts("test_ship: all passed");
     return 0;
 }

@@ -77,7 +77,10 @@ std::optional<GridPos> nearest_building(const Ship& ship, float x, float y) {
     std::optional<GridPos> best;
     float best_d = 0.0f;
     for (const GridPos p : ship.placement_order()) {
-        const float d = distance_to_box(x, y, p, ship.building_anchored_at(p)->footprint());
+        const Building& b = *ship.building_anchored_at(p);
+        if (b.get_hp() == 0)
+            continue;  // an engine knocked offline: nothing left to shoot
+        const float d = distance_to_box(x, y, p, b.footprint());
         if (!best || d < best_d) {
             best = p;
             best_d = d;
@@ -90,7 +93,7 @@ void move_and_shoot(Ship& ship, Enemy& e, Tick now) {
     const EnemySpec& spec = enemy_spec(e.kind);
     if (e.cooldown > 0)
         --e.cooldown;
-    if (!e.target || !ship.building_anchored_at(*e.target))
+    if (!e.target || !ship.building_anchored_at(*e.target) || ship.building_anchored_at(*e.target)->get_hp() == 0)
         e.target = nearest_building(ship, e.x, e.y);
     if (!e.target)
         return;
@@ -113,8 +116,11 @@ void move_and_shoot(Ship& ship, Enemy& e, Tick now) {
     e.aim_x = tx;
     e.aim_y = ty;
     target.hit_at = now;
+    // Shot down: destroyed, unless it's part of the layout (the bridge,
+    // losing the ship; an engine, knocked offline till it mends).
     if (target.take_damage(spec.damage) && &target != &ship.get_bridge()) {
-        ship.destroy_building(*e.target);
+        if (target.removable())
+            ship.destroy_building(*e.target);
         e.target.reset();
     }
 }

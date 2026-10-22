@@ -37,6 +37,7 @@ struct Atlas {
     std::array<std::optional<Sprite>, kItemKindCount> items;
     std::array<std::optional<Sprite>, kItemKindCount> buildings;
     std::optional<Sprite> bridge;
+    std::optional<Sprite> hull;
 };
 Atlas g_atlas;
 
@@ -133,11 +134,12 @@ void Load() {
         const ItemKind kind = static_cast<ItemKind>(i);
         const std::string id = item_id(kind);
         Decode(decoded, g_atlas.items[static_cast<std::size_t>(i)], "items/" + id + ".png", {1, 1});
-        if (is_placeable(kind))
+        if (is_building(kind))
             Decode(decoded, g_atlas.buildings[static_cast<std::size_t>(i)], "buildings/" + id + ".png",
                    footprint_of(kind));
     }
     Decode(decoded, g_atlas.bridge, "buildings/Bridge.png", {kBridgeSize, kBridgeSize});
+    Decode(decoded, g_atlas.hull, "buildings/Hull.png", {1, 1});
     if (decoded.empty())
         return;
 
@@ -182,6 +184,10 @@ const Sprite* Building(ItemKind kind) {
 
 const Sprite* Bridge() {
     return g_atlas.bridge ? &*g_atlas.bridge : nullptr;
+}
+
+const Sprite* Hull() {
+    return g_atlas.hull ? &*g_atlas.hull : nullptr;
 }
 
 }  // namespace ui::sprites

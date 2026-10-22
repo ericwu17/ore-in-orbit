@@ -2,8 +2,8 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // Travel: a ship jumps from its sector to a linked one, at once, when every
-// ion thruster on board is charged with fuel cells, and it has at least
-// thrusters_needed() of them for its size; the jump burns all their fuel.
+// ion thruster its layout has is online and charged with fuel cells; the
+// jump burns all their fuel.
 // Survey scanners survey the sectors next to the ship's, once a second.
 //
 // Combat (see combat.h): every ship in a hostile sector fights the waves it
@@ -20,15 +20,9 @@
 
 #include <cstdint>
 
-// How many hull tiles one ion thruster can move.
-constexpr int kHullPerThruster = 1500;
 // How much of its health a damaged building mends a second, while no enemy
 // is on its ship's grid.
 constexpr int kRepairPercent = 1;
-
-// The ion thrusters a ship with `hull_tiles` of hull needs to jump (at
-// least one).
-int thrusters_needed(int hull_tiles);
 
 // Why a jump did (or didn't) happen.
 enum class JumpResult {
@@ -37,7 +31,7 @@ enum class JumpResult {
     NoSuchSector,
     NotLinked,        // not a neighbor of the ship's sector
     NoThrusters,
-    TooFewThrusters,  // fewer than thrusters_needed()
+    EngineOffline,    // some thruster is shot down, not mended yet
     NotCharged,       // some thruster isn't full of fuel
 };
 

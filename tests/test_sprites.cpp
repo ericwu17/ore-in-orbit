@@ -57,10 +57,11 @@ void test_item_icons() {
 void test_building_sprites() {
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
-        if (is_placeable(kind))
+        if (is_building(kind))
             check_sprite(std::string("buildings/") + item_id(kind) + ".png", footprint_of(kind));
     }
     check_sprite("buildings/Bridge.png", {kBridgeSize, kBridgeSize});
+    check_sprite("buildings/Hull.png", {1, 1});
 }
 
 }  // namespace

@@ -1,14 +1,12 @@
-// ship.h — Ship: the square build grid, its hull tiles and the buildings on
-// them, and the placement rules.
+// ship.h — Ship: the square build grid, its hull and the buildings on it,
+// and the placement rules.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
-// Rules: hull goes on any empty cell, and reinforced hull also on plain hull
-// (an upgrade: the plain tile goes back to the inventory); a building needs
-// hull under every cell of its footprint (reinforced hull for the large
-// late-game ones, see needs_reinforced_hull), and all of them free; each
+// Rules: the hull is the ship's layout's (see ship_layout.h), fixed for good,
+// as are the bridge and the ion thrusters it comes with. A building needs
+// hull under every cell of its footprint, and all of them free; each
 // placement takes one item from the bridge's inventory, and each removal
-// gives it back. Buildings and hull come off separately: hull can only go
-// once nothing stands on it.
+// gives it back.
 //
 // Storage: grids indexed [y][x]. A building lives in `buildings` at the
 // top-left cell of its footprint (that index is its position); every cell
@@ -25,48 +23,35 @@
 #include "sim/building.h"
 #include "sim/game_types.h"
 #include "sim/sector.h"
+#include "sim/ship_layout.h"
 
 #include <memory>
 #include <optional>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-// Side of the square build grid, in cells. The starting ship is a small
-// patch in its middle: the rest is room to grow.
+// Side of the square build grid, in cells: room for the largest layout.
 constexpr int kShipGridSize = 128;
-
-// The starting ship: a square hull patch of this side, centered on the grid,
-// with the bridge in its middle, its top-left cell at kStartBridgePos.
-constexpr int kStartHullSide = 48;
-constexpr GridPos kStartBridgePos{(kShipGridSize - kBridgeSize) / 2, (kShipGridSize - kBridgeSize) / 2};
-// A ship launched from a starter pack (Ship::new_launched): a smaller patch,
-// the bridge in the same place.
-constexpr int kLaunchedHullSide = 12;
 
 // Why a place() or remove_*() call did (or didn't) change the ship.
 enum class BuildResult {
     Ok,
     OutOfBounds,
     NoHull,            // a building needs hull under its whole footprint
-    NeedsReinforcedHull,
-    HullAlreadyThere,
     Occupied,          // another building covers one of those cells
     NoneInInventory,
-    NothingThere,      // nothing of that layer to remove on that cell
-    NotRemovable,      // the bridge
-    HullNotEmpty,      // remove_hull() under a building
+    NothingThere,      // no building to remove on that cell
+    NotRemovable,      // the bridge or an engine: part of the layout
 };
 
 // A short player-facing explanation ("Needs hull under every tile", ...).
 const char* describe(BuildResult result);
 
 // Placements not made yet, which a batch of them (a blueprint paste) checks
-// each later one against: the hull to be laid, the cells to be built on, and
-// the inventory as it will be by then. Cells are keyed by cell_key().
+// each later one against: the cells to be built on, and the inventory as it
+// will be by then. Cells are keyed by cell_key().
 struct PlannedChanges {
-    std::unordered_map<int, ItemKind> hull;
     std::unordered_set<int> occupied;
     Inventory inventory;
 
@@ -82,7 +67,8 @@ private:
     template <typename T>
     using Grid = std::vector<std::vector<T>>;
 
-    Grid<std::optional<ItemKind>> hull;          // Hull or ReinforcedHull, per cell
+    const ShipLayout* layout = nullptr;          // null only for an empty Ship()
+    Grid<char> hull;                             // per cell: 1 for hull (char, not vector<bool>)
     Grid<std::unique_ptr<Building>> buildings;  // at each footprint's top-left cell, else null
     Grid<std::optional<GridPos>> anchor;         // per cell: top-left of the building covering it
     std::vector<GridPos> placed;                 // every building's top-left cell, oldest first
@@ -119,27 +105,26 @@ private:
     // Takes the building at `anchor` (its top-left cell) off the grid,
     // returning it.
     std::unique_ptr<Building> take_building(GridPos anchor);
-    // A square hull patch of side `side`, centered on the grid, with the
-    // bridge in the middle and nothing in its inventory.
-    static Ship with_hull_patch(int side);
+    // Sets the hull to `ship_layout`'s, centered on the grid, without its
+    // bridge or engines (loading adds them from the save).
+    void set_hull(const ShipLayout& ship_layout);
 
 public:
     // An empty grid (no hull, no bridge). Games start from new_game().
     Ship();
 
-    // The starting ship: a kStartHullSide hull patch with the bridge in the
-    // middle, and the bridge inventory stocked.
+    // A ship in `ship_layout`: its hull, with its bridge and engines in
+    // place, and nothing in the inventory.
+    static Ship from_layout(const ShipLayout& ship_layout);
+    // The starting ship: the starter layout, with the bridge inventory
+    // stocked.
     static Ship new_game();
-    // A ship launched from a starter pack: a kLaunchedHullSide hull patch
-    // with the bridge in the middle, and a little hull in its inventory to
-    // grow from.
-    static Ship new_launched();
 
     int size() const { return kShipGridSize; }
     bool in_bounds(GridPos p) const;
     bool has_hull(GridPos p) const;
-    // Which hull is at `p` (Hull or ReinforcedHull), if any.
-    std::optional<ItemKind> hull_at(GridPos p) const;
+    // The layout it was built in (null only for an empty Ship()).
+    const ShipLayout* get_layout() const { return layout; }
     // The top-left cell of the building covering `p`, if any.
     std::optional<GridPos> anchor_of(GridPos p) const;
     // The building covering `p` (any cell of its footprint), or null.
@@ -155,7 +140,7 @@ public:
     int hull_count() const;
     // The smallest box holding all the hull: its top-left cell and size.
     std::pair<GridPos, GridSize> hull_bounds() const;
-    // Every ion thruster on board.
+    // Every ion thruster (engine) on board.
     std::vector<const Thruster*> thrusters() const;
     // Burns every thruster's fuel (a jump).
     void burn_thrusters();
@@ -177,20 +162,17 @@ public:
     // can_place() as if the `planned` changes had been made first, with
     // their inventory instead of the bridge's.
     BuildResult can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const;
-    // Places one hull tile or building, taking it from the inventory. `p` is
-    // the top-left cell of the building's footprint. `facing` is used by
-    // rotatable buildings only (and turns a non-square one's footprint).
+    // Places one building, taking it from the inventory. `p` is the
+    // top-left cell of its footprint. `facing` is used by rotatable
+    // buildings only (and turns a non-square one's footprint).
     BuildResult place(ItemKind kind, GridPos p, Direction facing = Direction::North);
-    // Removes the building covering `p` (whole footprint), refunding it. The
-    // hull under it stays.
+    // Removes the building covering `p` (whole footprint), refunding it.
     BuildResult remove_building(GridPos p);
-    // Removes the hull tile at `p`, refunding it (plain or reinforced); only
-    // once no building covers it.
-    BuildResult remove_hull(GridPos p);
 
     // Combat: the building at `anchor` (its top-left cell) is destroyed:
     // off the grid, and nothing comes back, neither it nor what it held.
-    // Not the bridge, whose loss is the ship's (see bridge_destroyed).
+    // Not the layout's parts (the bridge, whose loss is the ship's, see
+    // bridge_destroyed; and the engines, knocked offline instead).
     void destroy_building(GridPos anchor);
     bool bridge_destroyed() const { return bridge->get_hp() == 0; }
     // Mends every building by `percent` of its max_hp (at least 1 each).

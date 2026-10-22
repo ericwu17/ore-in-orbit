@@ -68,7 +68,6 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 5).in(AdvancedCircuit, 2).in(IridiumPlate).out(Processor).hand(),
 
         // Tier 0 buildings: bootstrap, hand-craftable.
-        R(Assemble, 0.5).in(IronPlate).out(Hull).hand(),
         R(Assemble, 0.5).in(Gear).in(IronPlate).out(TransportBelt, 2).hand(),
         R(Assemble, 3).in(IronPlate, 5).in(Gear, 3).in(Circuit, 2).out(AsteroidCollector).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
@@ -89,22 +88,18 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 8).in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).out(FabricatorMk2),
         R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(Steel).out(ExpressBelt),
         R(Assemble, 10).in(StructuralFrame, 5).in(SolarPanel, 10).out(SolarArray),
-        R(Assemble, 1).in(Hull).in(Steel).out(ReinforcedHull),
 
         // Tier 3: endgame.
         R(Assemble, 15)
             .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10)
             .out(TractorArray),
         R(Assemble, 8).in(StructuralFrame, 5).in(AdvancedCircuit, 5).in(Glass, 4).out(SurveyScanner),
-        R(Assemble, 20)
-            .in(StructuralFrame, 5).in(IridiumPlate, 5).in(Processor, 5)
-            .out(IonThruster),
         R(Assemble, 12).in(FabricatorMk2).in(Processor, 4).in(IridiumPlate, 5).out(FabricatorMk3),
 
         // Fleet: a new ship (launched from the bridge), and the pods that
         // carry cargo between ships.
         R(Assemble, 10)
-            .in(StructuralFrame, 10).in(AdvancedCircuit, 5).in(Hull, 40).in(Circuit, 10)
+            .in(StructuralFrame, 10).in(AdvancedCircuit, 5).in(Steel, 20).in(Circuit, 10)
             .out(ShipStarterPack),
         R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
 

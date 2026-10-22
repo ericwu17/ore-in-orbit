@@ -68,14 +68,12 @@ constexpr Direction direction_to(GridPos from, GridPos to) {
     return Direction::West;
 }
 
-// Everything the bridge inventory (or a belt) can hold. The placeable kinds
-// come first: hull tiles plus one entry per building (the bridge itself is not
-// an item: it is placed once, at the start of a game). After them come the
-// raw resources the collectors gather, and what is made from those.
+// Everything the bridge inventory (or a belt) can hold. The building kinds
+// come first, one entry per building (the bridge itself is not one: it comes
+// with the ship's layout, as do its ion thrusters, which have a kind but are
+// never items: see is_layout_part). After them come the raw resources the
+// collectors gather, and what is made from those.
 enum class ItemKind {
-    // Placeable: floor.
-    Hull,
-    ReinforcedHull,
     // Placeable: logistics.
     TransportBelt,
     ExpressBelt,
@@ -145,13 +143,22 @@ enum class ItemCategory {
 };
 
 ItemCategory item_category(ItemKind kind);
-// Hull tiles and buildings: what the player can put on the grid.
-constexpr bool is_placeable(ItemKind kind) {
+// Every kind of building, the layout parts included.
+constexpr bool is_building(ItemKind kind) {
     return static_cast<int>(kind) <= static_cast<int>(ItemKind::Railgun);
 }
+// Buildings that come only with a ship's layout (its engines): never in an
+// inventory, never placed or removed by the player.
+constexpr bool is_layout_part(ItemKind kind) {
+    return kind == ItemKind::IonThruster;
+}
+// The buildings the player can put on the grid.
+constexpr bool is_placeable(ItemKind kind) {
+    return is_building(kind) && !is_layout_part(kind);
+}
 
-// The player-facing name of an item ("Hull", "Iron plate", ...).
+// The player-facing name of an item ("Transport belt", "Iron plate", ...).
 const char* item_name(ItemKind kind);
-// An item's stable id: its enumerator's name ("Hull", "IronPlate", ...).
+// An item's stable id: its enumerator's name ("TransportBelt", "IronPlate", ...).
 // Saves write items by it, and sprite files are named after it.
 const char* item_id(ItemKind kind);

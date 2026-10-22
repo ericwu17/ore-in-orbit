@@ -6,6 +6,7 @@
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <cassert>
@@ -13,20 +14,17 @@
 
 namespace {
 
-// The bridge covers b0..b1 on both axes, and the starting hull h0..h1; c,
-// the middle of the grid, is a row (and column) through the bridge.
+// The bridge covers b0..b1 on both axes (the starter layout has it on the
+// diagonal); c, the middle of the grid, is a row (and column) through it.
 constexpr int c = kShipGridSize / 2;
-constexpr int b0 = kStartBridgePos.x;
-constexpr int b1 = b0 + kBridgeSize - 1;
-constexpr int h0 = (kShipGridSize - kStartHullSide) / 2;
-constexpr int h1 = h0 + kStartHullSide - 1;
-static_assert(kStartBridgePos.x == kStartBridgePos.y && h0 <= b0 - 2 && h1 >= b1 + 2,
-              "the tests build on two rows of starting hull around the bridge");
+const int b0 = layout_to_grid(starter_layout(), starter_layout().bridge).x;
+const int b1 = b0 + kBridgeSize - 1;
 
-// Puts hull at `p`, unless the starting hull already covers it.
-void ensure_hull(Ship& ship, GridPos p) {
-    if (!ship.has_hull(p))
-        assert(ship.place(ItemKind::Hull, p) == BuildResult::Ok);
+// The tests build on the starting hull, which must cover `p`.
+void ensure_hull(const Ship& ship, GridPos p) {
+    assert(ship.has_hull(p));
+    (void)ship;
+    (void)p;
 }
 
 // Ticks for an item to cross one transport belt cell.
@@ -275,11 +273,11 @@ void test_cargo_hold() {
 // bridge's north-east corner, with its west side as the way in and a belt
 // leading away from each of the other three.
 struct SorterRig {
-    static constexpr GridPos sorter{b1 + 1, b0 - 1};
-    static constexpr GridPos west{b1, b0 - 1};
-    static constexpr GridPos east{b1 + 2, b0 - 1};
-    static constexpr GridPos north{b1 + 1, b0 - 2};
-    static constexpr GridPos south{b1 + 1, b0};
+    const GridPos sorter{b1 + 1, b0 - 1};
+    const GridPos west{b1, b0 - 1};
+    const GridPos east{b1 + 2, b0 - 1};
+    const GridPos north{b1 + 1, b0 - 2};
+    const GridPos south{b1 + 1, b0};
 
     explicit SorterRig(Ship& ship, ItemKind kind = ItemKind::FilterSorter) {
         ship.inventory().add(kind, 1);

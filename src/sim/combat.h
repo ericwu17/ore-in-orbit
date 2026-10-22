@@ -12,8 +12,9 @@
 // and shoot it, as often as their kind can. Turrets shoot the nearest enemy
 // within theirs, while they have ammunition (see Turret). Shots hit at once:
 // nothing flies. A building shot down to 0 is destroyed, refunding nothing
-// (see Ship::destroy_building); the bridge shot down loses the ship (see
-// World). Once the last wave is sent and its enemies are dead, the sector is
+// (see Ship::destroy_building); an ion thruster is knocked offline instead
+// (it comes with the layout, see Thruster), and enemies leave it be; the
+// bridge shot down loses the ship (see World). Once the last wave is sent and its enemies are dead, the sector is
 // cleared, for good.
 //
 // Positions are in cells, as floats: (0, 0) is the grid's top-left corner
@@ -88,6 +89,6 @@ void spawn_wave(const Ship& ship, Battle& battle, int threat, int wave, Rng& rng
 
 // One step of `ship`'s fight in `sector`, at World tick `now`: the next
 // wave comes when due, enemies close in and shoot, turrets shoot back, and
-// the dead are cleared away. Buildings shot down are destroyed; the bridge
-// stays, at 0 (see Ship::bridge_destroyed).
+// the dead are cleared away. Buildings shot down are destroyed; engines
+// stay, offline, and the bridge stays, at 0 (see Ship::bridge_destroyed).
 void combat_tick(Ship& ship, Battle& battle, Sector& sector, Rng& rng, Tick now);

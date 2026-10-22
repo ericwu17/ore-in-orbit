@@ -58,7 +58,6 @@ constexpr ImVec4 kPlum       = Rgb(160, 108, 150);
 constexpr ImVec4 kGridLine           = Rgb(44, 49, 56);    // empty cells
 constexpr ImVec4 kGridMajor          = Rgb(58, 65, 75);    // every kGridMajorEvery cells
 constexpr ImVec4 kTileHull           = Rgb(90, 97, 107);   // steel deck plating
-constexpr ImVec4 kTileReinforcedHull = Rgb(71, 77, 86);
 constexpr ImVec4 kTileBridge         = kAccentActive;
 constexpr ImVec4 kTileRockCollector  = Rgb(150, 92, 58);   // oxidized copper
 constexpr ImVec4 kTileBelt           = Rgb(64, 70, 79);

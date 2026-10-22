@@ -3,10 +3,11 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // Every ship ticks every tick, whether or not the player is looking at it.
-// A new ship comes from a ship starter pack in another ship's bridge
-// inventory (launch). Items go from one bridge's inventory to another's in
-// cargo pods (send): one pod, used up, per kPodCapacity items, and they land
-// kTransferTicks later. Ships trade only with ships in the same sector.
+// A new ship is built in a layout the player picks (launch), from another
+// ship's bridge inventory: a ship starter pack and the layout's cost. Items
+// go from one bridge's inventory to another's in cargo pods (send): one pod,
+// used up, per kPodCapacity items, and they land kTransferTicks later. Ships
+// trade only with ships in the same sector.
 //
 // The milestones are the fleet's: every bridge shares one Progress, so a
 // delivery to any of them counts, and a recipe unlocked is unlocked on every
@@ -20,6 +21,7 @@
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 
 #include <memory>
 #include <string>
@@ -57,7 +59,9 @@ enum class FleetResult {
     NoSuchShip,
     SameShip,       // sending to itself
     OtherSector,    // the ships aren't in the same sector
+    LayoutLocked,   // its milestone isn't complete yet
     NoStarterPack,  // launching takes one from the bridge inventory
+    NotEnoughForLayout,  // the layout's cost isn't all in the bridge inventory
     NothingToSend,
     NotEnoughItems,
     NotEnoughPods,
@@ -100,12 +104,13 @@ public:
     Progress& get_progress() { return *progress; }
     const Progress& get_progress() const { return *progress; }
 
-    // Whether launch(from) would succeed.
-    FleetResult can_launch(int from) const;
-    // Takes a starter pack from ship `from`'s bridge inventory and launches
-    // a new ship (Ship::new_launched()) into the same sector, named "Ship
-    // <id>". On success, `launched` (if given) is set to its id.
-    FleetResult launch(int from, int* launched = nullptr);
+    // Whether launch(from, layout) would succeed.
+    FleetResult can_launch(int from, const ShipLayout& layout) const;
+    // Takes a starter pack and `layout`'s cost from ship `from`'s bridge
+    // inventory and launches a new ship in that layout (Ship::from_layout)
+    // into the same sector, named "Ship <id>". On success, `launched` (if
+    // given) is set to its id.
+    FleetResult launch(int from, const ShipLayout& layout, int* launched = nullptr);
 
     // Whether send(from, to, items) would succeed.
     FleetResult can_send(int from, int to, const std::vector<ItemStack>& items) const;

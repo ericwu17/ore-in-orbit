@@ -1,11 +1,13 @@
 // test_sectors.cpp — headless tests for the star map and travel: the map a
 // seed makes (the same every time, all of it reachable, home safe), what
-// the player knows of it, survey scanners, charging ion thrusters with fuel
-// cells, jumping, and collectors gathering at their sector's yields.
+// the player knows of it, survey scanners, charging the layout's ion
+// thrusters with fuel cells, jumping, and collectors gathering at their
+// sector's yields.
 #include "sim/building.h"
 #include "sim/fleet.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <algorithm>
@@ -16,11 +18,13 @@
 
 namespace {
 
-// Room on the flagship's starting hull, away from the bridge, for two ion
-// thrusters side by side (2x3 each) and a survey scanner.
-constexpr GridPos kThrusterA{44, 44};
-constexpr GridPos kThrusterB{46, 44};
-constexpr GridPos kScanner{50, 44};
+// The starting ship's two ion thrusters, where its layout has them.
+const GridPos kThrusterA = layout_to_grid(starter_layout(), starter_layout().engines.at(0));
+const GridPos kThrusterB = layout_to_grid(starter_layout(), starter_layout().engines.at(1));
+// Room on the starting hull, away from the bridge, for 2x2 buildings.
+const GridPos kScanner = layout_to_grid(starter_layout(), {2, 10});
+const GridPos kCollectorA = layout_to_grid(starter_layout(), {2, 14});
+const GridPos kCollectorB = layout_to_grid(starter_layout(), {2, 18});
 
 void run(World& world, Tick ticks) {
     for (Tick t = 0; t < ticks; ++t)
@@ -124,8 +128,7 @@ void test_scanner() {
 void test_charging() {
     World world;
     Ship& ship = world.flagship();
-    ship.inventory().add({{ItemKind::IonThruster, 1}, {ItemKind::TransportBelt, 1}});
-    assert(ship.place(ItemKind::IonThruster, kThrusterA) == BuildResult::Ok);
+    ship.inventory().add(ItemKind::TransportBelt, 1);
     const GridPos belt{kThrusterA.x, kThrusterA.y - 1};
     assert(ship.place(ItemKind::TransportBelt, belt, Direction::South) == BuildResult::Ok);
     const auto* thruster = dynamic_cast<const Thruster*>(ship.building_at(kThrusterA));
@@ -139,10 +142,9 @@ void test_charging() {
     assert(thruster->charged() && thruster->get_fuel() == kThrusterCharge);
     // The rest wait on the belt.
     assert(!dynamic_cast<const Conveyor*>(ship.building_at(belt))->get_items().empty());
-    // Taken off, its fuel comes back.
-    const int fuel_before = ship.inventory().count(ItemKind::FuelCell);
-    assert(ship.remove_building(kThrusterA) == BuildResult::Ok);
-    assert(ship.inventory().count(ItemKind::FuelCell) == fuel_before + kThrusterCharge);
+    // Part of the layout: it stays, fuel and all.
+    assert(ship.remove_building(kThrusterA) == BuildResult::NotRemovable);
+    assert(thruster->get_fuel() == kThrusterCharge);
 }
 
 void test_jump() {
@@ -161,18 +163,20 @@ void test_jump() {
     assert(world.jump(id, map.size()) == JumpResult::NoSuchSector);
     assert(world.jump(id, far) == JumpResult::NotLinked);
     assert(world.jump(id, 0) == JumpResult::NotLinked);  // already there
-    assert(world.jump(id, next_door) == JumpResult::NoThrusters);
 
-    // The starting hull is big enough to need two.
-    assert(thrusters_needed(ship.hull_count()) == 2);
-    assert(thrusters_needed(1) == 1 && thrusters_needed(kHullPerThruster) == 1);
-    ship.inventory().add(ItemKind::IonThruster, 2);
-    assert(ship.place(ItemKind::IonThruster, kThrusterA) == BuildResult::Ok);
+    // Every engine the layout has needs charging.
+    assert(ship.thrusters().size() == 2);
+    assert(world.jump(id, next_door) == JumpResult::NotCharged);
     charge(ship, kThrusterA);
-    assert(world.jump(id, next_door) == JumpResult::TooFewThrusters);
-    assert(ship.place(ItemKind::IonThruster, kThrusterB) == BuildResult::Ok);
     assert(world.jump(id, next_door) == JumpResult::NotCharged);
     charge(ship, kThrusterB);
+    assert(world.can_jump(id, next_door) == JumpResult::Ok);
+
+    // One knocked offline grounds the ship till it mends.
+    Building& engine = *ship.building_anchored_at(kThrusterB);
+    assert(engine.take_damage(engine.max_hp()));
+    assert(world.jump(id, next_door) == JumpResult::EngineOffline);
+    engine.repair(1);
     assert(world.can_jump(id, next_door) == JumpResult::Ok);
 
     assert(world.jump(id, next_door) == JumpResult::Ok);
@@ -194,7 +198,7 @@ void test_yields() {
     World world;
     Ship& ship = world.flagship();
     ship.inventory().add(ItemKind::AsteroidCollector);
-    const GridPos at{44, 50};
+    const GridPos at = kCollectorA;
     assert(ship.place(ItemKind::AsteroidCollector, at) == BuildResult::Ok);
     assert(ship.set_collector_target(at, ItemKind::IronOre));
     const auto* collector = dynamic_cast<const Collector*>(ship.building_at(at));
@@ -217,7 +221,7 @@ void test_yields() {
 
     // A new collector picks the ship's yields up when placed.
     ship.inventory().add(ItemKind::AsteroidCollector);
-    const GridPos other{44, 54};
+    const GridPos other = kCollectorB;
     assert(ship.place(ItemKind::AsteroidCollector, other) == BuildResult::Ok);
     assert(dynamic_cast<const Collector*>(ship.building_at(other))->get_yield() == 0);  // aimed at iron
 }
@@ -230,8 +234,9 @@ void test_launch_in_sector() {
     yields[0] = 175;
     world.flagship().set_yields(yields);
     world.flagship().inventory().add(ItemKind::ShipStarterPack);
+    world.flagship().inventory().add(starter_layout().cost);
     int id = 0;
-    assert(fleet.launch(fleet.flagship().id, &id) == FleetResult::Ok);
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &id) == FleetResult::Ok);
     assert(fleet.find(id)->ship.get_yields() == yields);
 }
 

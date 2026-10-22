@@ -1,11 +1,12 @@
-// test_fleet.cpp — headless tests for the fleet: launching a ship from a
-// starter pack, sending cargo between ships in cargo pods, every ship
+// test_fleet.cpp — headless tests for the fleet: building a ship in a
+// layout, from a starter pack and the layout's cost, sending cargo between ships in cargo pods, every ship
 // ticking, and the milestone progress every ship shares.
 #include "sim/building.h"
 #include "sim/fleet.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <cassert>
@@ -13,22 +14,34 @@
 
 namespace {
 
-// The cell just east of the bridge's east side, on either kind of ship's
-// hull, and the bridge cell next to it.
-constexpr GridPos kBesideBridge{kStartBridgePos.x + kBridgeSize, kStartBridgePos.y};
-constexpr GridPos kBridgeEdge{kStartBridgePos.x + kBridgeSize - 1, kStartBridgePos.y};
+// The starter layout's bridge on the grid.
+GridPos bridge_pos() {
+    return layout_to_grid(starter_layout(), starter_layout().bridge);
+}
+// The cell just east of the bridge's east side, on a starter layout's hull,
+// and the bridge cell next to it.
+const GridPos kBesideBridge{bridge_pos().x + kBridgeSize, bridge_pos().y};
+const GridPos kBridgeEdge{bridge_pos().x + kBridgeSize - 1, bridge_pos().y};
+
+// Puts what building a ship in `layout` takes into `inv`: a starter pack and
+// the layout's cost.
+void stock_for(Inventory& inv, const ShipLayout& layout) {
+    inv.add(ItemKind::ShipStarterPack);
+    inv.add(layout.cost);
+}
 
 void run(World& world, Tick ticks) {
     for (Tick t = 0; t < ticks; ++t)
         world.advance_tick();
 }
 
-// Launches a second ship from the flagship; returns its id.
+// Launches a second ship, in the starter layout, from the flagship; returns
+// its id.
 int launch_second(World& world) {
     Fleet& fleet = world.get_fleet();
-    world.flagship().inventory().add(ItemKind::ShipStarterPack);
+    stock_for(world.flagship().inventory(), starter_layout());
     int id = 0;
-    assert(fleet.launch(fleet.flagship().id, &id) == FleetResult::Ok);
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &id) == FleetResult::Ok);
     return id;
 }
 
@@ -44,33 +57,58 @@ void test_launch() {
     World world;
     Fleet& fleet = world.get_fleet();
     const int flagship = fleet.flagship().id;
-    assert(fleet.can_launch(flagship) == FleetResult::NoStarterPack);
-    assert(fleet.launch(flagship) == FleetResult::NoStarterPack);
-    assert(fleet.launch(99) == FleetResult::NoSuchShip);
+    const ShipLayout& skiff = starter_layout();
+    Inventory& inv = world.flagship().inventory();
+    inv = Inventory{};
+    assert(fleet.can_launch(flagship, skiff) == FleetResult::NoStarterPack);
+    assert(fleet.launch(flagship, skiff) == FleetResult::NoStarterPack);
+    assert(fleet.launch(99, skiff) == FleetResult::NoSuchShip);
+    // A starter pack isn't enough: the layout has a cost too.
+    inv.add(ItemKind::ShipStarterPack);
+    assert(fleet.launch(flagship, skiff) == FleetResult::NotEnoughForLayout);
     assert(fleet.get_ships().size() == 1);
 
-    const int id = launch_second(world);
+    inv.add(skiff.cost);
+    inv.add(ItemKind::Gear, 7);  // left alone
+    int id = 0;
+    assert(fleet.launch(flagship, skiff, &id) == FleetResult::Ok);
     assert(id != flagship);
-    assert(world.flagship().inventory().count(ItemKind::ShipStarterPack) == 0);
+    // The pack and the cost are used up, and nothing else.
+    assert(inv.total() == 7 && inv.count(ItemKind::Gear) == 7);
     const FleetShip* launched = fleet.find(id);
     assert(launched && launched->name == "Ship " + std::to_string(id));
     assert(launched->sector == fleet.flagship().sector);
 
-    // A small hull patch with the bridge in the middle, and some hull to
-    // grow from.
+    // The layout's hull, bridge and engines, and an empty inventory.
     const Ship& ship = launched->ship;
-    int hull = 0;
-    for (int y = 0; y < kShipGridSize; ++y)
-        for (int x = 0; x < kShipGridSize; ++x)
-            hull += ship.has_hull({x, y}) ? 1 : 0;
-    assert(hull == kLaunchedHullSide * kLaunchedHullSide);
-    assert(ship.building_anchored_at(kStartBridgePos) == &ship.get_bridge());
-    assert(ship.inventory().count(ItemKind::Hull) > 0);
-    assert(ship.placement_order().size() == 1);
+    assert(ship.get_layout() == &skiff);
+    assert(ship.hull_count() == layout_hull_count(skiff));
+    assert(ship.building_anchored_at(bridge_pos()) == &ship.get_bridge());
+    assert(ship.thrusters().size() == skiff.engines.size());
+    assert(ship.placement_order().size() == 1 + skiff.engines.size());
+    assert(ship.inventory().total() == 0);
 
     // Ids never repeat.
     const int third = launch_second(world);
     assert(third != id && third != flagship);
+}
+
+// Bigger layouts unlock with the milestones.
+void test_layout_unlocks() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const int flagship = fleet.flagship().id;
+    const ShipLayout& hauler = *find_layout("hauler");
+    assert(hauler.milestone);
+    stock_for(world.flagship().inventory(), hauler);
+    assert(fleet.can_launch(flagship, starter_layout()) != FleetResult::LayoutLocked);
+    assert(fleet.launch(flagship, hauler) == FleetResult::LayoutLocked);
+    while (fleet.get_progress().current_index() <= *hauler.milestone)
+        assert(fleet.get_progress().complete_current());
+    int id = 0;
+    assert(fleet.launch(flagship, hauler, &id) == FleetResult::Ok);
+    assert(fleet.find(id)->ship.get_layout() == &hauler);
+    assert(fleet.find(id)->ship.thrusters().size() == hauler.engines.size());
 }
 
 void test_pods_needed() {
@@ -102,7 +140,7 @@ void test_send() {
     source.add(ItemKind::CargoPod, 1);
     assert(fleet.can_send(from, to, {{ItemKind::Gear, 60}, {ItemKind::Circuit, 10}}) == FleetResult::NotEnoughPods);
     source.add(ItemKind::CargoPod, 2);
-    const int hull_before = target.count(ItemKind::Hull);
+    const int total_before = target.total();
     assert(fleet.send(from, to, {{ItemKind::Gear, 60}, {ItemKind::Circuit, 10}}, world.get_tick()) ==
            FleetResult::Ok);
     assert(source.count(ItemKind::Gear) == 0 && source.count(ItemKind::Circuit) == 0);
@@ -114,7 +152,7 @@ void test_send() {
     assert(target.count(ItemKind::Gear) == 0);
     run(world, 1);
     assert(target.count(ItemKind::Gear) == 60 && target.count(ItemKind::Circuit) == 10);
-    assert(target.count(ItemKind::Hull) == hull_before);
+    assert(target.total() == total_before + 70);
     assert(fleet.in_flight().empty());
 }
 
@@ -186,6 +224,7 @@ void test_rename() {
 int main() {
     test_new_game();
     test_launch();
+    test_layout_unlocks();
     test_pods_needed();
     test_send();
     test_other_sector();

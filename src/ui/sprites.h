@@ -6,10 +6,11 @@
 // embedded into the executable at build time like the logo and the font, and
 // are packed into one atlas texture at startup:
 //
-//   items/<ItemId>.png       square icon of every item, placeables included
-//   buildings/<ItemId>.png   built look of every placeable, facing North,
+//   items/<ItemId>.png       square icon of every item, buildings included
+//   buildings/<ItemId>.png   built look of every building, facing North,
 //                            with its footprint's aspect ratio
 //   buildings/Bridge.png     the bridge
+//   buildings/Hull.png       one cell of hull (the deck plating)
 //
 // (<ItemId>: item_id, e.g. "IronPlate".) A sprite
 // that is missing, can't be decoded or has the wrong shape is reported once
@@ -43,7 +44,8 @@ void Unload();
 
 // The sprites, or null when one isn't there (or before Load()).
 const Sprite* Item(ItemKind kind);       // an item's icon
-const Sprite* Building(ItemKind kind);   // a placeable, built (facing North)
+const Sprite* Building(ItemKind kind);   // a building, built (facing North)
 const Sprite* Bridge();                  // the bridge, built
+const Sprite* Hull();                    // one cell of hull
 
 }  // namespace ui::sprites

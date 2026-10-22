@@ -4,10 +4,11 @@ A new game, in early development. A fixed-timestep simulation driven from
 an SDL2 + Dear ImGui (docking) + ImPlot frame loop, with a themed UI. So far
 there is a main menu (Play, Credits); Play opens the list of saved games,
 to start a new one or carry on with one. A game is a ship built on a
-128x128 square grid, starting as a 24x24 hull patch in its middle with the
-6x6 bridge at its center. Hull tiles go down first, and every building
-(asteroid collectors, transport belts, machines) needs a hull tile under
-it. Everything placed comes out of the
+128x128 square grid. Every ship has a layout, which fixes its hull's shape
+and size, its 6x6 bridge and its ion thrusters (engines), all centered on
+the grid; a game starts with a Skiff, the smallest. Every building
+(asteroid collectors, transport belts, machines) needs hull under it, and
+the hull never grows. Everything placed comes out of the
 bridge's inventory, and removing it gives it back (with anything stored
 inside it). Each collector is aimed at one raw resource (iron ore, copper
 ore, silica or carbon; the tractor array can also gather iridium ore) and
@@ -27,10 +28,13 @@ other way round (the one picked turns, the rest go straight); junctions let
 two belt lines cross, each item leaving by the side opposite the one it came
 in by; routers pass each item on to their other three sides in turn.
 
-The player commands a fleet. A ship starter pack (unlocked by the "Deep
-space" milestone) in a bridge's inventory launches a new ship ("Launch a
-new ship", in the right panel's Fleet section): a 12x12 hull patch with its
-own bridge, and a little hull to grow from. Every ship keeps running while
+The player commands a fleet. "Build a new ship...", in the right panel's
+Fleet section, builds one in the layout picked there, from the bridge of
+the ship on screen: it takes a ship starter pack (unlocked by the "Deep
+space" milestone) and the layout's cost, in raw and processed resources.
+The layouts, smallest first: Skiff (from the start), Hauler (from "Deep
+space"), Frigate ("Escape velocity") and Carrier ("Frontier"); bigger ones
+have more engines. Every ship keeps running while
 another is on screen; the tabs above the grid (or `[` and `]`) switch
 between them, and double-clicking a tab renames that ship. Milestones are
 the fleet's: a delivery to any bridge counts, and a recipe unlocked is
@@ -46,16 +50,17 @@ stalls there) and a threat, which grows with the distance from home. A
 sector a ship has been to is visited; its neighbors show on the map, and
 their yields and threat once surveyed: visited, or next to a ship with a
 survey scanner. Ships jump to a linked sector at once, when every ion
-thruster on board is charged (10 fuel cells each, refined from carbon and
-delivered by belt), and the ship has enough of them: one per 1,500 hull
-tiles. The jump burns all their fuel.
+thruster their layout has is charged (10 fuel cells each, refined from
+carbon and delivered by belt). The jump burns all their fuel.
 
 Sectors with a threat are hostile: they send waves of enemies at every
 ship in them, the first 30 seconds after it arrives, then one every 45
 seconds, bigger each time and with heavier ships the higher the threat
 (drones, gunships, dreadnoughts). Enemies come in from one side, fly at
 the nearest building and shoot it; a building shot to pieces is gone, with
-nothing refunded, and a ship whose bridge falls is lost (with every ship,
+nothing refunded, except an engine, which is knocked offline (taking no
+fuel, and keeping the ship from jumping) until it mends; and a ship whose
+bridge falls is lost (with every ship,
 the game: the last save stays as it was, to try again from). Turrets fight
 back while they have ammunition, delivered by belt: the autocannon fires
 slug magazines fast and short, the railgun (from the "Frontier" milestone)
@@ -107,7 +112,8 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
 - `items/<ItemId>.png` — the icon of every item, buildings included
   (square), shown in the palette, cargo, crafting panels and pickers.
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
-  plus `buildings/Bridge.png`. Its shape is the building's footprint (2:3
+  plus `buildings/Bridge.png` and `buildings/Hull.png` (one cell of
+  hull). Its shape is the building's footprint (2:3
   for the 2x3 ion thruster, 1:1 for a 2x2 collector), drawn facing
   **North**; the game turns belts to face the way they point.
 
@@ -145,19 +151,17 @@ read stays in the list, greyed out, with the reason in its tooltip.
 
 Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
 and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
-A copy holds the hull in the box (plain and reinforced) and the buildings
-on it with their settings — machine recipes, collector targets and sorter
-filters — but never the items in them. A building partly inside the box
-comes whole, with the hull under it; the bridge never comes. R turns a
-copy while pasting (not one with an ion thruster in it, which doesn't
-turn).
+A copy holds the buildings in the box with their settings — machine
+recipes, collector targets and sorter filters — but never the items in
+them, nor the hull (the ship's layout fixes that). A building partly inside
+the box comes whole; the bridge and the engines never come. R turns a copy
+while pasting.
 
-Pasting is all or nothing: hull goes down first, then the buildings, and
-only if every piece fits and the bridge has everything it takes; otherwise
-nothing changes, the pieces in the way show red, and the message says
-what's missing. Hull or an identical building already in place counts as
-done and costs nothing; reinforced hull pasted over plain hull upgrades it.
-A recipe not unlocked yet is left unset.
+Pasting is all or nothing: the buildings go down only if every one fits,
+on hull, and the bridge has everything it takes; otherwise nothing
+changes, the pieces in the way show red, and the message says what's
+missing. An identical building already in place counts as done and costs
+nothing. A recipe not unlocked yet is left unset.
 
 The Blueprints window (B) keeps copies by name, in a library every game
 shares, in the `blueprints/` folder next to `saves/` (see Saves). Each
@@ -179,8 +183,8 @@ clipboard. A library file holds exactly that text.
   pick a machine's recipe, a collector's target or a sorter's item. New
   machines, collectors and sorters start with the settings last picked for
   their kind.
-- **Right click / drag**: remove buildings and refund them; a second press
-  removes the bare hull underneath.
+- **Right click / drag**: remove buildings and refund them (not the bridge
+  or the engines, which are part of the ship's layout).
 - **Shift + right click a building**: copy its settings (recipe, target or
   filter). **Shift + left click / drag**: paste them onto each building
   that can take them.
@@ -223,16 +227,18 @@ One directory per layer under `src/`; includes name their layer
     collectors' rates and buffers (`CollectorSpec`), belts (`Conveyor`),
     machines and their recipes, the `make_building` factory and
     `Inventory` (the bridge's, and building buffers).
-  - `ship.h/.cpp` — `Ship`: the build grid (hull, and buildings stored at
-    their top-left cell), placement / removal rules, the starting ship, and
-    moving items between neighboring buildings each tick; the yields of the
-    sector it's in, which its collectors gather at.
+  - `ship.h/.cpp` — `Ship`: the build grid (its layout's hull, and
+    buildings stored at their top-left cell), placement / removal rules,
+    the starting ship, and moving items between neighboring buildings each
+    tick; the yields of the sector it's in, which its collectors gather at.
+  - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
+    hull, bridge and engines, its cost, and the milestone that unlocks it.
   - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, threat,
     what the player knows of each) and generating it from a seed.
   - `rng.h` — `Rng`: a small random number generator whose whole state is
     one number, so saves keep it.
-  - `blueprint.h/.cpp` — `Blueprint`: copying part of a ship (hull,
-    buildings and their settings), turning it, and pasting it all or
+  - `blueprint.h/.cpp` — `Blueprint`: copying part of a ship (buildings
+    and their settings), turning it, and pasting it all or
     nothing (each piece checked by `Ship::can_place` against the ones
     before it, `PlannedChanges`).
   - `milestones.h/.cpp` — the milestones (what to deliver, what each
@@ -240,7 +246,7 @@ One directory per layer under `src/`; includes name their layer
     shares one), which gates hand-crafting and machine recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
-    launching a new ship from a starter pack, and cargo pods in flight
+    building a new ship in a layout, and cargo pods in flight
     between ships (`Transfer`).
   - `combat.h/.cpp` — enemies (`Enemy`, `EnemySpec`), the waves hostile
     sectors send, and the fight on a ship's grid (`Battle`, `combat_tick`)

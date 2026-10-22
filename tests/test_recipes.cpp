@@ -24,7 +24,7 @@ void test_names_and_categories() {
     for (const Recipe& r : all_recipes())
         assert(std::strcmp(recipe_name(r), "?") != 0);
 
-    assert(item_category(ItemKind::Hull) == ItemCategory::Placeable);
+    assert(item_category(ItemKind::TransportBelt) == ItemCategory::Placeable);
     assert(item_category(ItemKind::IonThruster) == ItemCategory::Placeable);
     assert(item_category(ItemKind::IronOre) == ItemCategory::RawResource);
     assert(item_category(ItemKind::IridiumOre) == ItemCategory::RawResource);
@@ -35,7 +35,7 @@ void test_names_and_categories() {
 }
 
 // Every item can be made, starting from what the collectors gather (raw
-// resources).
+// resources); all but the layout's parts, which come with a ship.
 void test_everything_reachable() {
     std::array<bool, kItemKindCount> have{};
     for (int i = 0; i < kItemKindCount; ++i)
@@ -55,9 +55,9 @@ void test_everything_reachable() {
         }
     }
     for (int i = 0; i < kItemKindCount; ++i) {
-        if (!have[static_cast<std::size_t>(i)])
+        if (!have[static_cast<std::size_t>(i)] && !is_layout_part(item(i)))
             std::printf("unreachable: %s\n", item_name(item(i)));
-        assert(have[static_cast<std::size_t>(i)]);
+        assert(have[static_cast<std::size_t>(i)] != is_layout_part(item(i)));
     }
 }
 
@@ -151,10 +151,10 @@ void test_machines() {
     assert(refinery_m->crafting_speed() == 2 && solar_m->crafting_speed() == 1);
     assert(dynamic_cast<const Machine*>(make_building(ItemKind::Junction, Direction::North).get()) == nullptr);
 
-    // Every placeable building kind can be made.
+    // Every building kind can be made, the layout's engines included.
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = item(i);
-        if (!is_placeable(kind) || kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull)
+        if (!is_building(kind))
             continue;
         const auto b = make_building(kind, Direction::East);
         assert(b->item_kind() == kind);

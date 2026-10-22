@@ -12,6 +12,7 @@
 #include "sim/combat.h"
 #include "sim/fleet.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include "imgui.h"
@@ -74,9 +75,8 @@ bool ChordPressed(ImGuiKeyChord chord) {
 
 // What the player is about to build. UI-only: the simulation never sees it.
 struct BuildUiState {
-    std::optional<ItemKind> selected = ItemKind::Hull;  // nullopt: nothing, clicks only inspect
+    std::optional<ItemKind> selected;     // nullopt: nothing, clicks only inspect
     Direction facing = Direction::North;  // for rotatable buildings
-    bool erase_hull = false;              // this right-drag removes hull, not buildings
     std::string message;                  // why the last click did nothing
     ImVec4 message_color = theme::kBad;
     double message_time = -1.0e9;         // ImGui::GetTime() when it was set
@@ -97,7 +97,7 @@ BuildUiState g_build;
 // A machine's recipe, a collector's target or a sorter's filter: what a
 // building of that kind is set to do.
 struct BuildingSettings {
-    ItemKind kind = ItemKind::Hull;  // the building they came from
+    ItemKind kind = ItemKind::TransportBelt;  // the building they came from
     const Recipe* recipe = nullptr;
     std::optional<ItemKind> target;
     std::optional<ItemKind> filter;
@@ -178,6 +178,10 @@ struct FleetUiState {
     bool show_send = false;
     int send_to = 0;
     std::vector<ItemStack> cargo;
+    // The Build a new ship window, and the layout picked in it (an index
+    // into all_layouts()).
+    bool show_build = false;
+    std::size_t build_layout = 0;
 };
 FleetUiState g_fleet;
 
@@ -313,9 +317,6 @@ std::string BlueprintSummary(const Blueprint& blueprint) {
 // Everything pasting it takes from the inventory, on bare space.
 Inventory BlueprintCost(const Blueprint& blueprint) {
     Inventory cost;
-    for (const std::optional<ItemKind>& tile : blueprint.hull)
-        if (tile)
-            cost.add(*tile);
     for (const BlueprintBuilding& b : blueprint.buildings)
         cost.add(b.kind);
     return cost;
@@ -619,7 +620,7 @@ struct Icon {
         Bridge,
     };
     Type type = Type::None;
-    ItemKind item = ItemKind::Hull;
+    ItemKind item = ItemKind::TransportBelt;
 };
 
 Icon ItemIcon(ItemKind kind) {
@@ -1191,9 +1192,13 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         const std::string fuel = Fraction(thruster->get_fuel(), kThrusterCharge) + " fuel cells";
         ImGui::ProgressBar(static_cast<float>(thruster->get_fuel()) / static_cast<float>(kThrusterCharge),
                            ImVec2(bar_w, 0.0f), fuel.c_str());
-        ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
-                           thruster->charged() ? "Charged: ready to jump (see the map, M)"
-                                               : "Belt fuel cells into it to charge it");
+        if (thruster->offline())
+            ImGui::TextColored(theme::kBad, "Knocked offline: it takes no fuel until it mends");
+        else
+            ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
+                               thruster->charged() ? "Charged: ready to jump (see the map, M)"
+                                                   : "Belt fuel cells into it to charge it");
+        ImGui::TextColored(theme::kTextDim, "Part of the ship's layout: it can't be removed");
     }
     if (kind == ItemKind::SurveyScanner)
         ImGui::TextColored(theme::kTextDim, "Surveys the sectors next to the ship's");
@@ -1337,14 +1342,14 @@ std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current) 
         bool any = false;
         for (int i = 0; i < kItemKindCount && !any; ++i) {
             const ItemKind kind = static_cast<ItemKind>(i);
-            any = item_category(kind) == category && ComboSearchMatches(item_name(kind));
+            any = item_category(kind) == category && !is_layout_part(kind) && ComboSearchMatches(item_name(kind));
         }
         if (!any)
             continue;
         ComboSearchHeading(CategoryName(category));
         for (int i = 0; i < kItemKindCount; ++i) {
             const ItemKind kind = static_cast<ItemKind>(i);
-            if (item_category(kind) != category || !ComboSearchShows(item_name(kind)))
+            if (item_category(kind) != category || is_layout_part(kind) || !ComboSearchShows(item_name(kind)))
                 continue;
             ImGui::PushID(i);
             if (ComboSearchOption(ItemIcon(kind), current == kind))
@@ -1533,7 +1538,9 @@ void DrawFleetStrip(World& world) {
                 std::snprintf(f.rename, sizeof f.rename, "%s", s->name.c_str());
                 f.focus_rename = true;
             }
-            ImGui::SetItemTooltip("%s, in %s%s\nDouble-click to rename", s->name.c_str(), sector.name.c_str(),
+            const ShipLayout* layout = s->ship.get_layout();
+            ImGui::SetItemTooltip("%s, a %s, in %s%s\nDouble-click to rename", s->name.c_str(),
+                                  layout ? layout->name : "ship", sector.name.c_str(),
                                   attacked ? "\nUnder attack!" : "");
         }
         ImGui::PopID();
@@ -1557,22 +1564,15 @@ void CycleShip(const Fleet& fleet, int step) {
         }
 }
 
-// The fleet, in the right panel: launching a new ship, sending cargo, and
+// The fleet, in the right panel: building a new ship, sending cargo, and
 // the cargo on its way to or from the ship shown.
 void DrawFleetSection(World& world, const FleetShip& current) {
     Fleet& fleet = world.get_fleet();
     if (!theme::CollapsingSection("Fleet"))
         return;
-    const FleetResult launch = fleet.can_launch(current.id);
-    ImGui::BeginDisabled(launch != FleetResult::Ok);
-    if (ImGui::Button("Launch a new ship", ImVec2(-1.0f, 0.0f))) {
-        int id = 0;
-        if (fleet.launch(current.id, &id) == FleetResult::Ok)
-            SetMessage("Launched " + fleet.find(id)->name + ": its tab is above the grid", theme::kGood);
-    }
-    ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", launch == FleetResult::Ok ? "Uses one ship starter pack from this bridge"
-                                                          : describe(launch));
+    if (ImGui::Button("Build a new ship...", ImVec2(-1.0f, 0.0f)))
+        g_fleet.show_build = true;
+    ImGui::SetItemTooltip("Pick a layout; it takes a ship starter pack and the layout's cost from this bridge");
     if (ImGui::Button("Send cargo...", ImVec2(-1.0f, 0.0f)))
         g_fleet.show_send = true;
     ImGui::SetItemTooltip("Send items from this bridge to another ship's, in cargo pods (%d items a pod)",
@@ -1686,6 +1686,98 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
     ImGui::EndDisabled();
     if (result != FleetResult::Ok)
         ImGui::TextColored(theme::kTextDim, "%s", to ? describe(result) : "Pick a ship to send to");
+    ImGui::End();
+}
+
+// A small picture of `layout` filling `size` from the cursor: its hull, its
+// bridge and its engines.
+void DrawLayoutPreview(const ShipLayout& layout, ImVec2 size) {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(size);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(min, ImVec2(min.x + size.x, min.y + size.y), theme::U32(theme::kInset));
+    const GridSize bounds = layout_bounds(layout);
+    const float cell = std::min(size.x / static_cast<float>(bounds.w + 2), size.y / static_cast<float>(bounds.h + 2));
+    const ImVec2 origin(min.x + (size.x - cell * static_cast<float>(bounds.w)) * 0.5f,
+                        min.y + (size.y - cell * static_cast<float>(bounds.h)) * 0.5f);
+    const auto box = [&](GridPos at, GridSize s, ImVec4 color) {
+        const ImVec2 a(origin.x + static_cast<float>(at.x) * cell, origin.y + static_cast<float>(at.y) * cell);
+        draw->AddRectFilled(a, ImVec2(a.x + static_cast<float>(s.w) * cell, a.y + static_cast<float>(s.h) * cell),
+                            theme::U32(color));
+    };
+    for (const HullRect& r : layout.hull)
+        box(r.at, r.size, theme::kTileHull);
+    box(layout.bridge, {kBridgeSize, kBridgeSize}, theme::kTileBridge);
+    for (const GridPos e : layout.engines)
+        box(e, footprint_of(ItemKind::IonThruster), theme::kTileSystem);
+}
+
+// The Build a new ship window: every layout, the one picked drawn with what
+// it costs, and building it from the bridge of the ship shown.
+void DrawBuildShipWindow(World& world, FleetShip& current) {
+    FleetUiState& f = g_fleet;
+    if (!f.show_build)
+        return;
+    Fleet& fleet = world.get_fleet();
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 20.0f, 0.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (!ImGui::Begin("Build a new ship", &f.show_build, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    const std::vector<ShipLayout>& layouts = all_layouts();
+    const Progress& progress = fleet.get_progress();
+    f.build_layout = std::min(f.build_layout, layouts.size() - 1);
+    for (std::size_t i = 0; i < layouts.size(); ++i) {
+        const ShipLayout& l = layouts[i];
+        const bool unlocked = layout_unlocked(l, progress);
+        ImGui::PushID(static_cast<int>(i));
+        if (!unlocked)
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::kTextDim);
+        if (ImGui::Selectable(l.name, f.build_layout == i))
+            f.build_layout = i;
+        if (!unlocked) {
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kTextDim, "(unlocks at %s)", all_milestones()[*l.milestone].name);
+        }
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+
+    const ShipLayout& layout = layouts[f.build_layout];
+    DrawLayoutPreview(layout, ImVec2(ImGui::GetContentRegionAvail().x, fh * 8.0f));
+    const GridSize bounds = layout_bounds(layout);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(theme::kTextDim, "%s", layout.description);
+    ImGui::PopTextWrapPos();
+    ImGui::Text("%dx%d, %d hull tiles, %zu ion thrusters", bounds.w, bounds.h, layout_hull_count(layout),
+                layout.engines.size());
+
+    // What it costs, against what this bridge has.
+    const Inventory& inv = current.ship.inventory();
+    ImGui::TextColored(theme::kTextDim, "Costs (from %s)", current.name.c_str());
+    std::vector<ItemStack> cost = layout.cost;
+    cost.insert(cost.begin(), {ItemKind::ShipStarterPack, 1});
+    for (const ItemStack& s : cost) {
+        const int have = inv.count(s.kind);
+        AmountLine(ItemIcon(s.kind), Fraction(have, s.count), have >= s.count ? theme::kText : theme::kBad, true);
+    }
+
+    const FleetResult result = fleet.can_launch(current.id, layout);
+    ImGui::BeginDisabled(result != FleetResult::Ok);
+    if (theme::PrimaryButton("Build", ImVec2(-1.0f, 0.0f))) {
+        int id = 0;
+        if (fleet.launch(current.id, layout, &id) == FleetResult::Ok) {
+            SetMessage("Built " + fleet.find(id)->name + ", a " + layout.name + ": its tab is above the grid",
+                       theme::kGood);
+            f.show_build = false;
+        }
+    }
+    ImGui::EndDisabled();
+    if (result != FleetResult::Ok)
+        ImGui::TextColored(theme::kTextDim, "%s", describe(result));
     ImGui::End();
 }
 
@@ -1899,16 +1991,14 @@ void DrawToast(ImVec2 grid_min, ImVec2 grid_size, float above) {
                   build.message.c_str(), nullptr, wrap);
 }
 
-// A hull tile (`kind`: Hull or ReinforcedHull) over `min`..`max`: its sprite,
-// or flat `hull` / `reinforced`, also when zoomed out too far for the sprite
-// to read.
-void DrawHull(ImDrawList* draw, ItemKind kind, ImVec2 min, ImVec2 max, float cell, float alpha, ImU32 hull,
-              ImU32 reinforced) {
-    const sprites::Sprite* sprite = sprites::Building(kind);
+// A hull cell over `min`..`max`: its sprite, or flat `hull`, also when
+// zoomed out too far for the sprite to read.
+void DrawHull(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ImU32 hull) {
+    const sprites::Sprite* sprite = sprites::Hull();
     if (sprite && cell >= 8.0f)
-        DrawSprite(draw, *sprite, min, max, Direction::North, alpha);
+        DrawSprite(draw, *sprite, min, max, Direction::North, 1.0f);
     else
-        draw->AddRectFilled(min, max, kind == ItemKind::ReinforcedHull ? reinforced : hull);
+        draw->AddRectFilled(min, max, hull);
 }
 
 // Amber brackets round the corners of `min`..`max`, marking the building
@@ -1939,11 +2029,10 @@ bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
     const float min_cell = std::min(canvas_size.x, canvas_size.y) / static_cast<float>(n);
     const float max_cell = std::max(min_cell, ImGui::GetFrameHeight() * 3.0f);
     if (!cam.placed) {
-        // The bridge sits in the middle of the grid.
+        // Every layout is centered on the grid.
         cam.cell = std::clamp(ImGui::GetFrameHeight(), min_cell, max_cell);
-        const float bridge_half = static_cast<float>(kBridgeSize) * 0.5f;
-        const ImVec2 center((static_cast<float>(kStartBridgePos.x) + bridge_half) * cam.cell,
-                            (static_cast<float>(kStartBridgePos.y) + bridge_half) * cam.cell);
+        const float half = static_cast<float>(n) * 0.5f * cam.cell;
+        const ImVec2 center(half, half);
         cam.offset = ImVec2(canvas_size.x * 0.5f - center.x, canvas_size.y * 0.5f - center.y);
         cam.placed = true;
     }
@@ -2019,15 +2108,7 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
             continue;
         const ImVec2 min = CellMin(origin, cell, e.at);
         const ImU32 bad = theme::U32(e.result == BuildResult::NoneInInventory ? theme::kWarn : theme::kBad);
-        if (!e.building) {
-            const ImVec2 max(min.x + cell, min.y + cell);
-            DrawHull(draw, e.kind, min, max, cell, 0.5f, theme::U32(theme::kTileHull, 0.5f),
-                     theme::U32(theme::kTileReinforcedHull, 0.5f));
-            if (e.result != BuildResult::Ok)
-                draw->AddRect(min, max, bad, 0.0f, 0, 1.5f);
-            continue;
-        }
-        const BlueprintBuilding& b = blueprint.buildings[*e.building];
+        const BlueprintBuilding& b = blueprint.buildings[e.building];
         const GridSize size = footprint_of(b.kind, b.facing);
         const ImVec2 max = FootprintMax(min, cell, size);
         DrawBuilding(draw, min, cell, size, b.kind, b.facing, 0.45f);
@@ -2321,13 +2402,8 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             BuildDrag(ship, *hover_cell);
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-            // One layer per press, picked where it starts: on a building it
-            // only removes buildings, so a second press takes the hull.
             const bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
-            if (clicked)
-                g_build.erase_hull = ship.building_at(*hover_cell) == nullptr;
-            const BuildResult r =
-                g_build.erase_hull ? ship.remove_hull(*hover_cell) : ship.remove_building(*hover_cell);
+            const BuildResult r = ship.remove_building(*hover_cell);
             if (r != BuildResult::Ok && clicked)
                 SetBuildMessage(r);
         }
@@ -2345,7 +2421,6 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     const ImU32 grid_line = theme::U32(theme::kGridLine);
     const ImU32 grid_major = theme::U32(theme::kGridMajor);
     const ImU32 hull = theme::U32(theme::kTileHull);
-    const ImU32 reinforced = theme::U32(theme::kTileReinforcedHull);
     // The grid's space a shade lighter than the void around it, then the
     // grid as whole lines (one per row / column, not an outline per cell:
     // the grid is large), a brighter one every kGridMajorEvery cells like a
@@ -2371,9 +2446,9 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     for (int y = lo.y; y <= hi.y; ++y) {
         for (int x = lo.x; x <= hi.x; ++x) {
             const GridPos p{x, y};
-            if (const std::optional<ItemKind> tile = ship.hull_at(p)) {
+            if (ship.has_hull(p)) {
                 const ImVec2 min = CellMin(origin, cell, p);
-                DrawHull(draw, *tile, min, ImVec2(min.x + cell, min.y + cell), cell, 1.0f, hull, reinforced);
+                DrawHull(draw, min, ImVec2(min.x + cell, min.y + cell), cell, hull);
             }
         }
     }
@@ -2385,7 +2460,10 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
         for (int x = std::max(0, lo.x - (kMaxFootprint - 1)); x <= hi.x; ++x)
             if (const Building* b = ship.building_anchored_at({x, y})) {
                 const ImVec2 min = CellMin(origin, cell, {x, y});
-                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), 1.0f);
+                // An engine knocked offline, dimmed till it mends.
+                const auto* thruster = dynamic_cast<const Thruster*>(b);
+                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(),
+                             thruster && thruster->offline() ? 0.4f : 1.0f);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 if (const auto* collector = dynamic_cast<const Collector*>(b))
                     DrawBufferGauge(draw, min, max, cell,
@@ -2447,13 +2525,8 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
             const ImVec2 max = FootprintMax(min, cell, size);
             const BuildResult r = ship.can_place(*selected, *hover_cell, g_build.facing);
             draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
-            if (r == BuildResult::Ok) {
-                if (*selected == ItemKind::Hull || *selected == ItemKind::ReinforcedHull)
-                    DrawHull(draw, *selected, min, max, cell, 0.6f, theme::U32(theme::kTileHull, 0.6f),
-                             theme::U32(theme::kTileReinforcedHull, 0.6f));
-                else
-                    DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f);
-            }
+            if (r == BuildResult::Ok)
+                DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f);
             draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
             draw->PopClipRect();
         }
@@ -2560,9 +2633,12 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
         const std::vector<const Thruster*> thrusters = current.ship.thrusters();
         const auto charged = std::count_if(thrusters.begin(), thrusters.end(),
                                            [](const Thruster* t) { return t->charged(); });
-        const int needed = thrusters_needed(current.ship.hull_count());
-        ImGui::TextColored(theme::kTextDim, "%s's ion thrusters: %d of %zu charged, %d needed", current.name.c_str(),
-                           static_cast<int>(charged), thrusters.size(), needed);
+        const auto offline = std::count_if(thrusters.begin(), thrusters.end(),
+                                           [](const Thruster* t) { return t->offline(); });
+        ImGui::TextColored(theme::kTextDim, "%s's ion thrusters: %d of %zu charged", current.name.c_str(),
+                           static_cast<int>(charged), thrusters.size());
+        if (offline > 0)
+            ImGui::TextColored(theme::kBad, "%d knocked offline", static_cast<int>(offline));
         const JumpResult can = world.can_jump(current.id, index);
         ImGui::BeginDisabled(can != JumpResult::Ok);
         if (theme::PrimaryButton("Jump here", ImVec2(-1.0f, 0.0f)) &&
@@ -3321,7 +3397,7 @@ void DrawKeysWindow() {
     } rows[] = {
         {"LMB / drag", "Build the selected item; belts face the way you drag"},
         {"LMB a building", "Inspect it: a machine's recipe, a collector's target, a sorter's filter"},
-        {"RMB / drag", "Remove buildings (refunded); again for the bare hull"},
+        {"RMB / drag", "Remove buildings (refunded)"},
         {"Shift+RMB", "Copy a building's settings"},
         {"Shift+LMB / drag", "Paste them onto buildings that can take them"},
         {"Wheel", "Zoom"},
@@ -3352,7 +3428,7 @@ void DrawKeysWindow() {
     ImGui::PushTextWrapPos(fh * 20.0f);
     ImGui::TextColored(theme::kTextDim,
                        "New machines, collectors and sorters start with the settings last picked for their kind. "
-                       "Everything but hull needs a hull tile under it; the largest buildings need reinforced hull.");
+                       "Buildings go on the ship's hull, which its layout fixes, with its bridge and engines.");
     ImGui::PopTextWrapPos();
     ImGui::End();
 }
@@ -3404,6 +3480,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             LeaveBlueprintTool();
         else if (g_fleet.show_send)
             g_fleet.show_send = false;
+        else if (g_fleet.show_build)
+            g_fleet.show_build = false;
         else if (g_build.inspected) {
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -3455,15 +3533,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             const bool back = ImGui::GetIO().KeyShift;
             if (bp.tool != Tool::Paste || !bp.held) {
                 g_build.facing = back ? rotated_ccw(g_build.facing) : rotated_cw(g_build.facing);
-            } else if (can_rotate(*bp.held)) {
+            } else {
                 for (int turns = back ? 3 : 1; turns > 0; --turns)
                     bp.held = rotated_cw(*bp.held);
-            } else {
-                for (const BlueprintBuilding& b : bp.held->buildings)
-                    if (!is_rotatable(b.kind) && footprint_of(b.kind).w != footprint_of(b.kind).h) {
-                        SetMessage(std::string(item_name(b.kind)) + " can't be turned, so this can't either");
-                        break;
-                    }
             }
         }
         if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
@@ -3517,6 +3589,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
+        DrawBuildShipWindow(world, shown);
         DrawKeysWindow();
     }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
@@ -3548,7 +3621,7 @@ namespace {
 
 // The debug menu's item cheat: what to give, and how many.
 struct DebugGiveState {
-    ItemKind kind = ItemKind::Hull;
+    ItemKind kind = ItemKind::TransportBelt;
     int count = 100;
     char search[64] = {};
 };
@@ -3608,7 +3681,7 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
             bool first = true;
             for (int i = 0; i < kItemKindCount; ++i) {
                 const ItemKind kind = static_cast<ItemKind>(i);
-                if (!ContainsIgnoringCase(item_name(kind), give.search))
+                if (is_layout_part(kind) || !ContainsIgnoringCase(item_name(kind), give.search))
                     continue;
                 ImGui::PushID(i);
                 if (ImGui::Selectable(item_name(kind), kind == give.kind) || (enter && first)) {
@@ -3638,7 +3711,8 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
         ImGui::SameLine();
         if (ImGui::Button("Give every item"))
             for (int i = 0; i < kItemKindCount; ++i)
-                inventory.add(static_cast<ItemKind>(i), give.count);
+                if (!is_layout_part(static_cast<ItemKind>(i)))
+                    inventory.add(static_cast<ItemKind>(i), give.count);
         ImGui::TextDisabled("In %s's bridge: %d", current.name.c_str(), inventory.count(give.kind));
 
         ImGui::SeparatorText("Travel");

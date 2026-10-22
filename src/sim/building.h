@@ -1,4 +1,4 @@
-// building.h — everything that stands on a hull tile, as a class hierarchy,
+// building.h — everything that stands on the hull, as a class hierarchy,
 // plus the bridge's Inventory and hand-crafting queue.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
@@ -14,7 +14,8 @@
 //   ├── CargoHold    item storage
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── PowerPlant   solar panel / array, battery bank
-//   ├── Thruster     ion thruster: charged with fuel cells for a jump
+//   ├── Thruster     ion thruster (part of the ship's layout): charged with
+//   │                fuel cells for a jump
 //   ├── Turret       autocannon, railgun: fire the ammunition belts bring
 //   └── ShipSystem   survey scanner
 //
@@ -62,14 +63,12 @@ public:
     bool take(const std::vector<ItemStack>& stacks);
 };
 
-// The footprint a building of this kind will have when facing `facing`
-// (1x1 for hull). Rotatable buildings that aren't square turn with it: a
+// The footprint a building of this kind will have when facing `facing`.
+// Rotatable buildings that aren't square turn with it: a
 // 2x1 one facing north or south would be 1x2 facing east or west.
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
-// The large late-game buildings that need reinforced hull under them.
-bool needs_reinforced_hull(ItemKind kind);
 // The damage a building of this kind takes before it's destroyed (nullopt:
 // the bridge).
 int max_hp_of(std::optional<ItemKind> kind);
@@ -472,7 +471,9 @@ constexpr int kThrusterCharge = 10;
 
 // The ion thruster: takes fuel cells from belts until charged. A jump
 // needs every thruster on the ship charged, and uses it all (see
-// World::jump).
+// World::jump). Thrusters come with the ship's layout: they can't be
+// removed, and one shot down to 0 isn't destroyed but knocked offline,
+// taking no fuel and not counting for a jump until it mends.
 class Thruster : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -484,12 +485,14 @@ private:
 public:
     Thruster() : Building(ItemKind::IonThruster, Direction::North, footprint_of(ItemKind::IonThruster)) {}
 
+    bool removable() const override { return false; }
     int get_fuel() const { return fuel; }
     bool charged() const { return fuel >= kThrusterCharge; }
+    bool offline() const { return get_hp() == 0; }
     // Burns all its fuel (a jump).
     void burn() { fuel = 0; }
     std::vector<ItemStack> contents() const override;
-    bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged(); }
+    bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged() && !offline(); }
     void receive(ItemKind) override { ++fuel; }
 };
 
@@ -557,6 +560,6 @@ public:
 bool machine_crafts(ItemKind kind, CraftCategory category);
 int machine_crafting_speed(ItemKind kind);
 
-// A new building of the given kind (any placeable kind but the hull ones,
-// which are not buildings). `facing` only matters for rotatable kinds.
+// A new building of the given kind (any is_building kind, the layout parts
+// included). `facing` only matters for rotatable kinds.
 std::unique_ptr<Building> make_building(ItemKind kind, Direction facing);

@@ -10,7 +10,6 @@ namespace {
 // line: collectors feeding furnaces, belts back to the bridge, and a few
 // plates to hand-craft the first gears and circuits; the rest is built).
 constexpr ItemStack kStartInventory[] = {
-    {ItemKind::Hull, 100},
     {ItemKind::TransportBelt, 60},
     {ItemKind::CargoHold, 1},
     {ItemKind::AsteroidCollector, 2},
@@ -20,11 +19,6 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::CopperPlate, 10},
 };
 
-// What a launched ship's bridge starts with (the starter pack's hull).
-constexpr ItemStack kLaunchedInventory[] = {
-    {ItemKind::Hull, 40},
-};
-
 }  // namespace
 
 const char* describe(BuildResult result) {
@@ -32,13 +26,10 @@ const char* describe(BuildResult result) {
     case BuildResult::Ok:               return "Ok";
     case BuildResult::OutOfBounds:      return "Outside the build grid";
     case BuildResult::NoHull:           return "Needs hull under every tile";
-    case BuildResult::NeedsReinforcedHull: return "Needs reinforced hull under every tile";
-    case BuildResult::HullAlreadyThere: return "Already hull there";
     case BuildResult::Occupied:         return "Something is already built there";
     case BuildResult::NoneInInventory:  return "None left in the bridge inventory";
     case BuildResult::NothingThere:     return "Nothing to remove there";
-    case BuildResult::NotRemovable:     return "The bridge can't be removed";
-    case BuildResult::HullNotEmpty:     return "Remove the building on it first";
+    case BuildResult::NotRemovable:     return "Part of the ship's layout: it can't be removed";
     }
     return "?";
 }
@@ -56,7 +47,7 @@ auto& at(Grid& grid, GridPos p) {
 }  // namespace
 
 Ship::Ship()
-    : hull(kGridSize, std::vector<std::optional<ItemKind>>(kGridSize)),
+    : hull(kGridSize, std::vector<char>(kGridSize)),
       buildings(kGridSize),
       anchor(kGridSize, std::vector<std::optional<GridPos>>(kGridSize)) {
     // unique_ptr rows can't be copied from a prototype row like the others.
@@ -64,33 +55,30 @@ Ship::Ship()
         row.resize(kGridSize);
 }
 
-Ship Ship::with_hull_patch(int side) {
-    Ship ship;
-    const int lo = (kShipGridSize - side) / 2;
-    for (int y = lo; y < lo + side; ++y)
-        for (int x = lo; x < lo + side; ++x)
-            at(ship.hull, {x, y}) = ItemKind::Hull;
+void Ship::set_hull(const ShipLayout& ship_layout) {
+    layout = &ship_layout;
+    const GridPos origin = layout_origin(ship_layout);
+    const GridSize size = layout_bounds(ship_layout);
+    for (int y = 0; y < size.h; ++y)
+        for (int x = 0; x < size.w; ++x)
+            if (layout_has_hull(ship_layout, {x, y}))
+                at(hull, {origin.x + x, origin.y + y}) = 1;
+}
 
+Ship Ship::from_layout(const ShipLayout& ship_layout) {
+    Ship ship;
+    ship.set_hull(ship_layout);
     auto bridge = std::make_unique<Bridge>();
     ship.bridge = bridge.get();
-    ship.add_building(kStartBridgePos, std::move(bridge));
+    ship.add_building(layout_to_grid(ship_layout, ship_layout.bridge), std::move(bridge));
+    for (const GridPos e : ship_layout.engines)
+        ship.add_building(layout_to_grid(ship_layout, e), make_building(ItemKind::IonThruster, Direction::North));
     return ship;
 }
 
 Ship Ship::new_game() {
-    static_assert(kStartHullSide >= kBridgeSize && (kStartHullSide - kBridgeSize) % 2 == 0,
-                  "the bridge sits in the middle of the starting hull");
-    Ship ship = with_hull_patch(kStartHullSide);
+    Ship ship = from_layout(starter_layout());
     for (const ItemStack& s : kStartInventory)
-        ship.inventory().add(s.kind, s.count);
-    return ship;
-}
-
-Ship Ship::new_launched() {
-    static_assert(kLaunchedHullSide >= kBridgeSize && (kLaunchedHullSide - kBridgeSize) % 2 == 0,
-                  "the bridge sits in the middle of a launched ship's hull");
-    Ship ship = with_hull_patch(kLaunchedHullSide);
-    for (const ItemStack& s : kLaunchedInventory)
         ship.inventory().add(s.kind, s.count);
     return ship;
 }
@@ -100,11 +88,7 @@ bool Ship::in_bounds(GridPos p) const {
 }
 
 bool Ship::has_hull(GridPos p) const {
-    return hull_at(p).has_value();
-}
-
-std::optional<ItemKind> Ship::hull_at(GridPos p) const {
-    return in_bounds(p) ? at(hull, p) : std::nullopt;
+    return in_bounds(p) && at(hull, p);
 }
 
 std::optional<GridPos> Ship::anchor_of(GridPos p) const {
@@ -153,7 +137,7 @@ void Ship::set_yields(const Yields& sector_yields) {
 int Ship::hull_count() const {
     int n = 0;
     for (const auto& row : hull)
-        for (const std::optional<ItemKind>& tile : row)
+        for (const char tile : row)
             n += tile ? 1 : 0;
     return n;
 }
@@ -197,51 +181,28 @@ Building* Ship::building_at_mut(GridPos p) {
 }
 
 BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing) const {
-    return can_place(kind, p, facing, PlannedChanges{{}, {}, inventory()});
+    return can_place(kind, p, facing, PlannedChanges{{}, inventory()});
 }
 
 BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const {
     assert(is_placeable(kind));
     // The grid as it will be once the planned changes are made.
-    const auto hull_will_be = [&](GridPos q) -> std::optional<ItemKind> {
-        if (!in_bounds(q))
-            return std::nullopt;
-        if (const auto it = planned.hull.find(PlannedChanges::cell_key(q)); it != planned.hull.end())
-            return it->second;
-        return at(hull, q);
-    };
     const auto occupied = [&](GridPos q) {
         return anchor_of(q).has_value() || planned.occupied.contains(PlannedChanges::cell_key(q));
     };
 
-    if (!in_bounds(p))
+    const GridSize size = footprint_of(kind, facing);
+    if (!in_bounds(p) || !in_bounds({p.x + size.w - 1, p.y + size.h - 1}))
         return BuildResult::OutOfBounds;
-    if (kind == ItemKind::Hull) {
-        if (hull_will_be(p))
-            return BuildResult::HullAlreadyThere;
-    } else if (kind == ItemKind::ReinforcedHull) {
-        // Plain hull can be upgraded in place.
-        if (hull_will_be(p) == ItemKind::ReinforcedHull)
-            return BuildResult::HullAlreadyThere;
-    } else {
-        const GridSize size = footprint_of(kind, facing);
-        if (!in_bounds({p.x + size.w - 1, p.y + size.h - 1}))
-            return BuildResult::OutOfBounds;
-        // Missing hull is reported before overlap: it's the first rule.
-        for (int y = p.y; y < p.y + size.h; ++y)
-            for (int x = p.x; x < p.x + size.w; ++x)
-                if (!hull_will_be({x, y}))
-                    return BuildResult::NoHull;
-        if (needs_reinforced_hull(kind))
-            for (int y = p.y; y < p.y + size.h; ++y)
-                for (int x = p.x; x < p.x + size.w; ++x)
-                    if (hull_will_be({x, y}) != ItemKind::ReinforcedHull)
-                        return BuildResult::NeedsReinforcedHull;
-        for (int y = p.y; y < p.y + size.h; ++y)
-            for (int x = p.x; x < p.x + size.w; ++x)
-                if (occupied({x, y}))
-                    return BuildResult::Occupied;
-    }
+    // Missing hull is reported before overlap: it's the first rule.
+    for (int y = p.y; y < p.y + size.h; ++y)
+        for (int x = p.x; x < p.x + size.w; ++x)
+            if (!has_hull({x, y}))
+                return BuildResult::NoHull;
+    for (int y = p.y; y < p.y + size.h; ++y)
+        for (int x = p.x; x < p.x + size.w; ++x)
+            if (occupied({x, y}))
+                return BuildResult::Occupied;
     if (planned.inventory.count(kind) <= 0)
         return BuildResult::NoneInInventory;
     return BuildResult::Ok;
@@ -254,12 +215,7 @@ BuildResult Ship::place(ItemKind kind, GridPos p, Direction facing) {
     const bool taken = inventory().take(kind);
     assert(taken);
     (void)taken;
-    if (kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull) {
-        if (const std::optional<ItemKind> old = at(hull, p))
-            inventory().add(*old);  // upgrading plain hull
-        at(hull, p) = kind;
-    } else
-        add_building(p, make_building(kind, facing));
+    add_building(p, make_building(kind, facing));
     return BuildResult::Ok;
 }
 
@@ -290,7 +246,7 @@ BuildResult Ship::remove_building(GridPos p) {
 }
 
 void Ship::destroy_building(GridPos a) {
-    assert(at(buildings, a).get() != bridge);
+    assert(at(buildings, a)->removable());
     take_building(a);
 }
 
@@ -300,19 +256,6 @@ void Ship::repair_all(int percent) {
         if (b.damaged())
             b.repair(std::max(1, b.max_hp() * percent / 100));
     }
-}
-
-BuildResult Ship::remove_hull(GridPos p) {
-    if (!in_bounds(p))
-        return BuildResult::OutOfBounds;
-    std::optional<ItemKind>& tile = at(hull, p);
-    if (!tile)
-        return BuildResult::NothingThere;
-    if (at(anchor, p))
-        return BuildResult::HullNotEmpty;
-    inventory().add(*tile);
-    tile.reset();
-    return BuildResult::Ok;
 }
 
 bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {

@@ -16,7 +16,7 @@
 //       "fleet": {
 //       "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
 //       "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
-//                    "ship": { "hull": [...], "buildings": [...] },
+//                    "ship": { "layout": "skiff", "buildings": [...] },
 //                    "battle": { "enemies": [...], "next_wave": null } } ],
 //       "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] } }
 //   }
@@ -32,9 +32,9 @@
 
 // The version write_save() writes; read_save() reads only this one. Bump it
 // when the format changes (or an item or recipe is renamed or removed, or a
-// building's footprint changes, which can leave saved ones overlapping or
-// off their hull).
-constexpr int kSaveVersion = 8;
+// building's footprint or a ship layout changes, which can leave saved ones
+// overlapping or off their hull).
+constexpr int kSaveVersion = 9;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

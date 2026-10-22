@@ -10,7 +10,8 @@
 // holds the reading and writing pieces shared with blueprints).
 //
 // Reading checks everything that could break the simulation's invariants
-// (ranges, known names, bounds, hull under buildings, overlaps, one bridge).
+// (ranges, known names, bounds, hull under buildings, overlaps, the bridge
+// and engines where the ship's layout has them).
 // A problem throws LoadError, or nlohmann's json::exception for a missing
 // key or a value of the wrong type; read_save() turns either into `error`.
 // A bad save never asserts.
@@ -24,6 +25,7 @@
 #include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <algorithm>
@@ -267,15 +269,9 @@ struct SaveAccess {
         }
     }
 
-    // The hull tiles, then every building in placement order (which is also
-    // the order they tick in).
+    // The layout (which the hull is), then every building in placement order
+    // (which is also the order they tick in), its bridge and engines included.
     static Json save_ship(const Ship& ship) {
-        Json tiles = Json::array();
-        for (int y = 0; y < kShipGridSize; ++y)
-            for (int x = 0; x < kShipGridSize; ++x)
-                if (const std::optional<ItemKind> tile = ship.hull_at({x, y}))
-                    tiles.push_back({{"x", x}, {"y", y}, {"kind", item_id(*tile)}});
-
         Json buildings = Json::array();
         for (const GridPos p : ship.placed) {
             const Building& b = *ship.building_anchored_at(p);
@@ -293,7 +289,7 @@ struct SaveAccess {
             save_state(j, b);
             buildings.push_back(std::move(j));
         }
-        return {{"hull", std::move(tiles)}, {"buildings", std::move(buildings)}};
+        return {{"layout", ship.layout->id}, {"buildings", std::move(buildings)}};
     }
 
     // Rebuilds the grids through Ship::add_building, so the anchor and
@@ -301,20 +297,22 @@ struct SaveAccess {
     // placement rules a game can't break. Its bridge follows `progress`.
     static Ship load_ship(const Json& j, const std::shared_ptr<Progress>& progress) {
         Ship ship;
-        for (const Json& t : load_array(j.at("hull"), "hull tiles")) {
-            const GridPos p{load_coord(t.at("x")), load_coord(t.at("y"))};
-            const ItemKind kind = load_item(t.at("kind"));
-            std::optional<ItemKind>& tile = ship.hull[static_cast<std::size_t>(p.y)][static_cast<std::size_t>(p.x)];
-            if (kind != ItemKind::Hull && kind != ItemKind::ReinforcedHull)
-                throw LoadError(std::string("not a hull tile: ") + item_id(kind));
-            if (tile)
-                throw LoadError("two hull tiles on one cell");
-            tile = kind;
-        }
+        const std::string id = load_string(j.at("layout"), "a ship layout");
+        const ShipLayout* layout = find_layout(id);
+        if (!layout)
+            throw LoadError("unknown ship layout: " + id);
+        ship.set_hull(*layout);
         for (const Json& b : load_array(j.at("buildings"), "buildings"))
             load_building(b, ship, progress);
-        if (!ship.bridge)
-            throw LoadError("the ship has no bridge");
+
+        // The bridge and every engine where the layout has them, and no others.
+        if (!ship.bridge || ship.building_anchored_at(layout_to_grid(*layout, layout->bridge)) != ship.bridge)
+            throw LoadError("the ship has no bridge where its layout has it");
+        for (const GridPos e : layout->engines)
+            if (!dynamic_cast<const Thruster*>(ship.building_anchored_at(layout_to_grid(*layout, e))))
+                throw LoadError("an engine missing from where the ship's layout has it");
+        if (ship.thrusters().size() != layout->engines.size())
+            throw LoadError("more engines than the ship's layout has");
         return ship;
     }
 
@@ -329,7 +327,7 @@ struct SaveAccess {
             b = std::move(bridge);
         } else {
             const ItemKind kind = load_item(kind_json);
-            if (!is_placeable(kind) || kind == ItemKind::Hull || kind == ItemKind::ReinforcedHull)
+            if (!is_building(kind))
                 throw LoadError(std::string("not a building: ") + item_id(kind));
             b = make_building(kind, load_direction(j.at("facing")));
         }
@@ -342,11 +340,9 @@ struct SaveAccess {
         const GridSize size = b->footprint();
         if (!ship.in_bounds({p.x + size.w - 1, p.y + size.h - 1}))
             throw LoadError("a building sticks out of the grid");
-        const bool reinforced = b->item_kind() && needs_reinforced_hull(*b->item_kind());
         for (int y = p.y; y < p.y + size.h; ++y)
             for (int x = p.x; x < p.x + size.w; ++x) {
-                const std::optional<ItemKind> tile = ship.hull_at({x, y});
-                if (!tile || (reinforced && tile != ItemKind::ReinforcedHull))
+                if (!ship.has_hull({x, y}))
                     throw LoadError("a building without the hull it needs under it");
                 if (ship.anchor_of({x, y}))
                     throw LoadError("buildings overlap");

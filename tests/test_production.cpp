@@ -3,6 +3,7 @@
 // they're aimed at, and refunding a buffer when the building comes off.
 #include "sim/building.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <cassert>
@@ -14,7 +15,8 @@ namespace {
 // On the starting hull, with room for a 2x2 building, diagonal from the
 // bridge's bottom-right corner (not beside it: it would hand its output to
 // the bridge).
-constexpr GridPos kOnHull{kStartBridgePos.x + kBridgeSize, kStartBridgePos.y + kBridgeSize};
+const GridPos kBridgePos = layout_to_grid(starter_layout(), starter_layout().bridge);
+const GridPos kOnHull{kBridgePos.x + kBridgeSize, kBridgePos.y + kBridgeSize};
 
 std::unique_ptr<Collector> make_collector(ItemKind kind) {
     std::unique_ptr<Building> b = make_building(kind, Direction::North);
@@ -100,7 +102,7 @@ void test_on_ship() {
     assert(c->get_target() == ItemKind::Carbon);
     assert(!ship.set_collector_target(kOnHull, ItemKind::IridiumOre));
     assert(c->get_target() == ItemKind::Carbon);
-    assert(!ship.set_collector_target(kStartBridgePos, ItemKind::Carbon));
+    assert(!ship.set_collector_target(kBridgePos, ItemKind::Carbon));
 
     const int items_before = ship.inventory().total() - ship.inventory().count(ItemKind::AsteroidCollector);
     const int collectors = ship.inventory().count(ItemKind::AsteroidCollector);

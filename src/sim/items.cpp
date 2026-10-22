@@ -4,8 +4,6 @@
 
 const char* item_name(ItemKind kind) {
     switch (kind) {
-    case ItemKind::Hull:              return "Hull";
-    case ItemKind::ReinforcedHull:    return "Reinforced hull";
     case ItemKind::TransportBelt:     return "Transport belt";
     case ItemKind::ExpressBelt:       return "Express belt";
     case ItemKind::BeltTunnel:        return "Belt tunnel";
@@ -58,8 +56,6 @@ const char* item_name(ItemKind kind) {
 // No default case, so a new ItemKind without an id is a -Wswitch error.
 const char* item_id(ItemKind kind) {
     switch (kind) {
-    case ItemKind::Hull:              return "Hull";
-    case ItemKind::ReinforcedHull:    return "ReinforcedHull";
     case ItemKind::TransportBelt:     return "TransportBelt";
     case ItemKind::ExpressBelt:       return "ExpressBelt";
     case ItemKind::BeltTunnel:        return "BeltTunnel";
@@ -111,7 +107,7 @@ const char* item_id(ItemKind kind) {
 
 ItemCategory item_category(ItemKind kind) {
     const int k = static_cast<int>(kind);
-    if (is_placeable(kind))
+    if (is_building(kind))
         return ItemCategory::Placeable;
     if (k < static_cast<int>(ItemKind::IronPlate))
         return ItemCategory::RawResource;

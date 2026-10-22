@@ -104,20 +104,6 @@ bool is_rotatable(ItemKind kind) {
     }
 }
 
-bool needs_reinforced_hull(ItemKind kind) {
-    switch (kind) {
-    case ItemKind::TractorArray:
-    case ItemKind::Refinery:
-    case ItemKind::FabricatorMk2:
-    case ItemKind::FabricatorMk3:
-    case ItemKind::SolarArray:
-    case ItemKind::Railgun:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool machine_crafts(ItemKind kind, CraftCategory category) {
     switch (kind) {
     case ItemKind::SolarFurnace:    return category == CraftCategory::Smelting;

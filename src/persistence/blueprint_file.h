@@ -4,9 +4,8 @@
 // A blueprint is one line of JSON, the string players export and import
 // (and the whole of a library file):
 //
-//   {"format":"ore-in-orbit-blueprint","version":1,"name":"Iron line",
+//   {"format":"ore-in-orbit-blueprint","version":2,"name":"Iron line",
 //    "width":4,"height":2,
-//    "hull":["HHRR",".HRR"],                     (. none, H hull, R reinforced)
 //    "buildings":[{"kind":"TransportBelt","x":0,"y":0,"facing":"East"},
 //                 {"kind":"SolarFurnace","x":2,"y":0,"facing":"North","recipe":"Iron plate"}]}
 //
@@ -28,8 +27,9 @@
 #include <string_view>
 #include <vector>
 
-// The version blueprint_to_string() writes; only this one is read.
-constexpr int kBlueprintVersion = 1;
+// The version blueprint_to_string() writes. It reads this one, and version
+// 1, which also had hull rows (left out: the hull is the ship's layout's).
+constexpr int kBlueprintVersion = 2;
 
 std::string blueprint_to_string(const Blueprint& blueprint);
 // On failure, `error` says why.

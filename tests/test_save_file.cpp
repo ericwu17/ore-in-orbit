@@ -7,6 +7,7 @@
 #include "sim/fleet.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include "nlohmann/json.hpp"
@@ -21,10 +22,12 @@ using Json = nlohmann::ordered_json;
 
 namespace {
 
-// Rows near the middle of the grid, through the bridge; and the first
-// column east of the starting hull.
+// Rows near the middle of the grid, through the bridge; and a column east
+// of it, on the starting hull, with room for a 10x13 patch.
 constexpr int c = kShipGridSize / 2;
-constexpr int x0 = (kShipGridSize + kStartHullSide) / 2;
+const int x0 = layout_to_grid(starter_layout(), starter_layout().bridge).x + kBridgeSize + 3;
+// The starting ship's first engine.
+const GridPos kEngine = layout_to_grid(starter_layout(), starter_layout().engines.front());
 
 void run(World& world, Tick ticks) {
     for (Tick t = 0; t < ticks; ++t)
@@ -53,22 +56,19 @@ const Recipe& recipe_named(const char* name) {
 // A ship with one of everything that holds state, part way through running:
 // a collector (aimed at silica) feeding belts into a cargo hold, a solar
 // panel, a filter sorter with items queued on the belt into it, two machines
-// mid-craft (one on reinforced hull), a west-facing express belt, a junction
-// and a router holding items, and the bridge hand-crafting, part way through
-// a milestone; an ion thruster part charged, an autocannon with ammunition
+// mid-craft, a west-facing express belt, a junction and a router holding
+// items, and the bridge hand-crafting, part way through a milestone; an
+// engine (ion thruster) part charged, an autocannon with ammunition
 // and a damaged cargo hold, as a wave of enemies comes in; and a second
 // ship, with cargo on its way to it.
 World busy_world() {
     World world;
-    world.flagship().inventory().add({{ItemKind::Hull, 200},
-                                      {ItemKind::ReinforcedHull, 9},
-                                      {ItemKind::TransportBelt, 10},
+    world.flagship().inventory().add({{ItemKind::TransportBelt, 10},
                                       {ItemKind::ExpressBelt, 1},
                                       {ItemKind::FilterSorter, 1},
                                       {ItemKind::Junction, 1},
                                       {ItemKind::Router, 1},
                                       {ItemKind::SolarPanel, 1},
-                                      {ItemKind::IonThruster, 1},
                                       {ItemKind::Autocannon, 1},
                                       {ItemKind::Refinery, 1}});
     // Two milestones done (the refinery's recipes need them), and some way
@@ -78,12 +78,6 @@ World busy_world() {
     for (int i = 0; i < 3; ++i)
         assert(!progress.on_delivered(ItemKind::AdvancedCircuit));
     Ship& ship = world.flagship();
-    for (int y = c - 6; y <= c + 6; ++y)
-        for (int x = x0; x <= x0 + 9; ++x)
-            assert(ship.place(ItemKind::Hull, {x, y}) == BuildResult::Ok);
-    for (int y = c + 2; y <= c + 4; ++y)
-        for (int x = x0 + 5; x <= x0 + 7; ++x)
-            assert(ship.place(ItemKind::ReinforcedHull, {x, y}) == BuildResult::Ok);
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
     assert(ship.set_collector_target({x0, c - 6}, ItemKind::Silica));
@@ -91,9 +85,8 @@ World busy_world() {
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
     assert(ship.place(ItemKind::SolarPanel, {x0 + 8, c - 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::IonThruster, {x0 + 8, c - 3}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
-        assert(ship.insert_item({x0 + 8, c - 3}, {x0 + 8, c - 4}, ItemKind::FuelCell));
+        assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
     assert(ship.place(ItemKind::Autocannon, {x0 + 2, c}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
         assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::SlugMagazine));
@@ -135,10 +128,12 @@ World busy_world() {
     // A second ship, renamed, and cargo on its way to it.
     Fleet& fleet = world.get_fleet();
     ship.inventory().add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 1}});
+    ship.inventory().add(starter_layout().cost);
     int launched = 0;
-    assert(fleet.launch(fleet.flagship().id, &launched) == FleetResult::Ok);
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &launched) == FleetResult::Ok);
     assert(fleet.rename(launched, "Tender"));
-    assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::Hull, 10}}, world.get_tick()) == FleetResult::Ok);
+    assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::TransportBelt, 5}}, world.get_tick()) ==
+           FleetResult::Ok);
     // A wave on its way in, and a building already hurt.
     assert(world.send_wave(fleet.flagship().id));
     assert(!ship.building_anchored_at({x0 + 5, c - 6})->take_damage(30));
@@ -187,8 +182,10 @@ void test_round_trip() {
 
     // Spot checks through the public API.
     const Ship& copy = loaded->world.flagship();
-    assert(copy.hull_at({x0 + 6, c + 3}) == ItemKind::ReinforcedHull);
-    assert(copy.get_bridge().get_inventory().count(ItemKind::Hull) == ship.inventory().count(ItemKind::Hull));
+    assert(copy.get_layout() == &starter_layout());
+    assert(copy.hull_count() == ship.hull_count());
+    assert(copy.get_bridge().get_inventory().count(ItemKind::TransportBelt) ==
+           ship.inventory().count(ItemKind::TransportBelt));
     const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
     assert(sorter && sorter->get_filter() == ItemKind::IronOre);
     const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
@@ -197,7 +194,7 @@ void test_round_trip() {
     assert(junction && junction->lane(Direction::East).size() == 2);
     const auto* router = dynamic_cast<const Router*>(copy.building_at({x0 + 7, c + 6}));
     assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
-    const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({x0 + 9, c - 1}));
+    const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({kEngine.x + 1, kEngine.y + 2}));
     assert(thruster && thruster->get_fuel() == 3);
     const auto* turret = dynamic_cast<const Turret*>(copy.building_at({x0 + 3, c + 1}));
     assert(turret && turret->get_ammo() == 3);
@@ -244,19 +241,15 @@ Json& fleet(Json& save) { return save["world"]["fleet"]; }
 Json& sectors(Json& save) { return save["world"]["star_map"]["sectors"]; }
 Json& progress(Json& save) { return fleet(save)["progress"]; }
 Json& first_ship(Json& save) { return fleet(save)["ships"][0]; }
-Json& hull(Json& save) { return first_ship(save)["ship"]["hull"]; }
-Json& buildings(Json& save) { return first_ship(save)["ship"]["buildings"]; }
+Json& ship_json(Json& save) { return first_ship(save)["ship"]; }
+Json& buildings(Json& save) { return ship_json(save)["buildings"]; }
 Json& bridge(Json& save) { return buildings(save)[0]; }
+// The starter layout's engines, after the bridge.
+Json& engine(Json& save, std::size_t i) { return buildings(save)[1 + i]; }
 
-// Hull tiles on the square of side `side` from (x, y).
-void add_hull(Json& save, int x, int y, int side) {
-    for (int dy = 0; dy < side; ++dy)
-        for (int dx = 0; dx < side; ++dx)
-            hull(save).push_back({{"x", x + dx}, {"y", y + dy}, {"kind", "Hull"}});
-}
-
-// A hand-written save: just the bridge at (64, 64), on the 6x6 of hull it
-// covers (its top-left tile first).
+// A hand-written save: a ship in the starter layout, with just its bridge
+// and engines, and the buildings below placed east and north-east of the
+// bridge, on its hull.
 static_assert(kBridgeSize == 6, "the hand-written saves below place things around a 6x6 bridge");
 Json minimal() {
     Json save = Json::parse(R"({
@@ -273,15 +266,24 @@ Json minimal() {
             "next_ship_id": 2,
             "progress": {"milestone": 0, "delivered": {}},
             "ships": [{"id": 1, "name": "Flagship", "sector": 0, "ship": {
-                "hull": [],
+                "layout": "skiff",
                 "buildings": [
-                    {"kind": "Bridge", "x": 64, "y": 64, "facing": "North", "output_side": 0,
+                    {"kind": "Bridge", "x": 0, "y": 0, "facing": "North", "output_side": 0,
                      "inventory": {}, "queue": []}
                 ]},
                 "battle": {"enemies": [], "next_wave": null}}],
             "transfers": []}}})");
     save["version"] = kSaveVersion;
-    add_hull(save, 64, 64, 6);
+    const ShipLayout& layout = starter_layout();
+    const GridPos at = layout_to_grid(layout, layout.bridge);
+    assert(at == (GridPos{61, 61}));  // the positions below assume it
+    bridge(save)["x"] = at.x;
+    bridge(save)["y"] = at.y;
+    for (const GridPos e : layout.engines) {
+        const GridPos p = layout_to_grid(layout, e);
+        buildings(save).push_back(
+            {{"kind", "IonThruster"}, {"x", p.x}, {"y", p.y}, {"facing", "North"}, {"output_side", 0}, {"fuel", 0}});
+    }
     return save;
 }
 
@@ -325,10 +327,11 @@ void test_refused() {
     refused_after(save, "no world", [](Json& j) { j.erase("world"); });
     refused_after(save, "an unknown item", [](Json& j) { bridge(j)["inventory"] = {{"Unobtainium", 5}}; });
     refused_after(save, "a display name for an item", [](Json& j) { bridge(j)["inventory"] = {{"Iron plate", 5}}; });
-    refused_after(save, "a negative count", [](Json& j) { bridge(j)["inventory"] = {{"Hull", -5}}; });
-    refused_after(save, "a fractional count", [](Json& j) { bridge(j)["inventory"] = {{"Hull", 1.5}}; });
-    refused_after(save, "an absurd count", [](Json& j) { bridge(j)["inventory"] = {{"Hull", 1e30}}; });
-    refused_after(save, "a count as text", [](Json& j) { bridge(j)["inventory"] = {{"Hull", "5"}}; });
+    refused_after(save, "a negative count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", -5}}; });
+    refused_after(save, "a fractional count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1.5}}; });
+    refused_after(save, "an absurd count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1e30}}; });
+    refused_after(save, "a count as text", [](Json& j) { bridge(j)["inventory"] = {{"Gear", "5"}}; });
+    refused_after(save, "hull, no longer an item", [](Json& j) { bridge(j)["inventory"] = {{"Hull", 5}}; });
     refused_after(save, "an unknown recipe", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Unobtainium", "elapsed": 0}])");
     });
@@ -348,11 +351,23 @@ void test_refused() {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Gear", "elapsed": 100000}])");
     });
     refused_after(save, "no craft queue", [](Json& j) { bridge(j).erase("queue"); });
-    refused_after(save, "a hull tile that isn't hull", [](Json& j) { hull(j)[0]["kind"] = "Gear"; });
-    refused_after(save, "a tile off the grid", [](Json& j) { hull(j)[0]["y"] = 200; });
-    refused_after(save, "two tiles on one cell", [](Json& j) { hull(j).push_back(hull(j)[0]); });
-    refused_after(save, "no bridge", [](Json& j) { buildings(j) = Json::array(); });
-    refused_after(save, "the bridge off hull", [](Json& j) { hull(j)[0]["x"] = 63; });
+    refused_after(save, "no layout", [](Json& j) { ship_json(j).erase("layout"); });
+    refused_after(save, "an unknown layout", [](Json& j) { ship_json(j)["layout"] = "battlestar"; });
+    refused_after(save, "hull tiles instead of a layout", [](Json& j) {
+        ship_json(j).erase("layout");
+        ship_json(j)["hull"] = Json::array();
+    });
+    refused_after(save, "no bridge", [](Json& j) { buildings(j).erase(0); });
+    refused_after(save, "the bridge away from its layout's place", [](Json& j) { bridge(j)["x"] = 62; });
+    refused_after(save, "the bridge off hull", [](Json& j) { bridge(j)["y"] = 10; });
+    refused_after(save, "an engine missing", [](Json& j) { buildings(j).erase(1); });
+    refused_after(save, "an engine moved", [](Json& j) { engine(j, 0)["x"] = 56; });
+    refused_after(save, "an extra engine", [](Json& j) {
+        buildings(j).push_back(engine(j, 0));
+        buildings(j).back()["x"] = 70;
+        buildings(j).back()["y"] = 64;
+    });
+    refused_after(save, "an overfull engine", [](Json& j) { engine(j, 0)["fuel"] = kThrusterCharge + 1; });
     refused_after(save, "no ships", [](Json& j) { fleet(j)["ships"] = Json::array(); });
     refused_after(save, "a ship id not given out yet", [](Json& j) { first_ship(j)["id"] = 2; });
     refused_after(save, "a ship id of 0", [](Json& j) { first_ship(j)["id"] = 0; });
@@ -402,16 +417,14 @@ void test_refused() {
     refused_after(fighting, "an enemy aiming off the grid", [&](Json& j) { enemy(j)["target"]["x"] = 500; });
     refused_after(fighting, "an enemy cooling down too long", [&](Json& j) { enemy(j)["cooldown"] = 1000; });
     refused_after(save, "two bridges", [](Json& j) {
-        add_hull(j, 70, 64, 6);
         Json second = bridge(j);
         second["x"] = 70;
         buildings(j).push_back(second);
     });
 
-    // Buildings after the bridge: one more hull tile, east of it at
-    // (70, 64), to put them on.
-    Json one_more = minimal();
-    hull(one_more).push_back({{"x", 70}, {"y", 64}, {"kind", "Hull"}});
+    // Buildings after the bridge and engines: east of it at (70, 64), on
+    // the hull.
+    const Json one_more = minimal();
     auto with_building = [&](const char* building) {
         Json j = one_more;
         buildings(j).push_back(Json::parse(building));
@@ -434,7 +447,7 @@ void test_refused() {
             "a belt item off the belt");
     refused(with_building(R"({"kind": "Hull", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
             "hull as a building");
-    refused(with_building(R"({"kind": "SolarFurnace", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
+    refused(with_building(R"({"kind": "SolarFurnace", "x": 83, "y": 64, "facing": "North", "output_side": 0})"),
             "a building partly off hull");
     refused(with_building(R"({"kind": "FilterSorter", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "filter": "Unobtainium", "next_right": false})"),
@@ -465,18 +478,15 @@ void test_transfers_refused() {
 }
 
 // Machines check their recipe and progress, collectors their target, and
-// large buildings their hull.
+// turrets their ammunition.
 void test_machine_refused() {
-    // A solar furnace on a 2x2 patch of hull at (65..66, 60..61).
+    // A solar furnace at (70..71, 58..59).
     Json save = minimal();
-    for (int y = 60; y <= 61; ++y)
-        for (int x = 65; x <= 66; ++x)
-            hull(save).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
     buildings(save).push_back(Json::parse(R"({
-        "kind": "SolarFurnace", "x": 65, "y": 60, "facing": "North", "output_side": 0,
+        "kind": "SolarFurnace", "x": 70, "y": 58, "facing": "North", "output_side": 0,
         "recipe": "Iron plate", "work": 10, "input": {}, "output": {"IronPlate": 2}})"));
     assert(loads(save.dump()));
-    auto furnace = [](Json& j) -> Json& { return buildings(j)[1]; };
+    auto furnace = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(save, "a recipe the machine can't run", [&](Json& j) { furnace(j)["recipe"] = "Gear"; });
     refused_after(save, "crafting without a recipe", [&](Json& j) { furnace(j)["recipe"] = nullptr; });
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
@@ -484,46 +494,27 @@ void test_machine_refused() {
 
     // A collector gathers only what it can be aimed at.
     Json gathering = minimal();
-    for (int y = 60; y <= 61; ++y)
-        for (int x = 65; x <= 66; ++x)
-            hull(gathering).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
     buildings(gathering).push_back(Json::parse(R"({
-        "kind": "AsteroidCollector", "x": 65, "y": 60, "facing": "North", "output_side": 0,
+        "kind": "AsteroidCollector", "x": 70, "y": 58, "facing": "North", "output_side": 0,
         "progress": 0, "target": "Carbon", "caught": {"Carbon": 3}})"));
     assert(loads(gathering.dump()));
-    auto collector = [](Json& j) -> Json& { return buildings(j)[1]; };
+    auto collector = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(gathering, "iridium for an asteroid collector",
                   [&](Json& j) { collector(j)["target"] = "IridiumOre"; });
     refused_after(gathering, "a collector aimed at a plate", [&](Json& j) { collector(j)["target"] = "IronPlate"; });
     refused_after(gathering, "a collector with no target", [&](Json& j) { collector(j).erase("target"); });
 
-    // A refinery needs reinforced hull, on load as when placing.
-    Json refinery = minimal();
-    for (int y = 60; y <= 62; ++y)
-        for (int x = 65; x <= 67; ++x)
-            hull(refinery).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
-    buildings(refinery).push_back(Json::parse(R"({
-        "kind": "Refinery", "x": 65, "y": 60, "facing": "North", "output_side": 0,
-        "recipe": null, "work": null, "input": {}, "output": {}})"));
-    refused(refinery.dump(), "a refinery on plain hull");
-
     // A turret's ammunition: never a full item loaded (it's loaded when
     // needed).
     Json armed = minimal();
-    for (int y = 60; y <= 61; ++y)
-        for (int x = 65; x <= 66; ++x)
-            hull(armed).push_back({{"x", x}, {"y", y}, {"kind", "Hull"}});
     buildings(armed).push_back(Json::parse(R"({
-        "kind": "Autocannon", "x": 65, "y": 60, "facing": "North", "output_side": 0,
+        "kind": "Autocannon", "x": 70, "y": 58, "facing": "North", "output_side": 0,
         "ammo": 4, "shots": 7, "cooldown": 3})"));
     assert(loads(armed.dump()));
-    auto turret = [](Json& j) -> Json& { return buildings(j)[1]; };
+    auto turret = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(armed, "a full item loaded", [&](Json& j) { turret(j)["shots"] = 8; });
     refused_after(armed, "too much ammunition", [&](Json& j) { turret(j)["ammo"] = kTurretAmmoCapacity + 1; });
     refused_after(armed, "a turret cooling down too long", [&](Json& j) { turret(j)["cooldown"] = 1000; });
-    for (std::size_t i = 1; i < hull(refinery).size(); ++i)
-        hull(refinery)[i]["kind"] = "ReinforcedHull";
-    assert(loads(refinery.dump()));
 }
 
 }  // namespace

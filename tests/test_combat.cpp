@@ -8,6 +8,7 @@
 #include "sim/fleet.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
+#include "sim/ship_layout.h"
 #include "sim/world.h"
 
 #include <cassert>
@@ -113,10 +114,41 @@ void test_enemy_attacks() {
     assert(ship.inventory().count(ItemKind::TransportBelt) == belts);
     assert(ship.inventory().count(ItemKind::Gear) == gears);
 
-    // Next: the bridge, the only building left.
+    // Next: the nearest of what's left, the layout's own parts (the bridge
+    // or an engine), which aren't destroyed.
     fight(ship, battle, sector, rng, now, 10 * kTicksPerSecond);
-    assert(battle.enemies[0].target == kStartBridgePos);
-    assert(ship.get_bridge().damaged());
+    assert(battle.enemies[0].target);
+    const Building* next = ship.building_anchored_at(*battle.enemies[0].target);
+    assert(next && !next->removable() && next->damaged());
+}
+
+// An engine shot down isn't destroyed: it goes offline, enemies leave it be,
+// and it comes back as it mends.
+void test_engine_knocked_offline() {
+    Ship ship = Ship::new_game();
+    Sector sector = calm();
+    Rng rng{1};
+    Tick now = 0;
+    const GridPos at = layout_to_grid(starter_layout(), starter_layout().engines.front());
+    const auto* engine = dynamic_cast<const Thruster*>(ship.building_anchored_at(at));
+    assert(engine);
+
+    // Just below it, off the stern: the engine is the nearest building.
+    Battle battle;
+    battle.enemies.push_back(drone_at(static_cast<float>(at.x) + 1.0f, static_cast<float>(at.y) + 6.0f));
+    fight(ship, battle, sector, rng, now, 1);
+    assert(battle.enemies[0].target == at);
+    for (Tick t = 0; t < 300 * kTicksPerSecond && !engine->offline(); ++t)
+        fight(ship, battle, sector, rng, now, 1);
+    assert(engine->offline());
+    assert(ship.building_anchored_at(at) == engine);
+    // On to something else.
+    fight(ship, battle, sector, rng, now, 1);
+    assert(battle.enemies[0].target != at);
+
+    battle.enemies.clear();
+    ship.repair_all(kRepairPercent);
+    assert(!engine->offline());
 }
 
 // Buildings mend while no enemy is on their ship's grid.
@@ -161,7 +193,7 @@ void test_waves() {
     for (const Enemy& e : battle.enemies) {
         assert(e.kind == EnemyKind::Drone);
         const float d = std::hypot(e.x - 64.0f, e.y - 64.0f);
-        assert(d > static_cast<float>(kStartHullSide) * 0.5f);
+        assert(d > static_cast<float>(layout_bounds(starter_layout()).h) * 0.5f);
     }
     assert(battle.next_wave == now + kWaveInterval);
     battle.enemies.clear();
@@ -201,8 +233,9 @@ void test_losing() {
     World world;
     Fleet& fleet = world.get_fleet();
     world.flagship().inventory().add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 1}, {ItemKind::Gear, 5}});
+    world.flagship().inventory().add(starter_layout().cost);
     int second = 0;
-    assert(fleet.launch(fleet.flagship().id, &second) == FleetResult::Ok);
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &second) == FleetResult::Ok);
     const int first = fleet.flagship().id;
 
     FleetShip& doomed = *fleet.find(second);
@@ -235,9 +268,9 @@ void test_retreat() {
     const int id = world.get_fleet().flagship().id;
     assert(world.send_wave(id));
     assert(world.get_fleet().flagship().battle.under_attack());
-    ship.inventory().add(ItemKind::IonThruster, 2);
-    for (const GridPos p : {GridPos{44, 44}, GridPos{46, 44}}) {
-        assert(ship.place(ItemKind::IonThruster, p) == BuildResult::Ok);
+    // Its layout's engines, charged.
+    for (const GridPos e : starter_layout().engines) {
+        const GridPos p = layout_to_grid(starter_layout(), e);
         while (ship.insert_item(p, {p.x, p.y - 1}, ItemKind::FuelCell)) {
         }
     }
@@ -279,6 +312,7 @@ int main() {
     test_turret_needs_ammo();
     test_turret_kills();
     test_enemy_attacks();
+    test_engine_knocked_offline();
     test_repair();
     test_waves();
     test_wave_mix();
