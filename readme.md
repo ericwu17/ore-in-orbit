@@ -3,35 +3,40 @@
 A new game, in early development. A fixed-timestep simulation driven from
 an SDL2 + Dear ImGui (docking) + ImPlot frame loop, with a themed UI. So far
 there is a main menu (Play, Credits); Play opens the list of saved games,
-to start a new one or carry on with one. A game is a ship built on a
-128x128 square grid. Every ship has a layout, which fixes its hull's shape
-and size, its 6x6 bridge and its ion thrusters (engines), all centered on
-the grid; a game starts with a Skiff, the smallest. Every building
-(asteroid collectors, transport belts, machines) needs hull under it, and
-the hull never grows. Everything placed comes out of the
-bridge's inventory, and removing it gives it back (with anything stored
-inside it). Each collector is aimed at one raw resource (iron ore, copper
-ore, silica or carbon; the tractor array can also gather iridium ore) and
-gathers it at a set rate into an internal buffer, stalling when it is full. As in Mindustry there are no
-inserters: buildings put their output straight onto neighboring belts (or
-into neighboring buildings that take it), and belts carry items into
-whatever they point at, the bridge included. Machines craft the recipe the
-player picks for them, and collectors gather what the player aims them at
-(click one on the grid).
+to start a new one or carry on with one.
+
+A game is a ship built on a 128x128 square grid. Every ship has a layout,
+which fixes its hull's shape and size, its 6x6 bridge and its ion
+thrusters (engines), all centered on the grid; a game starts with a Skiff,
+the smallest. Every building (asteroid collectors, transport belts,
+machines) needs hull under it, and the hull never grows. Everything placed
+comes out of the bridge's inventory, and removing it gives it back (with
+anything stored inside it).
+
+Each collector is aimed at one raw resource (iron ore, copper ore, silica
+or carbon; the tractor array can also gather iridium ore) and gathers it
+at a set rate into an internal buffer, stalling when it is full. As in
+Mindustry there are no inserters: buildings put their output straight onto
+neighboring belts (or into neighboring buildings that take it), and belts
+carry items into whatever they point at, the bridge included. Machines
+craft the recipe the player picks for them, and collectors gather what the
+player aims them at (click one on the grid). The belt blocks work as in
+Mindustry too: filter sorters route items by kind (the one picked for it
+goes straight through, the rest turn left or right), and reverse sorters
+the other way round (the one picked turns, the rest go straight); junctions
+let two belt lines cross, each item leaving by the side opposite the one it
+came in by; routers pass each item on to their other three sides in turn.
+
 Progress comes in milestones, shown at the top of the right panel: deliver
 the items each one asks for to the bridge (by belt; hand-crafting doesn't
 count) to unlock the next tier of recipes. Locked recipes show greyed out,
-marked with the milestone that unlocks them. The belt blocks work as in
-Mindustry: filter sorters route items by kind (the one picked for it goes
-straight through, the rest turn left or right), and reverse sorters the
-other way round (the one picked turns, the rest go straight); junctions let
-two belt lines cross, each item leaving by the side opposite the one it came
-in by; routers pass each item on to their other three sides in turn.
+marked with the milestone that unlocks them.
 
 The player commands a fleet. "Build a new ship...", in the right panel's
-Fleet section, builds one in the layout picked there, from the bridge of
-the ship on screen: it takes a ship starter pack (unlocked by the "Deep
-space" milestone) and the layout's cost, in raw and processed resources.
+Fleet section, opens a window to pick a layout and build a ship in it from
+the bridge of the ship on screen: it takes a ship starter pack (unlocked by
+the "Deep space" milestone) and the layout's cost, in raw and processed
+resources.
 The layouts, smallest first: Skiff (from the start), Hauler (from "Deep
 space"), Frigate ("Escape velocity") and Carrier ("Frontier"); bigger ones
 have more engines. Every ship keeps running while
@@ -93,9 +98,12 @@ Linux:
 ```sh
 sudo apt install build-essential libsdl2-dev libgl-dev   # (or your distro's equivalent)
 git submodule update --init   # Dear ImGui, ImPlot
-nix-shell
 make && ./ore-in-orbit
 ```
+
+On NixOS, run `nix-shell` first instead of installing the packages:
+`shell.nix` provides SDL2 and the GL / X11 / Wayland libraries SDL loads at
+runtime.
 
 Windows (MSYS2, from the "MSYS2 MinGW 64-bit" shell — not plain cmd):
 
@@ -173,9 +181,9 @@ clipboard. A library file holds exactly that text.
 
 - **Escape**: back to the main menu (from the save list or the credits). In
   the game it first puts away the copy / paste tool, then closes what's
-  open, one at a time (Send cargo, the inspector, the keys overlay, the star
-  map, the Blueprints window), and then opens the pause menu, whose Main
-  menu saves the game.
+  open, one at a time (Send cargo, Build a new ship, the inspector, the keys
+  overlay, the star map, the Blueprints window), and then opens the pause
+  menu, whose Main menu saves the game.
 - **Left click / drag**: build the selected item on the grid. A quick drag
   leaves no gaps, and belts drawn by dragging face the way the drag goes,
   turning at corners.
@@ -209,9 +217,13 @@ clipboard. A library file holds exactly that text.
   While pasting: **left click** pastes, **R** turns it, **right click**,
   **Escape** or **Q** puts it away (see Blueprints).
 - **B**: the Blueprints window (saved blueprints, import and export).
-- **F1 / F2**: the Dear ImGui / ImPlot demo windows (widget reference).
+- **F1**: the debug menu, while playing: pause and single-step the
+  simulation, give the bridge items, reveal the map, charge the thrusters,
+  send or clear a wave, complete the milestone, and the Dear ImGui demo
+  window (widget reference).
+- **F2**: the ImPlot demo window.
 
-## Layout
+## Code layout
 
 One directory per layer under `src/`; includes name their layer
 (`#include "sim/world.h"`).
@@ -225,8 +237,11 @@ One directory per layer under `src/`; includes name their layer
     `Collector`, `Conveyor`, `Machine`, ...),
     each kind's footprint (`footprint_of`, e.g. 2x2 collectors), the
     collectors' rates and buffers (`CollectorSpec`), belts (`Conveyor`),
-    machines and their recipes, the `make_building` factory and
+    machines and which recipes they run, the `make_building` factory and
     `Inventory` (the bridge's, and building buffers).
+  - `recipes.h/.cpp` — every `Recipe` (inputs, outputs, time, the
+    `CraftCategory` of machine that makes it, and whether the bridge can
+    hand-craft it); a building's cost is the recipe that makes its item.
   - `ship.h/.cpp` — `Ship`: the build grid (its layout's hull, and
     buildings stored at their top-left cell), placement / removal rules,
     the starting ship, and moving items between neighboring buildings each
@@ -274,12 +289,12 @@ One directory per layer under `src/`; includes name their layer
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
-  - `ui.cpp` — the main menu, save list, credits and game screens (the build grid and
-    palette, with its zoom / pan camera, one per ship, the fleet's tabs,
-    the star map,
-    the inspector, copy and paste, the Blueprints, Send cargo and Keys
-    windows, the hint bar and message toasts),
-    and the F1 / F2 demo windows.
+  - `ui.cpp` — the main menu, save list, credits and game screens (the
+    build grid and palette, with its zoom / pan camera, one per ship, the
+    fleet's tabs, the star map, the inspector, copy and paste, the
+    Blueprints, Send cargo, Build a new ship and Keys windows, the hint bar
+    and message toasts, the pause menu and the fleet-lost screen), the
+    debug menu (F1) and the ImPlot demo window (F2).
   - `ui_theme.h/.cpp` — the dark, industrial look: the palette, ImGui /
     ImPlot styles, the embedded fonts (Roboto, and Cousine for headings and
     numbers) and a few styled widgets (bevelled plates, hazard stripes, key
@@ -289,5 +304,10 @@ One directory per layer under `src/`; includes name their layer
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
   fixed-timestep loop, the game being played and when it is saved), the
   embedded app icon, and the macOS-only startup tweak.
+- `tests/` — the headless tests, one binary per `test_*.cpp` (`make
+  test`), linked against `src/sim/` and `src/persistence/` only.
 - `assets/` — the app icon (`logo.png`) and the sprites.
 - `tools/` — `make_placeholder_sprites.py` (see Sprites).
+- `imgui/`, `implot/` — Dear ImGui and ImPlot, as git submodules.
+- `third_party/` — vendored single headers: nlohmann::json (saves and
+  blueprints) and stb_image (decoding the icon and sprites).
