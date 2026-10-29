@@ -1,4 +1,6 @@
-// ui.h — the only place that knows Dear ImGui exists.
+// ui.h — the screens main.cpp draws. src/ui/ is the only code that knows
+// Dear ImGui exists; what its files share among themselves is in
+// ui_internal.h.
 //
 // These functions draw one screen each, once per frame. The simulation layer
 // knows nothing about them.

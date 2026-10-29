@@ -295,12 +295,24 @@ One directory per layer under `src/`; includes name their layer
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
-  - `ui.cpp` — the main menu, save list, credits and game screens (the
-    build grid and palette, with its zoom / pan camera, one per ship, the
-    fleet's tabs, the star map, the inspector, copy and paste, the
-    Blueprints, Send cargo, Build a new ship and Keys windows, the hint bar
-    and message toasts, the pause menu and the fleet-lost screen), the
-    debug menu (F1) and the ImPlot demo window (F2).
+  - `ui_internal.h` — what the UI files share behind `ui.h`: the game
+    screen's UI-only state (what's selected, the camera, the clipboard,
+    the ship shown, the star map view) and the common helpers and widgets.
+  - `ui.cpp` — the game screen (`DrawPlaying`): its panels laid out, the
+    hint bar, banners and message toasts, the Keys window, the pause menu
+    and the fleet-lost screen.
+  - `ui_grid.cpp` — the build grid, with its zoom / pan camera (one per
+    ship): building, removing, copying and pasting with the mouse, and the
+    enemies.
+  - `ui_panels.cpp` — the build palette (left) and the craft panel
+    (right): the milestone, the inspector, hand-crafting.
+  - `ui_fleet.cpp` — the fleet's tabs, the Send cargo and Build a new ship
+    windows, and the star map.
+  - `ui_blueprints.cpp` — the Blueprints window.
+  - `ui_menus.cpp` — the main menu, save list and credits.
+  - `ui_debug.cpp` — the debug menu (F1) and the ImPlot demo window (F2).
+  - `ui_common.cpp`, `ui_draw.cpp` — the shared state and widgets, and
+    drawing buildings, items and icons (from their sprites, or stand-ins).
   - `ui_theme.h/.cpp` — the dark, industrial look: the palette, ImGui /
     ImPlot styles, the embedded fonts (Roboto, and Cousine for headings and
     numbers) and a few styled widgets (bevelled plates, hazard stripes, key
