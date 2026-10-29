@@ -42,6 +42,9 @@ void test_table() {
                                 ItemKind::CopperPlate, ItemKind::Gear, ItemKind::Circuit})
         assert(!milestone_unlocking(kind));
     assert(milestone_unlocking(ItemKind::Refinery) == 1);
+    // Names are unique, so tables can name a milestone (milestone_index).
+    for (std::size_t i = 0; i < milestones.size(); ++i)
+        assert(milestone_index(milestones[i].name) == i);
 }
 
 // Whether `kind` can be had with only what's unlocked before milestone

@@ -3,6 +3,7 @@
 #include "sim/milestones.h"
 
 #include <algorithm>
+#include <cassert>
 
 const std::vector<Milestone>& all_milestones() {
     using enum ItemKind;
@@ -25,6 +26,15 @@ const std::vector<Milestone>& all_milestones() {
          {Railgun, RailSlug}},
     };
     return milestones;
+}
+
+std::size_t milestone_index(std::string_view name) {
+    const std::vector<Milestone>& milestones = all_milestones();
+    for (std::size_t i = 0; i < milestones.size(); ++i)
+        if (milestones[i].name == name)
+            return i;
+    assert(false && "no milestone by that name");
+    return milestones.size();
 }
 
 std::optional<std::size_t> milestone_unlocking(ItemKind kind) {

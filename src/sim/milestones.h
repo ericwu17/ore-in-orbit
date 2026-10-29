@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 struct Milestone {
@@ -25,6 +26,12 @@ struct Milestone {
 
 // Every milestone, in the order they come.
 const std::vector<Milestone>& all_milestones();
+
+// The index of the milestone named `name`, which must be one (asserted;
+// without asserts, all_milestones().size(), which no progress reaches past).
+// For tables that refer to a milestone, so reordering them can't shift what
+// they mean.
+std::size_t milestone_index(std::string_view name);
 
 // The index of the milestone that unlocks the recipe making `kind`, or
 // nullopt if it is unlocked from the start.

@@ -5,15 +5,6 @@
 
 #include <algorithm>
 
-namespace {
-
-// The milestones layouts unlock with (indices into all_milestones()).
-constexpr std::size_t kDeepSpace = 2;
-constexpr std::size_t kEscapeVelocity = 3;
-constexpr std::size_t kFrontier = 4;
-
-}  // namespace
-
 const std::vector<ShipLayout>& all_layouts() {
     using enum ItemKind;
     // Each one: a bow tapering to the top, a wide body with the bridge in
@@ -35,7 +26,7 @@ const std::vector<ShipLayout>& all_layouts() {
          {21, 24},
          {{11, 77}, {23, 77}, {35, 77}},
          {{IronOre, 300}, {Silica, 200}, {Steel, 100}, {StructuralFrame, 20}},
-         kDeepSpace},
+         milestone_index("Deep space")},
         {"frigate",
          "Frigate",
          "A broad arrowhead with space for industry and turrets.",
@@ -43,7 +34,7 @@ const std::vector<ShipLayout>& all_layouts() {
          {33, 36},
          {{14, 69}, {26, 69}, {44, 69}, {56, 69}},
          {{IronOre, 400}, {Carbon, 200}, {Steel, 200}, {StructuralFrame, 40}, {AdvancedCircuit, 20}},
-         kEscapeVelocity},
+         milestone_index("Escape velocity")},
         {"carrier",
          "Carrier",
          "A capital ship: nearly the whole build grid.",
@@ -51,7 +42,7 @@ const std::vector<ShipLayout>& all_layouts() {
          {53, 44},
          {{18, 93}, {34, 93}, {50, 93}, {60, 93}, {76, 93}, {92, 93}},
          {{IronOre, 1000}, {IridiumOre, 300}, {Steel, 300}, {IridiumPlate, 50}, {Processor, 20}},
-         kFrontier},
+         milestone_index("Frontier")},
     };
     return layouts;
 }
