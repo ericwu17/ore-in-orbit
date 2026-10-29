@@ -369,7 +369,7 @@ const char* TileLabel(ItemKind kind) {
 ImVec4 TileColor(ItemKind kind) {
     switch (kind) {
     case ItemKind::AsteroidCollector:
-    case ItemKind::TractorArray:      return theme::kTileRockCollector;
+    case ItemKind::TractorArray:      return theme::kTileCollector;
     case ItemKind::CargoHold:         return theme::kTileStorage;
     case ItemKind::SolarPanel:
     case ItemKind::SolarArray:
