@@ -10,7 +10,9 @@
 EXE       = ore-in-orbit
 BUILD_DIR = build
 
-CXX ?= clang++
+# Hard-set, not `?=`: make predefines CXX=c++, so `?=` would never apply
+# (override on the command line with `make CXX=g++ ...` if preferred).
+CXX = clang++
 
 # OpenGL is deprecated on macOS (but fully functional) — silence the warnings
 # so our -Werror build of main.cpp stays clean.

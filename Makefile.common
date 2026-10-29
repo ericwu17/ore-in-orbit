@@ -22,7 +22,7 @@ IMGUI_DIR = imgui
 # ImPlot (charts), a submodule built against imgui.
 IMPLOT_DIR = implot
 # Vendored single-header libraries: stb_image (app icon, sprites), nlohmann::json
-# (save files)
+# (save files, blueprints)
 THIRD_PARTY_DIR = third_party
 
 CXXFLAGS = -std=c++20 -g
@@ -112,7 +112,8 @@ $(VENDOR_CPP_OBJS): $(BUILD_DIR)/%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Headless tests (no window, no SDL): make test builds and runs one binary
-# per tests/test_*.cpp, each linked against exactly the simulation objects.
+# per tests/test_*.cpp, each linked against exactly the simulation and
+# persistence objects.
 # Tests run from the repo root.
 test: $(TEST_EXES)
 	@for exe in $(TEST_EXES); do ./$$exe || exit 1; done

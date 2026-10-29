@@ -1,8 +1,9 @@
 # Ore in Orbit — top-level makefile: plain `make` on any platform.
 #
 # Detects the host OS and includes the matching per-platform makefile
-# (Makefile.macos / Makefile.linux / Makefile.windows), which hold all the
-# real rules. You can also invoke those directly, e.g. `make -f Makefile.linux`.
+# (Makefile.macos / Makefile.linux / Makefile.windows), which sets the
+# platform's compiler and libraries and includes Makefile.common, where every
+# rule is. You can also invoke those directly, e.g. `make -f Makefile.linux`.
 # Same trick as imgui's own example makefiles.
 
 UNAME_S := $(shell uname -s)
