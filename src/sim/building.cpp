@@ -104,6 +104,18 @@ bool is_rotatable(ItemKind kind) {
     }
 }
 
+bool is_unfinished(ItemKind kind) {
+    switch (kind) {
+    case ItemKind::BeltTunnel:
+    case ItemKind::SolarPanel:
+    case ItemKind::SolarArray:
+    case ItemKind::BatteryBank:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool machine_crafts(ItemKind kind, CraftCategory category) {
     switch (kind) {
     case ItemKind::SolarFurnace:    return category == CraftCategory::Smelting;

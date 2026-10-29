@@ -32,6 +32,12 @@ the items each one asks for to the bridge (by belt; hand-crafting doesn't
 count) to unlock the next tier of recipes. Locked recipes show greyed out,
 marked with the milestone that unlocks them.
 
+Not everything works yet: the belt tunnel moves nothing, and the power
+buildings (solar panel, solar array, battery bank) are there for a power
+system that doesn't exist yet. They can still be unlocked and built, and
+their tooltips and the inspector say they do nothing (`is_unfinished` in
+`src/sim/building.h` lists them).
+
 The player commands a fleet. "Build a new ship...", in the right panel's
 Fleet section, opens a window to pick a layout and build a ship in it from
 the bridge of the ship on screen: it takes a ship starter pack (unlocked by

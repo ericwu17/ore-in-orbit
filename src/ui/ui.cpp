@@ -948,6 +948,8 @@ void DrawBuildPalette(Ship& ship, float width) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
             ImGui::TextColored(theme::kTextDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
+            if (is_unfinished(kind))
+                ImGui::TextColored(theme::kWarnText, "Not working yet: it does nothing once built");
             if (i < 9)
                 ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
             if (hand) {
@@ -1100,6 +1102,8 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
     ImGui::TextColored(b.damaged() ? theme::kBad : theme::kTextDim, "Health %d / %d", b.get_hp(), b.max_hp());
+    if (kind && is_unfinished(*kind))
+        ImGui::TextColored(theme::kWarnText, "Not working yet: it does nothing");
 
     const float bar_w = ImGui::GetFrameHeight() * 8.0f;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
@@ -1150,18 +1154,14 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : collector->items().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
-    if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
-        if (!belt->moves_items()) {
-            ImGui::TextColored(theme::kTextDim, "Doesn't move items yet");
-        } else {
-            ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
-                               static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
-            Inventory carried;
-            for (const BeltItem& item : belt->get_items())
-                carried.add(item.kind);
-            for (const ItemStack& s : carried.stacks())
-                AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
-        }
+    if (const auto* belt = dynamic_cast<const Conveyor*>(&b); belt && belt->moves_items()) {
+        ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
+                           static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
+        Inventory carried;
+        for (const BeltItem& item : belt->get_items())
+            carried.add(item.kind);
+        for (const ItemStack& s : carried.stacks())
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
     if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
         const std::optional<ItemKind> filter = sorter->get_filter();

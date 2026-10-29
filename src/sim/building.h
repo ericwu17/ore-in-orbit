@@ -69,6 +69,9 @@ public:
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
+// Buildings that can be unlocked and built but don't do anything yet: the
+// belt tunnel (see belt_speed) and the power buildings (nothing uses power).
+bool is_unfinished(ItemKind kind);
 // The damage a building of this kind takes before it's destroyed (nullopt:
 // the bridge).
 int max_hp_of(std::optional<ItemKind> kind);
