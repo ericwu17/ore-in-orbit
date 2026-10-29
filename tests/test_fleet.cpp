@@ -1,6 +1,7 @@
 // test_fleet.cpp — headless tests for the fleet: building a ship in a
-// layout, from a starter pack and the layout's cost, sending cargo between ships in cargo pods, every ship
-// ticking, and the milestone progress every ship shares.
+// layout, from a starter pack and the layout's cost, sending cargo between
+// ships in cargo pods, every ship ticking, and the milestone progress every
+// ship shares.
 #include "sim/building.h"
 #include "sim/fleet.h"
 #include "sim/milestones.h"

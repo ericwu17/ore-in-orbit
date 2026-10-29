@@ -96,7 +96,7 @@ enum class ItemKind {
     SolarPanel,
     SolarArray,
     BatteryBank,
-    // Placeable: ship systems.
+    // Placeable: ship systems (the ion thruster only comes with a layout).
     SurveyScanner,
     IonThruster,
     // Placeable: turrets.

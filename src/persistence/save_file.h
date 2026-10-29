@@ -5,7 +5,7 @@
 //
 //   {
 //     "format": "ore-in-orbit-save",
-//     "version": 1,
+//     "version": 9,                (kSaveVersion)
 //     "name": "Ship 1",
 //     "saved_at": 1760000000,      (Unix seconds)
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
@@ -14,11 +14,11 @@
 //                                    "yields": {...}, "threat": 0, "waves_left": 0, "visited": true,
 //                                    "surveyed": true }, ... ] },
 //       "fleet": {
-//       "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
-//       "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
-//                    "ship": { "layout": "skiff", "buildings": [...] },
-//                    "battle": { "enemies": [...], "next_wave": null } } ],
-//       "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] } }
+//         "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
+//         "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
+//                      "ship": { "layout": "skiff", "buildings": [...] },
+//                      "battle": { "enemies": [...], "next_wave": null } } ],
+//         "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] } }
 //   }
 #pragma once
 

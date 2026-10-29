@@ -5,7 +5,7 @@
 // A hostile sector (one with waves left, see Sector::waves_left) sends
 // waves at every ship in it: the first kFirstWaveDelay after the ship comes
 // in, then one every kWaveInterval while waves are left. A wave comes in
-// from one side, on a ring just outside the ship's hull; the further the
+// from one side, on a ring just outside the ship's hull; the later the
 // wave and the higher the threat, the bigger, and the heavier its ships.
 //
 // Enemies fly straight at the nearest building, stop within their range
@@ -14,8 +14,8 @@
 // nothing flies. A building shot down to 0 is destroyed, refunding nothing
 // (see Ship::destroy_building); an ion thruster is knocked offline instead
 // (it comes with the layout, see Thruster), and enemies leave it be; the
-// bridge shot down loses the ship (see World). Once the last wave is sent and its enemies are dead, the sector is
-// cleared, for good.
+// bridge shot down loses the ship (see World). Once the last wave is sent
+// and its enemies are dead, the sector is cleared, for good.
 //
 // Positions are in cells, as floats: (0, 0) is the grid's top-left corner
 // and (x + 0.5, y + 0.5) the middle of cell (x, y). Enemies may be off the

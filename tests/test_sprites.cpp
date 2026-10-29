@@ -1,6 +1,7 @@
 // test_sprites.cpp — headless checks of assets/sprites/ (see src/ui/sprites.h):
-// every item has a square icon, and every placeable and the bridge
-// a built sprite with its footprint's shape. Catches an ItemKind added
+// every item has a square icon, and every building (the layout's ion
+// thruster included), the bridge and the hull a built sprite with its
+// footprint's shape. Catches an ItemKind added
 // without art, and a footprint changed without its sprite. Runs from the
 // repo root, like every test.
 #include "sim/building.h"

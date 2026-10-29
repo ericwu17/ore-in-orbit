@@ -184,11 +184,11 @@ public:
     // points at: from behind they start at its back edge, from the side
     // halfway along, unless no belt feeds it from behind (a corner), which
     // counts as behind; nor, from a sorter, if it points into the building
-    // the item came from before the sorter. A sorter takes the item only if the neighbor it
-    // sends it to takes it now; an item from one sorter never goes through a
-    // second straight into a third (nor round a ring of them). A junction
-    // takes it while its queue that way has room and something stands on
-    // the far side; a router while it's empty.
+    // the item came from before the sorter. A sorter takes the item only if
+    // the neighbor it sends it to takes it now; an item from one sorter
+    // never goes through a second straight into a third (nor round a ring
+    // of them). A junction takes it while its queue that way has room and
+    // something stands on the far side; a router while it's empty.
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine

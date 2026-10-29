@@ -1,7 +1,7 @@
 // ui.cpp — the screens: main menu, save list, credits and the game screen
-// (the ship build grid, its build palette and the crafting panel, copying
-// and pasting, and the blueprint library), plus the debug menu and the
-// ImPlot demo window.
+// (the ship build grid, its build palette and the crafting panel, the
+// fleet and the star map, copying and pasting, and the blueprint library),
+// plus the debug menu and the ImPlot demo window.
 #include "ui/ui.h"
 #include "ui/sprites.h"
 #include "ui/ui_theme.h"
@@ -3467,8 +3467,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     }
     // Escape opens the pause menu, or closes it again; first, though, it puts
     // the copy / paste tool away, then closes what's open, one at a time:
-    // the Send cargo window, the inspector, the keys overlay, the star map,
-    // the Blueprints window. Not when it closed a dropdown or tooltip popup:
+    // the Send cargo window, the Build a new ship window, the inspector, the
+    // keys overlay, the star map, the Blueprints window. Not when it closed a dropdown or tooltip popup:
     // ImGui already did that before we got here, so look at whether one was
     // open last frame.
     static bool popup_was_open = false;
@@ -3628,7 +3628,8 @@ struct DebugGiveState {
 DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
-// give the bridge any items, and complete milestones. It is a developer
+// give the bridge any items, reveal the map, charge the thrusters, send or
+// clear a wave, and complete milestones. It is a developer
 // tool, so it is drawn in stock Dear ImGui (dark colours, default sizes),
 // not the game's theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {

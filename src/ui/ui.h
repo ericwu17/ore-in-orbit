@@ -57,5 +57,6 @@ struct DebugControls {
 
 // The developer windows, on any screen: F1 toggles the debug menu (shown
 // while playing: pause and single-step the simulation, give yourself items,
-// complete milestones, and the ImGui demo window), F2 the ImPlot demo window.
+// reveal the map, charge the thrusters, send or clear a wave, complete
+// milestones, and the ImGui demo window), F2 the ImPlot demo window.
 void DrawDevWindows(Screen screen, World& world, DebugControls& debug);
