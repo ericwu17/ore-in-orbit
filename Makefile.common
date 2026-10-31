@@ -58,11 +58,11 @@ WARNINGS += -Wconversion   # implicit narrowing (double->float, int64->int, ...)
 SIM_SOURCES         = $(wildcard src/sim/*.cpp)
 PERSISTENCE_SOURCES = $(wildcard src/persistence/*.cpp)
 UI_SOURCES          = $(wildcard src/ui/*.cpp)
-# main.cpp is shared by all platforms; platform-only files (the macOS .mm)
-# come in through PLATFORM_SOURCES.
-SHELL_SOURCES       = src/app/main.cpp src/app/app_icon.cpp $(PLATFORM_SOURCES)
+# src/app/'s .cpp files are shared by all platforms; platform-only files (the
+# macOS .mm) come in through PLATFORM_SOURCES.
+MAIN_SOURCES        = $(wildcard src/app/*.cpp) $(PLATFORM_SOURCES)
 HEADLESS_SOURCES    = $(SIM_SOURCES) $(PERSISTENCE_SOURCES)
-APP_SOURCES         = $(HEADLESS_SOURCES) $(UI_SOURCES) $(SHELL_SOURCES)
+APP_SOURCES         = $(HEADLESS_SOURCES) $(UI_SOURCES) $(MAIN_SOURCES)
 # One headless test binary per tests/test_*.cpp file (see the test rules below).
 TEST_SOURCES := $(wildcard tests/*.cpp)
 TEST_EXES    := $(patsubst tests/%.cpp,$(BUILD_DIR)/%,$(TEST_SOURCES))
