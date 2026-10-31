@@ -1,6 +1,6 @@
 // building.cpp — the inventory, building data (footprints, rotation,
-// machine categories), the bridge's hand-crafting and the building factory
-// (see building.h).
+// machine categories, health), what each kind of building does, the bridge's
+// hand-crafting and the building factory (see building.h).
 #include "sim/building.h"
 
 #include <algorithm>

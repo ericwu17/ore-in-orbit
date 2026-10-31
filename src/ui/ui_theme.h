@@ -45,8 +45,8 @@ constexpr ImVec4 kAccentText   = Rgb(20, 18, 14);    // text on amber
 constexpr ImVec4 kSteel        = Rgb(91, 120, 150);  // secondary accent: progress, links, counts
 constexpr ImVec4 kSteelHover   = Rgb(112, 145, 178);
 
-constexpr ImVec4 kGood       = Rgb(95, 174, 110);   // income, good outcomes
-constexpr ImVec4 kBad        = Rgb(224, 69, 44);    // losses, errors
+constexpr ImVec4 kGood       = Rgb(95, 174, 110);   // good outcomes, what comes out of a recipe
+constexpr ImVec4 kBad        = Rgb(224, 69, 44);    // errors, enemies, damage
 constexpr ImVec4 kBadHover   = Rgb(240, 92, 66);
 constexpr ImVec4 kBadActive  = Rgb(184, 52, 32);
 constexpr ImVec4 kWarn       = Rgb(242, 193, 46);   // nearly full, piling up

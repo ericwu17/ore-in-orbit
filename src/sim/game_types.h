@@ -134,7 +134,8 @@ enum class ItemKind {
 
 constexpr int kItemKindCount = static_cast<int>(ItemKind::Count);
 
-// The groups ItemKind is laid out in, in that order.
+// The groups items fall into, in ItemKind's order; the fleet items and the
+// ammunition, which come last, count as components.
 enum class ItemCategory {
     Placeable,
     RawResource,

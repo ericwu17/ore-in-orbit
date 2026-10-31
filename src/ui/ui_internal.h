@@ -393,9 +393,9 @@ std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current);
 // and the settings new ones get, copying and pasting, and the cargo
 // (everything else in the inventory).
 void DrawBuildPalette(Ship& ship, float width);
-// The right panel: the current milestone, the inspector, the fleet,
-// hand-crafting at the bridge, its queue, and the recipe book for
-// everything else.
+// The right panel: the inspector, the current milestone, the fleet, the
+// bridge's craft queue and hand-crafting, and the recipe book for everything
+// else.
 void DrawCraftPanel(World& world, FleetShip& current, float width);
 // What a building is and what it's doing: for the grid's hover tooltip
 // (`in_tooltip`, which writes item names out) and the inspector (where

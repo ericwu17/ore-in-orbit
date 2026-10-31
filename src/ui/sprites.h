@@ -1,6 +1,5 @@
-// sprites.h — the game's pictures: an icon for every item, and the
-// built look of every building, drawn by the UI instead of plain text and
-// shapes.
+// sprites.h — the game's pictures: an icon for every item, and the built
+// look of every building.
 //
 // They come from assets/sprites/ (see the readme's "Sprites" section),
 // embedded into the executable at build time like the logo and the font, and
@@ -12,9 +11,9 @@
 //   buildings/Bridge.png     the bridge
 //   buildings/Hull.png       one cell of hull (the deck plating)
 //
-// (<ItemId>: item_id, e.g. "IronPlate".) A sprite
-// that is missing, can't be decoded or has the wrong shape is reported once
-// at startup and looked up as null: the UI then draws its old stand-in.
+// (<ItemId>: item_id, e.g. "IronPlate".) A sprite that is missing, can't be
+// decoded or has the wrong shape is reported once at startup and looked up
+// as null: the UI then draws a stand-in shape.
 #pragma once
 
 #include "sim/game_types.h"

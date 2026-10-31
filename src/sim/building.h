@@ -3,7 +3,7 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 //   Building (abstract)
-//   ├── Bridge       the ship's command tile; owns the inventory, follows
+//   ├── Bridge       the ship's command center; owns the inventory, follows
 //   │                the fleet's milestone progress, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
@@ -13,7 +13,8 @@
 //   ├── Router       spreads items out to its neighbors
 //   ├── CargoHold    item storage
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
-//   ├── PowerPlant   solar panel / array, battery bank
+//   ├── PowerPlant   solar panel / array, battery bank (nothing uses power
+//   │                yet)
 //   ├── Thruster     ion thruster (part of the ship's layout): charged with
 //   │                fuel cells for a jump
 //   ├── Turret       autocannon, railgun: fire the ammunition belts bring

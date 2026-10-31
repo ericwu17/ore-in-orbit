@@ -1,5 +1,5 @@
 // milestones.h — the game's goals: deliver items to the bridge to unlock the
-// next tier of recipes.
+// next tier of recipes, and bigger ship layouts (see ship_layout.h).
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // The milestones come one at a time, in order. Items count toward the

@@ -67,8 +67,8 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 3).in(Circuit, 2).in(Plastic).in(Silicon).out(AdvancedCircuit).hand(),
         R(Assemble, 5).in(AdvancedCircuit, 2).in(IridiumPlate).out(Processor).hand(),
 
-        // Buildings the bridge can hand-craft: the starting kit, and First
-        // light's sorters and solar panel.
+        // Buildings the bridge can hand-craft: the starting kit, junctions,
+        // and First light's sorters and solar panel.
         R(Assemble, 0.5).in(Gear).in(IronPlate).out(TransportBelt, 2).hand(),
         R(Assemble, 3).in(IronPlate, 5).in(Gear, 3).in(Circuit, 2).out(AsteroidCollector).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),

@@ -1,5 +1,5 @@
 // ui_panels.cpp — the game screen's side panels: the build palette (left)
-// and the craft panel (right), with the milestone, the inspector and
+// and the craft panel (right), with the inspector, the milestone and
 // hand-crafting (see ui_internal.h).
 #include "ui/ui_internal.h"
 

@@ -1,4 +1,5 @@
-// ship.cpp — placement rules and the starting ship (see ship.h).
+// ship.cpp — placement rules, the starting ship and moving items between
+// buildings (see ship.h).
 #include "sim/ship.h"
 
 #include <algorithm>
