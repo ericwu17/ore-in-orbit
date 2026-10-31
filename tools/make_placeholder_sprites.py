@@ -14,10 +14,11 @@ readme's "Sprites" section):
     buildings/Hull.png       one cell of hull
 
 Without --force, files that already exist are left alone, so real art is
-never overwritten. The look copies the game's procedural drawing
-(lettered tiles, arrows on belts, round lumps and square plates) in its
-industrial style and colors (src/ui/ui_theme.h): steel plating, bevelled
-machine housings, rivets and hazard stripes.
+never overwritten. The look follows the stand-ins the game draws for a
+sprite it doesn't have (src/ui/ui_draw.cpp: lettered tiles, arrows on belts,
+round lumps and square plates) in its industrial style and colors
+(src/ui/ui_theme.h): steel plating, bevelled machine housings, rivets and
+hazard stripes.
 
 The tables below must match ItemKind (src/sim/game_types.h) and
 footprint_of (src/sim/building.cpp); tests/test_sprites.cpp fails when a
@@ -65,7 +66,8 @@ ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = STEEL_HOVER
 
 # Buildings: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, tile.
+# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, tile,
+# turret, bridge.
 BUILDINGS = {
     "TransportBelt":     (1, 1, "belt", BELT, ""),
     "ExpressBelt":       (1, 1, "belt", EXPRESS_BELT, ""),
