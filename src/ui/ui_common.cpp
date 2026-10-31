@@ -64,7 +64,7 @@ void SwitchToShip(int id) {
     if (id == f.current)
         return;
     f.cameras[f.current] = g_camera;
-    g_camera = f.cameras[id];  // a ship not seen yet: centred on its bridge
+    g_camera = f.cameras[id];  // a ship not seen yet: centered on its bridge
     f.cameras.erase(id);
     f.current = id;
     f.renaming.reset();

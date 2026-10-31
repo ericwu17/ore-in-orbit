@@ -118,7 +118,7 @@ extern SettingsUiState g_settings;
 // The view onto the build grid: how far in it is zoomed and where it has
 // been panned to.
 struct Camera {
-    bool placed = false;  // false: centre on the bridge at the default zoom, next frame
+    bool placed = false;  // false: center on the bridge at the default zoom, next frame
     float cell = 0.0f;    // screen pixels per grid cell
     ImVec2 offset;        // the grid's top-left corner, relative to the canvas's
     bool space_pans = false;  // Space went down (or was held) over the canvas: the grid follows the mouse
@@ -246,8 +246,7 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
 void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float fraction);
 
 // One item, centered on `c`, about `r` across: its sprite, or without one,
-// raw resources as round lumps, everything made from them as
-// squares.
+// raw resources as round lumps, everything made from them as squares.
 void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 
 // The items riding a belt whose cell's top-left corner is `min`: position 0

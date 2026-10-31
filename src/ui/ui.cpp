@@ -130,7 +130,7 @@ void DrawToast(ImVec2 grid_min, ImVec2 grid_size, float above) {
 // game's to start over with.
 void LeaveGame(Screen& screen) {
     screen = Screen::MainMenu;
-    g_camera = {};  // the next game starts centred on its bridge
+    g_camera = {};  // the next game starts centered on its bridge
     g_fleet = {};
     g_map = {};
     g_banner = {};
@@ -303,9 +303,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     // Escape opens the pause menu, or closes it again; first, though, it puts
     // the copy / paste tool away, then closes what's open, one at a time:
     // the Send cargo window, the Build a new ship window, the inspector, the
-    // keys overlay, the star map, the Blueprints window. Not when it closed a dropdown or tooltip popup:
-    // ImGui already did that before we got here, so look at whether one was
-    // open last frame.
+    // keys overlay, the star map, the Blueprints window. Not when it closed a
+    // dropdown or tooltip popup: ImGui already did that before we got here,
+    // so look at whether one was open last frame.
     static bool popup_was_open = false;
     BlueprintUiState& bp = g_blueprints;
     if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {

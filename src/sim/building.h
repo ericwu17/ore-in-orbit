@@ -65,8 +65,8 @@ public:
 };
 
 // The footprint a building of this kind will have when facing `facing`.
-// Rotatable buildings that aren't square turn with it: a
-// 2x1 one facing north or south would be 1x2 facing east or west.
+// Rotatable buildings that aren't square turn with it: a 2x1 one facing north
+// or south would be 1x2 facing east or west.
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
