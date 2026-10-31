@@ -102,8 +102,6 @@ void ApplyImGuiStyle(float dpi_scale) {
     c[ImGuiCol_TabDimmed]             = kFrame;
     c[ImGuiCol_TabDimmedSelected]     = kPanel;
     c[ImGuiCol_TabDimmedSelectedOverline] = kFrameActive;
-    c[ImGuiCol_DockingPreview]        = Rgb(242, 163, 43, 90);
-    c[ImGuiCol_DockingEmptyBg]        = kBackdrop;
     c[ImGuiCol_PlotLines]             = kSteelHover;
     c[ImGuiCol_PlotLinesHovered]      = kAccent;
     c[ImGuiCol_PlotHistogram]         = kSteel;

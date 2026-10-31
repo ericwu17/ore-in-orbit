@@ -111,7 +111,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetNextWindowSize(ImVec2(fh * 18.0f, 0.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (!ImGui::Begin("Send cargo", &f.show_send, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+    if (!ImGui::Begin("Send cargo", &f.show_send, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
@@ -233,7 +233,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetNextWindowSize(ImVec2(fh * 20.0f, 0.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (!ImGui::Begin("Build a new ship", &f.show_build, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+    if (!ImGui::Begin("Build a new ship", &f.show_build, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }

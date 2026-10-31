@@ -127,7 +127,7 @@ int main(int, char**)
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
     {
         printf("Error: SDL_Init(): %s\n", SDL_GetError());
         return 1;
@@ -202,8 +202,6 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = ini_path.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     // Setup the font, Dear ImGui / ImPlot styles and DPI scaling (ui_theme.h)
     ui::theme::ApplyTheme(main_scale);

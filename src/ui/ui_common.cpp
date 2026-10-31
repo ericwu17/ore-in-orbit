@@ -15,8 +15,7 @@ void BeginFullscreenPage(const char* id, ImGuiWindowFlags extra) {
     ImGui::SetNextWindowSize(viewport->WorkSize);
     ImGui::Begin(id, nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                     ImGuiWindowFlags_NoDocking | extra);
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | extra);
 }
 
 void CenteredText(const char* text, ImVec4 color) {

@@ -59,7 +59,7 @@ void DrawBlueprintLibrary(const fs::path& dir) {
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetNextWindowSize(ImVec2(fh * 24.0f, fh * 16.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (!ImGui::Begin("Blueprints", &bp.show_library, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
+    if (!ImGui::Begin("Blueprints", &bp.show_library, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
