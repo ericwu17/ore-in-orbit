@@ -83,10 +83,9 @@ FleetResult Fleet::launch(int from, const ShipLayout& layout, int* launched) {
     const bool taken = source.ship.inventory().take(launch_cost(layout));
     assert(taken);
     (void)taken;
-    const int sector = source.sector;  // `source` may move when the list grows
     Ship ship = Ship::from_layout(layout);
     ship.set_yields(source.ship.get_yields());  // the same sector's
-    FleetShip& added = add("Ship " + std::to_string(next_id), std::move(ship), sector);
+    FleetShip& added = add("Ship " + std::to_string(next_id), std::move(ship), source.sector);
     if (launched)
         *launched = added.id;
     return FleetResult::Ok;
