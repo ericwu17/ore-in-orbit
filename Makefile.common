@@ -34,8 +34,8 @@ CXXFLAGS += -isystem $(IMGUI_DIR) -isystem $(IMGUI_DIR)/backends -isystem $(IMPL
 CXXFLAGS += $(shell sdl2-config --cflags)
 CXXFLAGS += $(PLATFORM_CXXFLAGS)
 # Saves are JSON (vendored nlohmann::json): never write an enum as a number
-# by mistake; src/persistence/save_file.cpp writes each one by name. Set for
-# every file, so all of them see the same json.
+# by mistake; src/persistence/ writes each one by name. Set for every file,
+# so all of them see the same json.
 CXXFLAGS += -DJSON_DISABLE_ENUM_SERIALIZATION=1
 CXXFLAGS += -MMD -MP   # header dependency tracking
 # Build-time generated headers (logo_png.h, roboto_ttf.h, cousine_ttf.h,
@@ -44,8 +44,8 @@ GENERATED_DIR = $(BUILD_DIR)/generated
 CXXFLAGS += -I$(GENERATED_DIR)
 
 # Comprehensive but non-opinionated warning set for our own code (src/, tests/),
-# with warnings treated as errors. Third-party code (imgui) is built with
-# neither these flags nor -Werror.
+# with warnings treated as errors. Third-party code (imgui, implot) is built
+# with neither these flags nor -Werror.
 WARNINGS  = -Wall -Wextra -Wpedantic -Werror
 WARNINGS += -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual
 WARNINGS += -Wcast-align -Wnull-dereference -Wimplicit-fallthrough
@@ -106,7 +106,7 @@ $(APP_MM_OBJS): $(BUILD_DIR)/%.o: %.mm
 	$(CXX) $(CXXFLAGS) $(WARNINGS) -ObjC++ -fobjc-weak -fobjc-arc -c -o $@ $<
 endif
 
-# Vendored code (imgui): no extra warnings, no -Werror.
+# Vendored code (imgui, implot): no extra warnings, no -Werror.
 $(VENDOR_CPP_OBJS): $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
