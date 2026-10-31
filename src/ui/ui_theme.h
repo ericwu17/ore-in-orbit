@@ -116,9 +116,6 @@ bool DangerSmallButton(const char* label);
 // selected one is filled steel. Returns true when clicked.
 bool SegmentedButton(const char* label, bool selected, ImVec2 size = ImVec2(0.0f, 0.0f));
 
-// A small square-cornered tag ("LATE", a code), laid out like a text item.
-void Pill(const char* text, ImVec4 bg, ImVec4 fg);
-
 // A key cap ("R", "LMB"): a small bevelled plate around mono text, laid
 // out like a text item.
 void KeyCap(const char* key);

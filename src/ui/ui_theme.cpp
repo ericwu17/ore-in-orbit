@@ -272,18 +272,6 @@ bool SegmentedButton(const char* label, bool selected, ImVec2 size) {
     return pressed;
 }
 
-void Pill(const char* text, ImVec4 bg, ImVec4 fg) {
-    const ImVec2 text_size = ImGui::CalcTextSize(text);
-    const float pad_x = ImGui::GetFontSize() * 0.45f;
-    const float pad_y = 1.0f;
-    const ImVec2 min = ImGui::GetCursorScreenPos();
-    const ImVec2 max(min.x + text_size.x + 2.0f * pad_x, min.y + text_size.y + 2.0f * pad_y);
-    ImGui::Dummy(ImVec2(max.x - min.x, max.y - min.y));
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(min, max, U32(bg), 1.0f);
-    draw->AddText(ImVec2(min.x + pad_x, min.y + pad_y), U32(fg), text);
-}
-
 void KeyCap(const char* key) {
     PushMono(kFontSmall);
     const ImVec2 ts = ImGui::CalcTextSize(key);

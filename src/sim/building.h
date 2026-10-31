@@ -170,7 +170,6 @@ public:
     const Inventory& get_inventory() const { return inventory; }
     Progress& get_progress() { return *progress; }
     const Progress& get_progress() const { return *progress; }
-    const std::shared_ptr<Progress>& shared_progress() const { return progress; }
     // Follows `shared` from now on, instead of the progress it had.
     void share_progress(std::shared_ptr<Progress> shared) { progress = std::move(shared); }
 
