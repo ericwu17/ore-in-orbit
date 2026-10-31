@@ -42,7 +42,8 @@ struct SaveSelectResult {
 // in it, and it is cleared each time the screen opens.
 SaveSelectResult DrawSaveSelect(Screen& screen, const std::filesystem::path& saves_dir, std::string& message);
 
-// The credits page (empty for now). Back or Escape returns to the menu.
+// The credits page: the libraries and fonts the game is built with. Back or
+// Escape returns to the menu.
 void DrawCredits(Screen& screen);
 
 // The game itself: the ship build grid and the build palette, copying and

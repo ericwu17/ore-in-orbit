@@ -52,6 +52,24 @@ std::string FormatPlayed(Tick ticks) {
     return text;
 }
 
+// A row of the credits page.
+struct Credit {
+    const char* name;
+    const char* used_for;
+    const char* author;
+    const char* license;
+};
+
+constexpr Credit kCredits[] = {
+    {"SDL2", "Window and input", "Sam Lantinga", "zlib"},
+    {"Dear ImGui", "The interface", "Omar Cornut", "MIT"},
+    {"ImPlot", "Plots", "Evan Pezent", "MIT"},
+    {"nlohmann::json", "Saves and blueprints", "Niels Lohmann", "MIT"},
+    {"stb_image", "Loading images", "Sean Barrett", "MIT or public domain"},
+    {"Roboto", "Interface text", "Christian Robertson", "Apache 2.0"},
+    {"Cousine", "Headings and numbers", "Steve Matteson", "SIL OFL 1.1"},
+};
+
 }  // namespace
 
 }  // namespace ui
@@ -259,8 +277,37 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
 
 void DrawCredits(Screen& screen) {
     BeginFullscreenPage("##credits");
+    const float width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight() * 32.0f);
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+    ImGui::BeginChild("##credits_list", ImVec2(width, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+
     theme::SectionHeading("Credits");
     if (ImGui::Button("Back") || ShortcutPressed(ImGuiKey_Escape))
         screen = Screen::MainMenu;
+    ImGui::Spacing();
+
+    const ImGuiTableFlags table_flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit;
+    if (ImGui::BeginTable("##credits_table", 4, table_flags)) {
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Used for", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("By");
+        ImGui::TableSetupColumn("License");
+        ImGui::TableHeadersRow();
+        for (const Credit& credit : kCredits) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(credit.name);
+            ImGui::TableNextColumn();
+            ImGui::TextColored(theme::kTextDim, "%s", credit.used_for);
+            ImGui::TableNextColumn();
+            ImGui::TextColored(theme::kTextDim, "%s", credit.author);
+            ImGui::TableNextColumn();
+            ImGui::TextColored(theme::kTextDim, "%s", credit.license);
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::EndChild();
     ImGui::End();
 }
