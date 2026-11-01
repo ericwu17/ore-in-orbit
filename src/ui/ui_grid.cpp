@@ -477,7 +477,7 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     // Buildings after all the hull, since larger ones overlap later cells.
     // Ones anchored up to kMaxFootprint - 1 cells above / left of the view
     // still reach into it.
-    constexpr int kMaxFootprint = 3;
+    constexpr int kMaxFootprint = kBridgeSize;  // the largest building
     for (int y = std::max(0, lo.y - (kMaxFootprint - 1)); y <= hi.y; ++y)
         for (int x = std::max(0, lo.x - (kMaxFootprint - 1)); x <= hi.x; ++x)
             if (const Building* b = ship.building_anchored_at({x, y})) {
