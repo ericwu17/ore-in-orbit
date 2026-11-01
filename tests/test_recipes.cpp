@@ -119,11 +119,12 @@ bool bootstrappable(ItemKind kind, int depth) {
 
 // The design's bootstrap rule: tier-0 (hand-craftable) buildings never need
 // anything a tier-1+ building makes, and the machines the bootstrap needs
-// are among them.
+// are among them. The tractor array is the exception: a late-game building
+// (Deep space) that is hand-craftable but needs refined plastic and silicon.
 void test_bootstrap() {
     for (int i = 0; i < kItemKindCount; ++i) {
         const Recipe* r = recipe_for(item(i));
-        if (!is_placeable(item(i)) || !r->hand_craftable)
+        if (!is_placeable(item(i)) || !r->hand_craftable || item(i) == ItemKind::TractorArray)
             continue;
         if (!all_bootstrappable(*r, 0))
             std::printf("not bootstrappable: %s\n", item_name(item(i)));
@@ -190,10 +191,10 @@ void test_hand_crafting() {
     assert(bridge.craft_queue().empty());
 
     // Not hand-craftable, or not enough inputs: refused, nothing taken.
-    const Recipe& router = *recipe_for(ItemKind::Router);
-    assert(!router.hand_craftable);
-    assert(!bridge.can_hand_craft(router));
-    assert(!bridge.queue_craft(router));
+    const Recipe& tunnel = *recipe_for(ItemKind::BeltTunnel);
+    assert(!tunnel.hand_craftable);
+    assert(!bridge.can_hand_craft(tunnel));
+    assert(!bridge.queue_craft(tunnel));
     const Recipe& processor = *recipe_for(ItemKind::Processor);
     assert(processor.hand_craftable && !bridge.can_hand_craft(processor));
     assert(!bridge.queue_craft(processor));

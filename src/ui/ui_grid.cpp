@@ -132,9 +132,10 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
         const ImVec2 max = FootprintMax(min, cell, size);
         DrawBuilding(draw, min, cell, size, b.kind, b.facing, 0.45f);
         // Its settings, where the built one shows them.
-        if (cell >= 8.0f && b.recipe && !b.recipe->outputs.empty())
-            DrawItem(draw, ImVec2(max.x - cell * 0.32f, min.y + cell * 0.32f), cell * 0.16f,
-                     b.recipe->outputs.front().kind);
+        if (b.recipe && !b.recipe->outputs.empty())
+            DrawCornerItem(draw, min, max, cell, b.recipe->outputs.front().kind);
+        if (b.target)
+            DrawCornerItem(draw, min, max, cell, *b.target);
         if (b.filter)
             DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.2f), *b.filter);
         if (e.result != BuildResult::Ok)
@@ -487,9 +488,7 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                              thruster && thruster->offline() ? 0.4f : 1.0f);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 if (const auto* collector = dynamic_cast<const Collector*>(b))
-                    DrawBufferGauge(draw, min, max, cell,
-                                    static_cast<float>(collector->stored()) /
-                                        static_cast<float>(collector->capacity()));
+                    DrawCollectorStatus(draw, *collector, min, max, cell);
                 if (const auto* machine = dynamic_cast<const Machine*>(b))
                     DrawMachineStatus(draw, *machine, min, max, cell);
                 if (const auto* sorter = dynamic_cast<const Sorter*>(b))

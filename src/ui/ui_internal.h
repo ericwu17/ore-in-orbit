@@ -252,9 +252,15 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 // The items riding a belt whose cell's top-left corner is `min`: position 0
 // is its back edge, kBeltLength its front edge.
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell);
+// One item in the top-right corner of a building's footprint: the setting
+// the building is working to. Skipped when too far out to read.
+void DrawCornerItem(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ItemKind kind);
 // A machine's recipe (its main product, in the top-right corner) and its
 // craft progress (a gauge along the bottom).
 void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImVec2 max, float cell);
+// A collector's target (in the top-right corner) and how full its buffer is
+// (a gauge along the bottom).
+void DrawCollectorStatus(ImDrawList* draw, const Collector& collector, ImVec2 min, ImVec2 max, float cell);
 // The items crossing a junction whose cell's top-left corner is `min`, each
 // as far across as it has got.
 void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell);

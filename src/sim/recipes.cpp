@@ -68,7 +68,7 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 5).in(AdvancedCircuit, 2).in(IridiumPlate).out(Processor).hand(),
 
         // Buildings the bridge can hand-craft: the starting kit, junctions,
-        // and First light's sorters and solar panel.
+        // and First light's sorters, router and solar panel.
         R(Assemble, 0.5).in(Gear).in(IronPlate).out(TransportBelt, 2).hand(),
         R(Assemble, 3).in(IronPlate, 5).in(Gear, 3).in(Circuit, 2).out(AsteroidCollector).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
@@ -80,7 +80,7 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 3).in(IronPlate, 8).in(Gear, 4).in(Circuit, 3).out(FabricatorMk1).hand(),
 
         // Logistics and power (First light, Heavy industry).
-        R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router),
+        R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router).hand(),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
         R(Assemble, 3).in(Steel, 4).in(Circuit, 4).out(BatteryBank),
 
@@ -93,7 +93,7 @@ std::vector<Recipe> make_recipes() {
         // Late game (Deep space, Escape velocity).
         R(Assemble, 15)
             .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10)
-            .out(TractorArray),
+            .out(TractorArray).hand(),
         R(Assemble, 8).in(StructuralFrame, 5).in(AdvancedCircuit, 5).in(Glass, 4).out(SurveyScanner),
         R(Assemble, 12).in(FabricatorMk2).in(Processor, 4).in(IridiumPlate, 5).out(FabricatorMk3),
 

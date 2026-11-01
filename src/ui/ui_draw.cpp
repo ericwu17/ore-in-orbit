@@ -245,16 +245,26 @@ void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cel
     }
 }
 
+void DrawCornerItem(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ItemKind kind) {
+    if (cell < 8.0f)
+        return;  // too far out to read
+    DrawItem(draw, ImVec2(max.x - cell * 0.32f, min.y + cell * 0.32f), cell * 0.16f, kind);
+}
+
 void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImVec2 max, float cell) {
     const Recipe* recipe = machine.get_recipe();
-    if (!recipe || cell < 8.0f)
+    if (!recipe)
         return;
-    if (!recipe->outputs.empty()) {
-        const float r = cell * 0.16f;
-        DrawItem(draw, ImVec2(max.x - cell * 0.32f, min.y + cell * 0.32f), r, recipe->outputs.front().kind);
-    }
+    if (!recipe->outputs.empty())
+        DrawCornerItem(draw, min, max, cell, recipe->outputs.front().kind);
     if (machine.crafting())
         DrawBufferGauge(draw, min, max, cell, machine.craft_progress());
+}
+
+void DrawCollectorStatus(ImDrawList* draw, const Collector& collector, ImVec2 min, ImVec2 max, float cell) {
+    DrawCornerItem(draw, min, max, cell, collector.get_target());
+    DrawBufferGauge(draw, min, max, cell,
+                    static_cast<float>(collector.stored()) / static_cast<float>(collector.capacity()));
 }
 
 void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell) {
