@@ -17,7 +17,8 @@
 // buildings hand their output to the neighbors that will take it, belts
 // included (see insert_item). Filter and reverse sorters pass each item
 // straight on to a neighbor in the same step; junctions and routers hold
-// items a moment, then pass them on.
+// items a moment, then pass them on. A belt tunnel carries items underground
+// to its other end.
 #pragma once
 
 #include "sim/building.h"
@@ -58,6 +59,13 @@ struct PlannedChanges {
     static constexpr int cell_key(GridPos p) { return p.y * kShipGridSize + p.x; }
 };
 
+// What a belt tunnel placed somewhere would link to: the other end, if any,
+// and whether the new one would be the exit.
+struct TunnelPreview {
+    std::optional<GridPos> partner;
+    bool is_exit = false;
+};
+
 class Ship {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -82,6 +90,14 @@ private:
     }();
 
     Building* building_at_mut(GridPos p);
+    // The cell of the nearest belt tunnel facing `facing`, within kTunnelRange
+    // of `p` going `way`, passing under anything else.
+    std::optional<GridPos> tunnel_along(GridPos p, Direction way, Direction facing) const;
+    // Links the belt tunnels up, from where they stand: walking each line
+    // the way it runs, a tunnel not yet anyone's exit takes the nearest one
+    // ahead, facing the same way and in range, as its exit (so a row of them
+    // pairs off from the back). Called whenever one comes or goes.
+    void link_tunnels();
     // Offers one item from `b`'s output buffer to its neighbors, round
     // robin; moves it to the first that takes it.
     void push_output(GridPos p, Building& b);
@@ -162,6 +178,8 @@ public:
     // can_place() as if the `planned` changes had been made first, with
     // their inventory instead of the bridge's.
     BuildResult can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const;
+    // What a belt tunnel facing `facing` would link to if placed at `p`.
+    TunnelPreview tunnel_preview(GridPos p, Direction facing) const;
     // Places one building, taking it from the inventory. `p` is the
     // top-left cell of its footprint. `facing` is used by rotatable
     // buildings only (and turns a non-square one's footprint).
@@ -188,7 +206,9 @@ public:
     // the neighbor it sends it to takes it now; an item from one sorter
     // never goes through a second straight into a third (nor round a ring
     // of them). A junction takes it while its queue that way has room and
-    // something stands on the far side; a router while it's empty.
+    // something stands on the far side; a router while it's empty. A tunnel's
+    // entrance takes items as a belt does; its exit only from the side,
+    // halfway along.
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
@@ -203,7 +223,7 @@ public:
 
     // One simulation step: every building ticks (gathering, crafting, belts
     // moving), then junctions and routers pass on what's ready, then each
-    // belt's front item goes to what it points at, then each building puts
-    // one item of output out to a neighbor.
+    // belt's front item goes to what it points at (a tunnel's, to its exit),
+    // then each building puts one item of output out to a neighbor.
     void tick();
 };

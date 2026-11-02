@@ -1,8 +1,8 @@
 // test_logistics.cpp — headless tests for moving items between buildings:
 // belts (travel time, spacing and jams, which sides they take items from),
 // buildings feeding their neighbors directly, machines crafting the recipe
-// they were set to, filter and reverse sorters, junctions, routers, and a
-// whole collector -> furnace -> belt -> bridge chain.
+// they were set to, filter and reverse sorters, junctions, routers, belt
+// tunnels, and a whole collector -> furnace -> belt -> bridge chain.
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -41,6 +41,12 @@ const Conveyor& belt_at(const Ship& ship, GridPos p) {
     const auto* belt = dynamic_cast<const Conveyor*>(ship.building_at(p));
     assert(belt);
     return *belt;
+}
+
+const Tunnel& tunnel_at(const Ship& ship, GridPos p) {
+    const auto* tunnel = dynamic_cast<const Tunnel*>(ship.building_at(p));
+    assert(tunnel);
+    return *tunnel;
 }
 
 const Machine& machine_at(const Ship& ship, GridPos p) {
@@ -597,6 +603,205 @@ void test_machine_recipes() {
     assert(machine_recipes(ItemKind::Junction).empty());
 }
 
+// Whether the tunnel at `a` has the one at `b` as its exit.
+bool tunnel_linked(const Ship& ship, GridPos a, GridPos b) {
+    return tunnel_at(ship, a).get_exit() == b && tunnel_at(ship, b).get_entrance() == a;
+}
+
+// A world with tunnels to build, and a row on bare hull north of the bridge
+// (running from `kTunnelRow` east, with room for a few rows below it).
+constexpr GridPos kTunnelRow{c - 8, c - 8};
+
+World tunnel_world() {
+    World world;
+    world.flagship().inventory().add(ItemKind::BeltTunnel, 20);
+    return world;
+}
+
+// Items pass under a building, come up at the exit and go on, as fast as
+// the tunnel's speed takes them over the distance.
+void test_tunnel_carries() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const GridPos entrance{b1 + 6, c};
+    const GridPos exit{b1 + 2, c};
+    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::West) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, exit, Direction::West) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, {b1 + 3, c}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, {b1 + 1, c}, Direction::West) == BuildResult::Ok);
+    assert(tunnel_linked(ship, entrance, exit));
+    assert(!tunnel_at(ship, entrance).is_exit() && tunnel_at(ship, exit).is_exit());
+    assert(tunnel_at(ship, entrance).length() == 4 * kBeltLength);
+    assert(tunnel_at(ship, exit).length() == kBeltLength);
+
+    assert(ship.insert_item(entrance, {b1 + 7, c}, ItemKind::IronPlate));
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    const Tick tunnel_cell = static_cast<Tick>(kBeltLength / belt_speed(ItemKind::BeltTunnel));
+    run(world, 4 * tunnel_cell - 1);
+    assert(belt_at(ship, entrance).get_items().size() == 1);
+    assert(belt_at(ship, exit).get_items().empty());
+    run(world, 1);
+    assert(belt_at(ship, entrance).get_items().empty());
+    assert(belt_at(ship, exit).get_items().size() == 1);
+    assert(belt_at(ship, exit).get_items().front().pos == 0);
+    run(world, tunnel_cell + belt_cell_ticks() - 1);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates);
+    run(world, 1);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates + 1);
+    // The cargo hold it went under never saw it.
+    assert(dynamic_cast<const CargoHold&>(*ship.building_at({b1 + 3, c})).get_stored().total() == 0);
+}
+
+// A tunnel links to the nearest one ahead facing the same way, in range,
+// whichever was placed first; others on the line don't matter.
+void test_tunnel_links() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const auto row = [](int dx, int dy) { return GridPos{kTunnelRow.x + dx, kTunnelRow.y + dy}; };
+
+    // In range, placed exit first.
+    assert(ship.place(ItemKind::BeltTunnel, row(kTunnelRange, 0), Direction::East) == BuildResult::Ok);
+    assert(!tunnel_at(ship, row(kTunnelRange, 0)).linked());
+    assert(ship.place(ItemKind::BeltTunnel, row(0, 0), Direction::East) == BuildResult::Ok);
+    assert(tunnel_linked(ship, row(0, 0), row(kTunnelRange, 0)));
+    assert(tunnel_at(ship, row(0, 0)).get_distance() == kTunnelRange);
+
+    // Out of range.
+    assert(ship.place(ItemKind::BeltTunnel, row(0, 1), Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, row(kTunnelRange + 1, 1), Direction::East) == BuildResult::Ok);
+    assert(!tunnel_at(ship, row(0, 1)).linked() && !tunnel_at(ship, row(kTunnelRange + 1, 1)).linked());
+
+    // Lines the other way, and across, pass through.
+    assert(ship.place(ItemKind::BeltTunnel, row(0, 2), Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, row(1, 2), Direction::West) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, row(2, 2), Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, row(3, 2), Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, row(4, 2), Direction::West) == BuildResult::Ok);
+    assert(tunnel_linked(ship, row(0, 2), row(3, 2)));
+    assert(tunnel_linked(ship, row(4, 2), row(1, 2)));
+    assert(!tunnel_at(ship, row(2, 2)).linked());
+}
+
+// A row pairs off from the back, and pairs off anew when one goes; what a
+// new one would link to is known beforehand.
+void test_tunnel_row() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const auto at = [](int dx) { return GridPos{kTunnelRow.x + dx, kTunnelRow.y}; };
+    for (const int dx : {6, 2, 0, 4})
+        assert(ship.place(ItemKind::BeltTunnel, at(dx), Direction::East) == BuildResult::Ok);
+    assert(tunnel_linked(ship, at(0), at(2)));
+    assert(tunnel_linked(ship, at(4), at(6)));
+
+    assert(ship.remove_building(at(0)) == BuildResult::Ok);
+    assert(tunnel_linked(ship, at(2), at(4)));
+    assert(!tunnel_at(ship, at(6)).linked());
+
+    // At the back of the row: an entrance, with the first one as its exit.
+    TunnelPreview preview = ship.tunnel_preview(at(0), Direction::East);
+    assert(preview.partner == at(2) && !preview.is_exit);
+    // Just past an exit: an entrance too.
+    preview = ship.tunnel_preview(at(5), Direction::East);
+    assert(preview.partner == at(6) && !preview.is_exit);
+    // Ahead of the lone one: its exit.
+    preview = ship.tunnel_preview(at(8), Direction::East);
+    assert(preview.partner == at(6) && preview.is_exit);
+    assert(ship.place(ItemKind::BeltTunnel, at(8), Direction::East) == BuildResult::Ok);
+    assert(tunnel_linked(ship, at(6), at(8)));
+    // Facing another way, it's on its own.
+    assert(!ship.tunnel_preview(at(3), Direction::North).partner);
+}
+
+// With no exit a tunnel fills up and holds on to its items: nothing goes on
+// to the cell it points at. Removing it refunds them.
+void test_tunnel_alone() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const GridPos p = kTunnelRow;
+    const GridPos ahead{p.x + 1, p.y};
+    assert(ship.place(ItemKind::BeltTunnel, p, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, ahead, Direction::East) == BuildResult::Ok);
+    int accepted = 0;
+    for (int t = 0; t < 300; ++t) {
+        if (ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear))
+            ++accepted;
+        world.advance_tick();
+    }
+    assert(accepted == kBeltLength / kBeltSpacing + 1);
+    assert(belt_at(ship, ahead).get_items().empty());
+
+    const int gears = ship.inventory().count(ItemKind::Gear);
+    assert(ship.remove_building(p) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::Gear) == gears + accepted);
+}
+
+// Taking the exit away leaves the items on their way in the entrance, past
+// where it now ends; once it has an exit again (a nearer one, here), they
+// all come out.
+void test_tunnel_relink() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const GridPos entrance = kTunnelRow;
+    const GridPos far{entrance.x + 4, entrance.y};
+    const GridPos near{entrance.x + 2, entrance.y};
+    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, far, Direction::East) == BuildResult::Ok);
+    int inserted = 0;
+    for (int t = 0; t < 45; ++t) {
+        if (ship.insert_item(entrance, {entrance.x - 1, entrance.y}, ItemKind::Gear))
+            ++inserted;
+        world.advance_tick();
+    }
+    assert(inserted > 2);
+    assert(tunnel_at(ship, entrance).get_items().front().pos > 2 * kBeltLength);
+
+    assert(ship.remove_building(far) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::Gear) == 0);  // none got that far
+    run(world, 200);
+    assert(static_cast<int>(belt_at(ship, entrance).get_items().size()) == inserted);
+
+    assert(ship.place(ItemKind::BeltTunnel, near, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, {near.x + 1, near.y}) == BuildResult::Ok);
+    run(world, 200);
+    assert(belt_at(ship, entrance).get_items().empty() && belt_at(ship, near).get_items().empty());
+    assert(dynamic_cast<const CargoHold&>(*ship.building_at({near.x + 1, near.y})).get_stored().total() == inserted);
+}
+
+// Removing an entrance refunds the items on their way underground too.
+void test_tunnel_remove_entrance() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const GridPos entrance = kTunnelRow;
+    const GridPos exit{entrance.x + 4, entrance.y};
+    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, exit, Direction::East) == BuildResult::Ok);
+    assert(ship.insert_item(entrance, {entrance.x - 1, entrance.y}, ItemKind::Gear));
+    run(world, 30);
+    assert(ship.remove_building(entrance) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::Gear) == 1);
+    assert(!tunnel_at(ship, exit).linked());
+}
+
+// An exit's back is the tunnel's mouth, and its side input joins halfway; an
+// entrance takes items as a belt does.
+void test_tunnel_sides() {
+    World world = tunnel_world();
+    Ship& ship = world.flagship();
+    const GridPos entrance = kTunnelRow;
+    const GridPos exit{entrance.x + 3, entrance.y};
+    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, exit, Direction::East) == BuildResult::Ok);
+
+    assert(!ship.insert_item(exit, {exit.x - 1, exit.y}, ItemKind::Gear));  // through the mouth
+    assert(!ship.insert_item(exit, {exit.x + 1, exit.y}, ItemKind::Gear));  // the cell it feeds
+    assert(ship.insert_item(exit, {exit.x, exit.y - 1}, ItemKind::Gear));
+    assert(belt_at(ship, exit).get_items().front().pos == kBeltLength / 2);
+
+    assert(!ship.insert_item(entrance, {entrance.x + 1, entrance.y}, ItemKind::Gear));  // the cell it feeds
+    assert(ship.insert_item(entrance, {entrance.x, entrance.y + 1}, ItemKind::Gear));   // a corner
+    assert(belt_at(ship, entrance).get_items().front().pos == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -618,6 +823,13 @@ int main() {
     test_junction();
     test_junction_crossing();
     test_router();
+    test_tunnel_carries();
+    test_tunnel_links();
+    test_tunnel_row();
+    test_tunnel_alone();
+    test_tunnel_relink();
+    test_tunnel_remove_entrance();
+    test_tunnel_sides();
     test_machine_recipes();
     std::puts("test_logistics: all passed");
     return 0;

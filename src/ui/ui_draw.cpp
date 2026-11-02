@@ -100,7 +100,7 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 }
 
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha) {
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit) {
     const float inset = cell * 0.12f;
     const ImVec2 max = FootprintMax(min, cell, size);
     const ImVec2 a(min.x + inset, min.y + inset);
@@ -128,6 +128,8 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
     };
 
     const sprites::Sprite* sprite = kind ? sprites::Building(*kind) : sprites::Bridge();
+    if (kind == ItemKind::BeltTunnel && !tunnel_exit)
+        sprite = sprites::TunnelEntrance();
     if (sprite) {
         DrawSprite(draw, *sprite, min, max, kind && is_rotatable(*kind) ? facing : Direction::North, alpha);
         return;
@@ -145,10 +147,12 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
         break;
     case ItemKind::BeltTunnel: {
         conveyor(theme::kTileBelt);
-        // The tunnel mouth: a bar across the back.
-        const ImVec2 back(c.x - d.x * cell * 0.3f, c.y - d.y * cell * 0.3f);
+        // The tunnel mouth: a bar across the back of an exit, the front of
+        // an entrance.
+        const float along = cell * (tunnel_exit ? -0.3f : 0.3f);
+        const ImVec2 mouth(c.x + d.x * along, c.y + d.y * along);
         const ImVec2 p(-d.y * cell * 0.38f, d.x * cell * 0.38f);
-        draw->AddLine(ImVec2(back.x - p.x, back.y - p.y), ImVec2(back.x + p.x, back.y + p.y),
+        draw->AddLine(ImVec2(mouth.x - p.x, mouth.y - p.y), ImVec2(mouth.x + p.x, mouth.y + p.y),
                       theme::U32(theme::kTileTunnelMouth, alpha), cell * 0.12f);
         break;
     }
@@ -239,7 +243,12 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell) {
     const ImVec2 d = DirectionVector(belt.facing());
     const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
+    // A tunnel's items show only on the open side of its mouth.
+    const auto* tunnel = dynamic_cast<const Tunnel*>(&belt);
+    constexpr int kMouth = kBeltLength / 5;  // from the edge, as DrawBuilding draws it
     for (const BeltItem& item : belt.get_items()) {
+        if (tunnel && (tunnel->is_exit() ? item.pos < kMouth : item.pos > kBeltLength - kMouth))
+            continue;
         const float t = cell * static_cast<float>(item.pos) / static_cast<float>(kBeltLength);
         DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
     }

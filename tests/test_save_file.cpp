@@ -517,11 +517,41 @@ void test_machine_refused() {
     refused_after(armed, "a turret cooling down too long", [&](Json& j) { turret(j)["cooldown"] = 1000; });
 }
 
+// A tunnel saved with an item partway under comes back linked, and the item
+// carries on, however far past a belt's length it had got.
+void test_tunnel_round_trip() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add(ItemKind::BeltTunnel, 2);
+    const GridPos entrance{x0, c + 8};
+    const GridPos exit{x0 + 4, c + 8};
+    const GridPos hold{x0 + 5, c + 8};
+    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, exit, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+    assert(ship.insert_item(entrance, {x0 - 1, c + 8}, ItemKind::Gear));
+    run(world, 40);
+    const auto* tunnel = dynamic_cast<const Tunnel*>(ship.building_at(entrance));
+    assert(tunnel->get_items().front().pos > 2 * kBeltLength);
+
+    const std::string text = save_text(world);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded && error.empty());
+    assert(save_text(loaded->world) == text);
+    const Ship& copy = loaded->world.flagship();
+    const auto* in = dynamic_cast<const Tunnel*>(copy.building_at(entrance));
+    assert(in && in->get_exit() == exit && in->get_items().size() == 1);
+    run(loaded->world, 100);
+    assert(dynamic_cast<const CargoHold&>(*copy.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
+}
+
 }  // namespace
 
 int main() {
     test_names();
     test_round_trip();
+    test_tunnel_round_trip();
     test_determinism();
     test_header_only();
     test_refused();

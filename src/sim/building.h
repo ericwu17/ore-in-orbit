@@ -6,8 +6,8 @@
 //   ├── Bridge       the ship's command center; owns the inventory, follows
 //   │                the fleet's milestone progress, hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
-//   ├── Conveyor     moves items along: belts (the belt tunnel doesn't work
-//   │                yet)
+//   ├── Conveyor     moves items along: belts
+//   │   └── Tunnel   the belt tunnel: two of them carry items underground
 //   ├── Sorter       routes items by kind (filter and reverse sorters)
 //   ├── Junction     lets two belt lines cross
 //   ├── Router       spreads items out to its neighbors
@@ -71,7 +71,7 @@ GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
 // Buildings that can be unlocked and built but don't do anything yet: the
-// belt tunnel (see belt_speed) and the power buildings (nothing uses power).
+// power buildings (nothing uses power).
 bool is_unfinished(ItemKind kind);
 // The damage a building of this kind takes before it's destroyed (nullopt:
 // the bridge).
@@ -248,8 +248,7 @@ public:
 constexpr int kBeltLength = 60;
 constexpr int kBeltSpacing = 20;
 
-// Belt speed in positions per tick (a cell is kBeltLength): 0 for the
-// conveyors that don't move items yet (the tunnel).
+// Belt speed in positions per tick (a cell is kBeltLength).
 int belt_speed(ItemKind kind);
 
 struct BeltItem {
@@ -265,7 +264,8 @@ public:
     Conveyor(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
 
     int speed() const { return belt_speed(*item_kind()); }
-    bool moves_items() const { return speed() > 0; }
+    // Where its front edge is, in positions.
+    virtual int length() const { return kBeltLength; }
     // Moves every item forward, up to the front edge or the item ahead.
     void tick() override;
     std::vector<ItemStack> contents() const override;
@@ -278,6 +278,45 @@ public:
     // The front item, once it has reached the front edge.
     std::optional<ItemKind> item_at_front() const;
     void pop_front();
+};
+
+// The two ends of a tunnel stand up to kTunnelRange cells apart.
+constexpr int kTunnelRange = 5;
+
+// The belt tunnel: one end of an underground stretch of belt, which passes
+// under whatever stands between the ends. The Ship links each tunnel to the
+// nearest one ahead facing the same way, in range (see Ship::link_tunnels),
+// from where they stand alone: the one behind is the entrance, the one ahead
+// the exit, whichever was placed first.
+//
+// An entrance's belt runs on underground to its exit, so the items on their
+// way belong to it, and its length() reaches the exit's back edge. Without an
+// exit it holds them, passing nothing on to the cell it points at. An exit
+// is a plain belt whose back is the tunnel's mouth, so it only takes items
+// from its entrance and from the sides (see Ship::insert_item).
+class Tunnel : public Conveyor {
+private:
+    std::optional<GridPos> exit_cell;      // an entrance's exit, once linked
+    std::optional<GridPos> entrance_cell;  // an exit's entrance
+    int distance = 0;                      // cells to the other end, once linked
+
+public:
+    explicit Tunnel(Direction facing) : Conveyor(ItemKind::BeltTunnel, facing) {}
+
+    // An item past length() (its exit went, or a nearer one came) stays where
+    // it is until it can go on.
+    int length() const override { return exit_cell ? kBeltLength * distance : kBeltLength; }
+    bool is_exit() const { return entrance_cell.has_value(); }
+    bool linked() const { return exit_cell || entrance_cell; }
+    std::optional<GridPos> get_exit() const { return exit_cell; }
+    std::optional<GridPos> get_entrance() const { return entrance_cell; }
+    // Cells to the other end (0 when not linked).
+    int get_distance() const { return distance; }
+
+    // Kept by the Ship.
+    void unlink();
+    void link_exit(GridPos exit, int cells);
+    void link_entrance(GridPos entrance, int cells);
 };
 
 // The filter sorter, as in Mindustry: an item matching its filter carries

@@ -228,6 +228,29 @@ void test_rotate() {
     assert(pasted_belt && pasted_belt->facing() == Direction::West);
 }
 
+// A tunnel pair copied and turned links up the same way, and carries items.
+void test_tunnels() {
+    Ship ship = stocked_ship();
+    assert(ship.place(ItemKind::BeltTunnel, {x0, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BeltTunnel, {x0 + 3, c}, Direction::East) == BuildResult::Ok);
+    const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0 + 3, c});
+    assert(copy);
+
+    const Blueprint turned = rotated_cw(*copy);
+    const GridPos entrance{x0, c + 2};
+    const GridPos exit{x0, c + 5};
+    assert(paste(ship, turned, entrance).pasted);
+    const auto* in = dynamic_cast<const Tunnel*>(ship.building_at(entrance));
+    assert(in && in->facing() == Direction::South && in->get_exit() == exit);
+
+    const GridPos hold{x0, c + 6};
+    assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+    assert(ship.insert_item(entrance, {x0, c + 1}, ItemKind::Gear));
+    for (int t = 0; t < 200; ++t)
+        ship.tick();
+    assert(dynamic_cast<const CargoHold&>(*ship.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
+}
+
 // The blueprint string `text` with `change` made to its JSON.
 std::string changed(const std::string& text, const std::function<void(Json&)>& change) {
     Json j = Json::parse(text);
@@ -368,6 +391,7 @@ int main() {
     test_paste();
     test_paste_settings();
     test_rotate();
+    test_tunnels();
     test_strings();
     const fs::path dir = fs::temp_directory_path() / "ore-in-orbit-test-blueprints";
     fs::remove_all(dir);

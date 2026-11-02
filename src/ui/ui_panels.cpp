@@ -311,9 +311,22 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : collector->items().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
-    if (const auto* belt = dynamic_cast<const Conveyor*>(&b); belt && belt->moves_items()) {
+    if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
         ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
                            static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
+        if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt)) {
+            const int cells = tunnel->get_distance();
+            if (tunnel->is_exit())
+                ImGui::TextColored(theme::kTextDim, "Exit: items come up from the\nentrance %d cell%s back", cells,
+                                   cells == 1 ? "" : "s");
+            else if (tunnel->linked())
+                ImGui::TextColored(theme::kTextDim, "Entrance: items go under to the\nexit %d cell%s ahead", cells,
+                                   cells == 1 ? "" : "s");
+            else
+                ImGui::TextColored(theme::kWarnText,
+                                   "No exit: place a belt tunnel facing the\nsame way, up to %d cells ahead",
+                                   kTunnelRange);
+        }
         Inventory carried;
         for (const BeltItem& item : belt->get_items())
             carried.add(item.kind);

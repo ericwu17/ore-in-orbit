@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 
 namespace {
 
@@ -119,8 +120,54 @@ void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
             assert(!cell);
             cell = p;
         }
+    const bool tunnel = dynamic_cast<const Tunnel*>(building.get()) != nullptr;
     at(buildings, p) = std::move(building);
     placed.push_back(p);
+    if (tunnel)
+        link_tunnels();
+}
+
+std::optional<GridPos> Ship::tunnel_along(GridPos p, Direction way, Direction facing) const {
+    for (int i = 0; i < kTunnelRange; ++i) {
+        p = neighbor(p, way);
+        const auto* tunnel = dynamic_cast<const Tunnel*>(building_at(p));
+        if (tunnel && tunnel->facing() == facing)
+            return p;
+    }
+    return std::nullopt;
+}
+
+void Ship::link_tunnels() {
+    std::vector<GridPos> tunnels;
+    for (const GridPos p : placed)
+        if (auto* tunnel = dynamic_cast<Tunnel*>(at(buildings, p).get())) {
+            tunnel->unlink();
+            tunnels.push_back(p);
+        }
+    // Rearmost first: how far along its own direction each one stands.
+    const auto along = [&](GridPos p) {
+        const GridPos step = neighbor({0, 0}, at(buildings, p)->facing());
+        return p.x * step.x + p.y * step.y;
+    };
+    std::sort(tunnels.begin(), tunnels.end(), [&](GridPos a, GridPos b) { return along(a) < along(b); });
+    for (const GridPos p : tunnels) {
+        auto& entrance = dynamic_cast<Tunnel&>(*at(buildings, p));
+        if (entrance.is_exit())
+            continue;
+        if (const std::optional<GridPos> ahead = tunnel_along(p, entrance.facing(), entrance.facing())) {
+            const int cells = std::abs(ahead->x - p.x) + std::abs(ahead->y - p.y);
+            entrance.link_exit(*ahead, cells);
+            dynamic_cast<Tunnel&>(*at(buildings, *ahead)).link_entrance(p, cells);
+        }
+    }
+}
+
+TunnelPreview Ship::tunnel_preview(GridPos p, Direction facing) const {
+    const Direction back = rotated_cw(rotated_cw(facing));
+    if (const std::optional<GridPos> behind = tunnel_along(p, back, facing))
+        if (!dynamic_cast<const Tunnel&>(*building_at(*behind)).is_exit())
+            return {behind, true};
+    return {tunnel_along(p, facing, facing), false};
 }
 
 void Ship::update_yield(Collector& collector) const {
@@ -228,6 +275,8 @@ std::unique_ptr<Building> Ship::take_building(GridPos a) {
         for (int x = a.x; x < a.x + size.w; ++x)
             at(anchor, {x, y}).reset();
     placed.erase(std::find(placed.begin(), placed.end(), a));
+    if (dynamic_cast<const Tunnel*>(building.get()))
+        link_tunnels();
     return building;
 }
 
@@ -294,11 +343,16 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
         return false;  // the cell it feeds
     if (source && building_at(neighbor(to, facing)) == source)
         return false;  // back where it came from, through a sorter
+    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
+    const auto* tunnel = dynamic_cast<const Tunnel*>(belt);
+    const bool exit = tunnel && tunnel->is_exit();
+    if (exit && from == back)
+        return false;  // the tunnel's mouth
     int pos = 0;
-    if (from != neighbor(to, rotated_cw(rotated_cw(facing)))) {
+    if (from != back) {
         // From the side: halfway along, unless nothing feeds it from behind.
-        const auto* behind = dynamic_cast<const Conveyor*>(building_at(neighbor(to, rotated_cw(rotated_cw(facing)))));
-        if (behind && behind->moves_items() && behind->facing() == facing)
+        const auto* behind = dynamic_cast<const Conveyor*>(building_at(back));
+        if (exit || (behind && behind->facing() == facing))
             pos = kBeltLength / 2;
     }
     if (!belt->has_room_at(pos))
@@ -426,9 +480,21 @@ void Ship::tick() {
         auto* belt = dynamic_cast<Conveyor*>(at(buildings, p).get());
         if (!belt)
             continue;
-        if (const std::optional<ItemKind> item = belt->item_at_front())
-            if (insert_item(neighbor(p, belt->facing()), p, *item))
-                belt->pop_front();
+        const std::optional<ItemKind> item = belt->item_at_front();
+        if (!item)
+            continue;
+        if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt); tunnel && !tunnel->is_exit()) {
+            // Straight to its exit; with none, it holds on to it.
+            if (const std::optional<GridPos> exit = tunnel->get_exit()) {
+                auto& out = dynamic_cast<Tunnel&>(*at(buildings, *exit));
+                if (out.has_room_at(0)) {
+                    out.insert(*item, 0);
+                    belt->pop_front();
+                }
+            }
+        } else if (insert_item(neighbor(p, belt->facing()), p, *item)) {
+            belt->pop_front();
+        }
     }
     for (const GridPos p : placed)
         push_output(p, *at(buildings, p));

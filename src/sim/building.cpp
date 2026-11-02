@@ -106,7 +106,6 @@ bool is_rotatable(ItemKind kind) {
 
 bool is_unfinished(ItemKind kind) {
     switch (kind) {
-    case ItemKind::BeltTunnel:
     case ItemKind::SolarPanel:
     case ItemKind::SolarArray:
     case ItemKind::BatteryBank:
@@ -321,13 +320,14 @@ std::vector<ItemStack> Thruster::contents() const {
 int belt_speed(ItemKind kind) {
     switch (kind) {
     case ItemKind::TransportBelt: return 2;  // 2 cells per second
-    case ItemKind::ExpressBelt:   return 4;
+    case ItemKind::ExpressBelt:
+    case ItemKind::BeltTunnel:    return 4;  // one tier: it never holds up a line
     default:                      return 0;
     }
 }
 
 void Conveyor::tick() {
-    int limit = kBeltLength;
+    int limit = length();
     for (BeltItem& item : items) {
         item.pos = std::max(item.pos, std::min(item.pos + speed(), limit));
         limit = item.pos - kBeltSpacing;
@@ -342,8 +342,6 @@ std::vector<ItemStack> Conveyor::contents() const {
 }
 
 bool Conveyor::has_room_at(int pos) const {
-    if (!moves_items())
-        return false;
     for (const BeltItem& item : items)
         if (std::abs(item.pos - pos) < kBeltSpacing)
             return false;
@@ -359,7 +357,7 @@ void Conveyor::insert(ItemKind kind, int pos) {
 }
 
 std::optional<ItemKind> Conveyor::item_at_front() const {
-    if (items.empty() || items.front().pos < kBeltLength)
+    if (items.empty() || items.front().pos < length())
         return std::nullopt;
     return items.front().kind;
 }
@@ -367,6 +365,22 @@ std::optional<ItemKind> Conveyor::item_at_front() const {
 void Conveyor::pop_front() {
     assert(!items.empty());
     items.erase(items.begin());
+}
+
+void Tunnel::unlink() {
+    exit_cell.reset();
+    entrance_cell.reset();
+    distance = 0;
+}
+
+void Tunnel::link_exit(GridPos exit, int cells) {
+    exit_cell = exit;
+    distance = cells;
+}
+
+void Tunnel::link_entrance(GridPos entrance, int cells) {
+    entrance_cell = entrance;
+    distance = cells;
 }
 
 void Junction::tick() {
@@ -516,8 +530,9 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Collector>(kind);
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
-    case ItemKind::BeltTunnel:
         return std::make_unique<Conveyor>(kind, facing);
+    case ItemKind::BeltTunnel:
+        return std::make_unique<Tunnel>(facing);
     case ItemKind::FilterSorter:
     case ItemKind::ReverseSorter:
         return std::make_unique<Sorter>(kind);

@@ -77,6 +77,14 @@ straight); junctions let two belt lines cross, each item leaving by the side
 opposite the one it came in by; routers pass each item on to their other
 three sides in turn.
 
+Belt tunnels work as in Factorio: they carry a line underground, under
+anything, and come in pairs. A tunnel links up by itself with the nearest one
+ahead of it facing the same way, up to 5 cells off (4 between them), so a row
+of them pairs off from the back; whichever is behind is the entrance. They run
+as fast as an express belt. An exit takes items from its sides, but not
+through its mouth. A tunnel with no exit (outlined in amber) takes items and
+holds on to them, and those on their way when an exit goes wait for the next.
+
 ### Milestones
 
 Progress comes in milestones, shown in the right panel: deliver the items
@@ -135,10 +143,10 @@ the enemies behind. Buildings mend slowly while no enemy is near.
 
 ### Not finished yet
 
-The belt tunnel moves nothing, and the power buildings (solar panel, solar
-array, battery bank) are there for a power system that doesn't exist yet.
-They can still be unlocked and built, and their tooltips and the inspector
-say they do nothing (`is_unfinished` in `src/sim/building.h` lists them).
+The power buildings (solar panel, solar array, battery bank) are there for a
+power system that doesn't exist yet. They can still be unlocked and built,
+and their tooltips and the inspector say they do nothing (`is_unfinished` in
+`src/sim/building.h` lists them).
 
 ## Controls
 
@@ -149,7 +157,8 @@ say they do nothing (`is_unfinished` in `src/sim/building.h` lists them).
   menu, whose Main menu saves the game.
 - **Left click / drag**: build the selected item on the grid. A quick drag
   leaves no gaps, and belts drawn by dragging face the way the drag goes,
-  turning at corners.
+  turning at corners. Belt tunnels go down one per click, showing what they
+  would link to.
 - **Left click a building**: inspect it (at the top of the right panel);
   pick a machine's recipe, a collector's target or a sorter's item. New
   machines, collectors and sorters start with the settings last picked for
@@ -233,7 +242,8 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
 - `items/<ItemId>.png` — the icon of every item, buildings included
   (square), shown in the palette, cargo, crafting panels and pickers.
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
-  plus `buildings/Bridge.png` and `buildings/Hull.png` (one cell of hull).
+  plus `buildings/Bridge.png`, `buildings/Hull.png` (one cell of hull) and
+  `buildings/BeltTunnelEntrance.png` (`BeltTunnel.png` is a tunnel's exit).
   Its shape is the building's footprint (2:3 for the 2x3 ion thruster, 1:1
   for a 2x2 collector), drawn facing **North**; the game turns belts to face
   the way they point.
@@ -266,7 +276,7 @@ One directory per layer under `src/`; includes name their layer
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
     `Collector`, `Conveyor`, `Machine`, ...), each kind's footprint
     (`footprint_of`, e.g. 2x2 collectors), the collectors' rates and buffers
-    (`CollectorSpec`), belts (`Conveyor`), machines and which recipes they
+    (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), machines and which recipes they
     run, the `make_building` factory and `Inventory` (the bridge's, and
     building buffers).
   - `recipes.h/.cpp` — every `Recipe` (inputs, outputs, time, the
@@ -274,8 +284,9 @@ One directory per layer under `src/`; includes name their layer
     hand-craft it); a building's cost is the recipe that makes its item.
   - `ship.h/.cpp` — `Ship`: the build grid (its layout's hull, and
     buildings stored at their top-left cell), placement / removal rules,
-    the starting ship, and moving items between neighboring buildings each
-    tick; the yields of the sector it's in, which its collectors gather at.
+    the starting ship, linking belt tunnels, and moving items between
+    neighboring buildings each tick; the yields of the sector it's in, which
+    its collectors gather at.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
     hull, bridge and engines, its cost, and the milestone that unlocks it.
   - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, threat,

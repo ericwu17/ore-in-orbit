@@ -12,6 +12,7 @@ readme's "Sprites" section):
                              facing North
     buildings/Bridge.png     the 6x6 bridge
     buildings/Hull.png       one cell of hull
+    buildings/BeltTunnelEntrance.png   a belt tunnel's entrance
 
 Without --force, files that already exist are left alone, so real art is
 never overwritten. The look follows the stand-ins the game draws for a
@@ -66,7 +67,7 @@ ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = STEEL_HOVER
 
 # Buildings: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, sorter, reverse_sorter, junction, router, tile,
+# Looks: hull, belt, tunnel, tunnel_entrance, sorter, reverse_sorter, junction, router, tile,
 # turret, bridge.
 BUILDINGS = {
     "TransportBelt":     (1, 1, "belt", BELT, ""),
@@ -221,7 +222,7 @@ def building_image(w, h, look, color, label):
         seam = s * 0.14
         d.rectangle((seam, seam, W - seam, H - seam), outline=darker(color, 0.8), width=max(1, edge // 2))
         rivets(d, (0, 0, W, H), s * 0.05, s * 0.08, color)
-    elif look in ("belt", "tunnel", "sorter", "reverse_sorter"):
+    elif look in ("belt", "tunnel", "tunnel_entrance", "sorter", "reverse_sorter"):
         # A dark rubber belt between steel rails.
         d.rectangle(box, fill=darker(BELT, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
         rail = s * 0.09
@@ -238,10 +239,11 @@ def building_image(w, h, look, color, label):
             for cy in range(h):
                 for cx in range(w):
                     arrow_up(d, (cx + 0.5) * s, (cy + 0.5) * s, s * 0.26, arrow)
-        if look == "tunnel":
+        if look in ("tunnel", "tunnel_entrance"):
             # The tunnel mouth: a hazard-striped bar across the back (south)
-            # edge.
-            y = H / 2 + s * 0.3
+            # edge, where an exit's items come up, or the front (north) one,
+            # where an entrance's go down.
+            y = H / 2 + s * (0.3 if look == "tunnel" else -0.3)
             hazard(img, (W / 2 - s * 0.38, y - s * 0.07, W / 2 + s * 0.38, y + s * 0.07), ACCENT, s * 0.06)
     elif look == "junction":
         # A cross: the two ways over it.
@@ -332,6 +334,7 @@ def main():
         write(f"items/{item_id}.png", lambda item_id=item_id: placeable_icon(item_id))
     write("buildings/Bridge.png", lambda: building_image(*BRIDGE))
     write("buildings/Hull.png", lambda: building_image(*HULL_TILE))
+    write("buildings/BeltTunnelEntrance.png", lambda: building_image(1, 1, "tunnel_entrance", BELT, ""))
     for item_id, spec in ITEMS.items():
         write(f"items/{item_id}.png", lambda spec=spec: item_image(*spec))
 

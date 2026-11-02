@@ -62,6 +62,7 @@ void test_building_sprites() {
     }
     check_sprite("buildings/Bridge.png", {kBridgeSize, kBridgeSize});
     check_sprite("buildings/Hull.png", {1, 1});
+    check_sprite("buildings/BeltTunnelEntrance.png", {1, 1});
 }
 
 }  // namespace

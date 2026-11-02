@@ -220,7 +220,9 @@ struct SaveAccess {
         } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
             for (const Json& item : load_array(j.at("items"), "belt items")) {
                 const ItemKind kind = load_item(item.at("item"));
-                const int pos = static_cast<int>(load_int(item.at("pos"), 0, kBeltLength));
+                // A tunnel's items may be on their way underground.
+                const int furthest = dynamic_cast<const Tunnel*>(belt) ? kBeltLength * kTunnelRange : kBeltLength;
+                const int pos = static_cast<int>(load_int(item.at("pos"), 0, furthest));
                 if (!belt->has_room_at(pos))
                     throw LoadError("belt items too close together");
                 belt->insert(kind, pos);

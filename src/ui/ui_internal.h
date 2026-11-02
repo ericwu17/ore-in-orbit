@@ -237,9 +237,10 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 
 // Draws one building over its footprint, whose top-left cell is at `min`
 // (cells of side `cell`): its sprite, or a stand-in when it has none. `kind`
-// is nullopt for the bridge. `alpha` fades the placement ghost.
+// is nullopt for the bridge. `alpha` fades the placement ghost. A belt tunnel
+// looks like its entrance unless `tunnel_exit`.
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha);
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit = false);
 
 // A thin gauge along the bottom of a building's footprint (`min`..`max`),
 // filled to `fraction`; warning-colored when full.
