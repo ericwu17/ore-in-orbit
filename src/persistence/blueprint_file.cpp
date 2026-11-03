@@ -90,7 +90,7 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
         const auto* machine = dynamic_cast<const Machine*>(building.get());
         if (!machine)
             throw LoadError(std::string(item_id(kind)) + " has no recipe");
-        b.recipe = load_recipe(*recipe);
+        b.recipe = load_recipe_unless_removed(*recipe).value_or(nullptr);  // a removed one: none
         if (b.recipe && !machine->can_run(*b.recipe))
             throw LoadError(std::string(item_id(kind)) + " can't run " + recipe_name(*b.recipe));
     }

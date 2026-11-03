@@ -16,6 +16,7 @@
 
 #include "nlohmann/json.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -50,26 +51,25 @@ Json save_optional_item(std::optional<ItemKind> kind);
 std::optional<ItemKind> load_optional_item(const Json& j);
 
 // Items the game once had and has since forgotten (the power buildings:
-// solar panel, solar array, battery bank). Older saves and blueprints still
-// name them, without being an older format: loading leaves them out, as if
-// they had never been, instead of refusing the file.
+// solar panel, solar array, battery bank), by id. Older saves and blueprints
+// still name them, without being an older format: loading leaves them out,
+// as if they had never been, instead of refusing the file.
+inline constexpr std::array<std::string_view, 3> kRemovedItems = {"SolarPanel", "SolarArray", "BatteryBank"};
+// The recipes that made them, by name, left out likewise.
+inline constexpr std::array<std::string_view, 3> kRemovedRecipes = {"Solar panel", "Solar array", "Battery bank"};
 bool is_removed_item(std::string_view id);
-// How many there are.
-constexpr int kRemovedItemCount = 3;
 // An item, or nullopt for a removed one (any other unknown item still
 // throws).
 std::optional<ItemKind> load_item_unless_removed(const Json& j);
-// Whether `name` is a removed recipe (one that made a removed item). A craft
-// of one that was under way is dropped, its ingredients with it.
-// load_recipe() reads a removed recipe as none.
-bool is_removed_recipe(std::string_view name);
 
 Direction load_direction(const Json& j);
 
-// A recipe by name, or null for none (or a removed one: see
-// is_removed_recipe).
+// A recipe by name, or null for none.
 Json save_recipe(const Recipe* recipe);
 const Recipe* load_recipe(const Json& j);
+// A recipe (or null for none), or nullopt for a removed one (any other
+// unknown recipe still throws).
+std::optional<const Recipe*> load_recipe_unless_removed(const Json& j);
 
 // `j`, which must be an array (of `what`, for the error).
 const Json& load_array(const Json& j, const char* what);

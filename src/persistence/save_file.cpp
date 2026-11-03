@@ -238,9 +238,10 @@ struct SaveAccess {
             for (const Json& job : jobs) {
                 // A craft of a removed recipe is dropped, its ingredients
                 // (taken when it was queued) with it.
-                if (const Json& name = job.at("recipe"); name.is_string() && is_removed_recipe(name.get<std::string>()))
+                const std::optional<const Recipe*> loaded = load_recipe_unless_removed(job.at("recipe"));
+                if (!loaded)
                     continue;
-                const Recipe* recipe = load_recipe(job.at("recipe"));
+                const Recipe* recipe = *loaded;
                 if (!recipe || !recipe->hand_craftable || !progress.unlocked(*recipe))
                     throw LoadError("the bridge can't craft " + job.at("recipe").dump());
                 // A job finishes (and leaves the queue) when it reaches the
@@ -304,7 +305,7 @@ struct SaveAccess {
             // Only where it starts looking next: a save from when there were
             // the removed items too may point past the end, which wraps round.
             unloader->next_kind =
-                static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount + kRemovedItemCount - 1)) %
+                static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount + static_cast<int>(kRemovedItems.size()) - 1)) %
                 static_cast<std::size_t>(kItemKindCount);
         } else if (auto* router = dynamic_cast<Router*>(&b)) {
             router->held = load_optional_item(j.at("held"));
@@ -321,15 +322,14 @@ struct SaveAccess {
             turret->shots = static_cast<int>(load_int(j.at("shots"), 0, turret->spec->shots_per_ammo - 1));
             turret->cooldown = load_tick(j.at("cooldown"), turret->spec->interval);
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
-            const Recipe* recipe = load_recipe(j.at("recipe"));
+            // A removed recipe: none now, and a craft of it under way
+            // dropped, its ingredients with it.
+            const std::optional<const Recipe*> loaded = load_recipe_unless_removed(j.at("recipe"));
+            const Recipe* recipe = loaded.value_or(nullptr);
             if (recipe && !m->can_run(*recipe))
                 throw LoadError(std::string(item_id(*m->item_kind())) + " can't run " + recipe_name(*recipe));
             m->recipe = recipe;
-            // A removed recipe: none now, and a craft of it under way
-            // dropped, its ingredients with it.
-            const Json& name = j.at("recipe");
-            const bool removed = name.is_string() && is_removed_recipe(name.get<std::string>());
-            if (const Json& work = j.at("work"); !removed && !work.is_null()) {
+            if (const Json& work = j.at("work"); loaded && !work.is_null()) {
                 if (!recipe)
                     throw LoadError("crafting without a recipe");
                 // A craft finishes (and work resets) when it reaches the

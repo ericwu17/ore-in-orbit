@@ -1,6 +1,8 @@
 // json_io.cpp — JSON helpers shared by saves and blueprints (see json_io.h).
 #include "persistence/json_io.h"
 
+#include <algorithm>
+
 namespace json_io {
 
 const char* direction_id(Direction d) {
@@ -56,17 +58,13 @@ std::optional<ItemKind> load_optional_item(const Json& j) {
 }
 
 bool is_removed_item(std::string_view id) {
-    return id == "SolarPanel" || id == "SolarArray" || id == "BatteryBank";
+    return std::ranges::find(kRemovedItems, id) != kRemovedItems.end();
 }
 
 std::optional<ItemKind> load_item_unless_removed(const Json& j) {
     if (j.is_string() && is_removed_item(j.get<std::string>()))
         return std::nullopt;
     return load_item(j);
-}
-
-bool is_removed_recipe(std::string_view name) {
-    return name == "Solar panel" || name == "Solar array" || name == "Battery bank";
 }
 
 Direction load_direction(const Json& j) {
@@ -85,12 +83,16 @@ const Recipe* load_recipe(const Json& j) {
     if (j.is_null())
         return nullptr;
     const std::string name = load_string(j, "a recipe");
-    if (is_removed_recipe(name))
-        return nullptr;
     for (const Recipe& r : all_recipes())
         if (name == recipe_name(r))
             return &r;
     throw LoadError("unknown recipe \"" + name + "\"");
+}
+
+std::optional<const Recipe*> load_recipe_unless_removed(const Json& j) {
+    if (j.is_string() && std::ranges::find(kRemovedRecipes, j.get<std::string>()) != kRemovedRecipes.end())
+        return std::nullopt;
+    return load_recipe(j);
 }
 
 const Json& load_array(const Json& j, const char* what) {
