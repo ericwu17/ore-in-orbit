@@ -629,7 +629,9 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
     }
     if (under && ImGui::GetTime() - tip_since >= kTooltipDelay) {
         ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22.0f);
         BuildingDetails(*under, true);
+        ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
     draw->PopClipRect();

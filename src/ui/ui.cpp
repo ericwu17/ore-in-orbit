@@ -1,7 +1,8 @@
 // ui.cpp — the game screen (DrawPlaying): the build palette, the grid or
 // the star map, and the craft panel side by side, the fleet's tabs over
 // them and the hint bar under them, banners and toasts over the grid, the
-// keys window, the pause menu and the fleet-lost screen. Its parts are in
+// windows over it all (the inspector, the keys), the pause menu and the
+// fleet-lost screen. Its parts are in
 // the other ui_*.cpp files (see ui_internal.h).
 #include "ui/ui.h"
 #include "ui/ui_internal.h"
@@ -425,6 +426,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
         DrawBuildShipWindow(world, shown);
+        DrawInspectorWindow(shown.ship);
         DrawKeysWindow();
     }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
