@@ -2,7 +2,8 @@
 // belts (travel time, spacing and jams, which sides they take items from),
 // buildings feeding their neighbors directly, machines crafting the recipe
 // they were set to, filter and reverse sorters, junctions, routers, belt
-// tunnels, and a whole collector -> furnace -> belt -> bridge chain.
+// tunnels, unloaders, and a whole collector -> furnace -> belt -> bridge
+// chain.
 #include "sim/building.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -47,6 +48,18 @@ const Tunnel& tunnel_at(const Ship& ship, GridPos p) {
     const auto* tunnel = dynamic_cast<const Tunnel*>(ship.building_at(p));
     assert(tunnel);
     return *tunnel;
+}
+
+const CargoHold& hold_at(const Ship& ship, GridPos p) {
+    const auto* hold = dynamic_cast<const CargoHold*>(ship.building_at(p));
+    assert(hold);
+    return *hold;
+}
+
+// Puts `n` of `kind` into the cargo hold covering `p`.
+void stock_hold(Ship& ship, GridPos p, ItemKind kind, int n) {
+    for (int i = 0; i < n; ++i)
+        assert(ship.insert_item(p, {p.x, p.y - 1}, kind));
 }
 
 const Machine& machine_at(const Ship& ship, GridPos p) {
@@ -301,7 +314,7 @@ void test_sorter_straight() {
     const SorterRig rig(ship);
     const Building& sorter = *ship.building_at(rig.sorter);
     assert(sorter.footprint() == (GridSize{1, 1}) && !sorter.rotatable());
-    assert(ship.set_sort_filter(rig.sorter, ItemKind::IronPlate));
+    assert(ship.set_filter(rig.sorter, ItemKind::IronPlate));
 
     assert(ship.insert_item(rig.sorter, rig.west, ItemKind::IronPlate));
     assert(belt_at(ship, rig.east).get_items().size() == 1);
@@ -349,11 +362,11 @@ void test_sorter_filter() {
     const SorterRig rig(ship);
     const auto& sorter = dynamic_cast<const Sorter&>(*ship.building_at(rig.sorter));
     assert(!sorter.get_filter());
-    assert(!ship.set_sort_filter(rig.east, ItemKind::Gear));          // a belt
-    assert(!ship.set_sort_filter({b0 - 1, b0 - 1}, ItemKind::Gear));  // nothing
-    assert(ship.set_sort_filter(rig.sorter, ItemKind::Gear));
+    assert(!ship.set_filter(rig.east, ItemKind::Gear));          // a belt
+    assert(!ship.set_filter({b0 - 1, b0 - 1}, ItemKind::Gear));  // nothing
+    assert(ship.set_filter(rig.sorter, ItemKind::Gear));
     assert(sorter.get_filter() == ItemKind::Gear);
-    assert(ship.set_sort_filter(rig.sorter, std::nullopt));
+    assert(ship.set_filter(rig.sorter, std::nullopt));
     assert(!sorter.get_filter());
 
     const int total = ship.inventory().total();
@@ -373,7 +386,7 @@ void test_sorter_chain() {
         const int y = b0 - 2;  // a row apart from the bridge
         for (int x = c + 1; x <= c + 3; ++x) {
             assert(ship.place(ItemKind::FilterSorter, {x, y}) == BuildResult::Ok);
-            assert(ship.set_sort_filter({x, y}, ItemKind::IronPlate));
+            assert(ship.set_filter({x, y}, ItemKind::IronPlate));
         }
         assert(ship.place(ItemKind::TransportBelt, {c + 4, y}, Direction::East) == BuildResult::Ok);
         assert(!ship.insert_item({c + 1, y}, {c, y}, ItemKind::IronPlate));
@@ -410,7 +423,7 @@ void test_sorter_feeds() {
     assert(ship.place(ItemKind::TransportBelt, {b1 + 2, c}, Direction::West) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, hold_pos) == BuildResult::Ok);
-    assert(ship.set_sort_filter(sorter, ItemKind::IronOre));
+    assert(ship.set_filter(sorter, ItemKind::IronOre));
     assert(ship.set_collector_target({b1 + 3, c - 1}, ItemKind::Silica));
 
     const Inventory before = ship.inventory();
@@ -468,7 +481,7 @@ void test_reverse_sorter() {
     assert(belt_at(ship, rig.east).get_items().size() == 1);
     run(world, belt_cell_ticks());
 
-    assert(ship.set_sort_filter(rig.sorter, ItemKind::IronPlate));
+    assert(ship.set_filter(rig.sorter, ItemKind::IronPlate));
     for (int i = 0; i < 2; ++i) {
         assert(ship.insert_item(rig.sorter, rig.west, ItemKind::IronPlate));
         run(world, belt_cell_ticks());
@@ -802,6 +815,115 @@ void test_tunnel_sides() {
     assert(belt_at(ship, entrance).get_items().front().pos == 0);
 }
 
+// An unloader takes an item every kUnloaderTicks out of the cargo hold
+// behind it, onto the belt in front, which carries them into the bridge:
+// there they count toward the milestone.
+void test_unloader_from_hold() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add(ItemKind::Unloader, 1);
+    const GridPos hold{b1 + 4, c};
+    const GridPos unloader{b1 + 3, c};
+    assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Unloader, unloader, Direction::West) == BuildResult::Ok);
+    for (int x = b1 + 1; x <= b1 + 2; ++x)
+        assert(ship.place(ItemKind::TransportBelt, {x, c}, Direction::West) == BuildResult::Ok);
+    stock_hold(ship, hold, ItemKind::IronPlate, 20);
+    assert(ship.unload_source(unloader) == ship.building_at(hold));
+
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    run(world, kTicksPerSecond);
+    const int per_second = static_cast<int>(kTicksPerSecond / kUnloaderTicks);
+    assert(hold_at(ship, hold).get_stored().count(ItemKind::IronPlate) == 20 - per_second);
+    run(world, 10 * kTicksPerSecond);
+    assert(hold_at(ship, hold).get_stored().total() == 0);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates + 20);
+    assert(ship.get_bridge().get_progress().delivered_count(ItemKind::IronPlate) == 20);
+
+    // It holds nothing: removing it refunds just itself.
+    const Inventory before = ship.inventory();
+    assert(ship.remove_building(unloader) == BuildResult::Ok);
+    assert(ship.inventory().total() == before.total() + 1);
+}
+
+// With no filter, an unloader takes every kind in turn; with one, only that
+// kind. Into a full cargo hold, it takes nothing.
+void test_unloader_filter() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add({{ItemKind::Unloader, 1}, {ItemKind::CargoHold, 1}});
+    const GridPos from{b1 + 4, c};
+    const GridPos unloader{b1 + 3, c};
+    const GridPos to{b1 + 1, c};
+    assert(ship.place(ItemKind::CargoHold, from) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Unloader, unloader, Direction::West) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, to) == BuildResult::Ok);
+    stock_hold(ship, from, ItemKind::Steel, 5);
+    stock_hold(ship, from, ItemKind::Gear, 5);
+
+    run(world, 2 * kUnloaderTicks);
+    const Inventory& moved = hold_at(ship, to).get_stored();
+    assert(moved.count(ItemKind::Steel) == 1 && moved.count(ItemKind::Gear) == 1);
+
+    assert(ship.set_filter(unloader, ItemKind::Gear));
+    run(world, 10 * kUnloaderTicks);
+    assert(moved.count(ItemKind::Steel) == 1 && moved.count(ItemKind::Gear) == 5);
+    const Inventory& left = hold_at(ship, from).get_stored();
+    assert(left.count(ItemKind::Steel) == 4 && left.count(ItemKind::Gear) == 0);
+
+    assert(ship.set_filter(unloader, std::nullopt));
+    stock_hold(ship, to, ItemKind::Glass, kCargoCapacity - moved.total());
+    run(world, 10 * kUnloaderTicks);
+    assert(left.count(ItemKind::Steel) == 4);
+}
+
+// From the bridge: ammunition out to a turret until it's full. A filter
+// for something the turret doesn't take moves nothing; with none, the
+// kinds it won't take are passed over.
+void test_unloader_from_bridge() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add({{ItemKind::Unloader, 1}, {ItemKind::Autocannon, 1}, {ItemKind::SlugMagazine, 20}});
+    const GridPos unloader{b1 + 1, c};
+    const GridPos turret_at{b1 + 2, c};
+    assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Autocannon, turret_at) == BuildResult::Ok);
+    assert(ship.unload_source(unloader) == &ship.get_bridge());
+    const auto& turret = dynamic_cast<const Turret&>(*ship.building_at(turret_at));
+
+    assert(ship.set_filter(unloader, ItemKind::IronPlate));
+    run(world, kTicksPerSecond);
+    assert(turret.get_ammo() == 0);
+
+    assert(ship.set_filter(unloader, std::nullopt));
+    run(world, 5 * kTicksPerSecond);
+    assert(turret.get_ammo() == kTurretAmmoCapacity);
+    assert(ship.inventory().count(ItemKind::SlugMagazine) == 20 - kTurretAmmoCapacity);
+}
+
+// Without storage behind it (nothing, or a belt), an unloader moves
+// nothing, and a belt pointing into it can't hand it items.
+void test_unloader_no_source() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add(ItemKind::Unloader, 1);
+    const GridPos unloader{b1 + 3, c};
+    const GridPos behind{b1 + 2, c};
+    const GridPos hold{b1 + 4, c};
+    assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+    assert(!ship.unload_source(unloader));
+    assert(!ship.unload_source(hold));  // not an unloader
+
+    assert(ship.place(ItemKind::TransportBelt, behind, Direction::East) == BuildResult::Ok);
+    assert(!ship.unload_source(unloader));
+    assert(ship.insert_item(behind, {behind.x - 1, behind.y}, ItemKind::Gear));
+    run(world, 4 * belt_cell_ticks());
+    const std::vector<BeltItem>& items = belt_at(ship, behind).get_items();
+    assert(items.size() == 1 && items.front().pos == kBeltLength);
+    assert(hold_at(ship, hold).get_stored().total() == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -830,6 +952,10 @@ int main() {
     test_tunnel_relink();
     test_tunnel_remove_entrance();
     test_tunnel_sides();
+    test_unloader_from_hold();
+    test_unloader_filter();
+    test_unloader_from_bridge();
+    test_unloader_no_source();
     test_machine_recipes();
     std::puts("test_logistics: all passed");
     return 0;

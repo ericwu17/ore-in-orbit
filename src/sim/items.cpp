@@ -11,6 +11,7 @@ const char* item_name(ItemKind kind) {
     case ItemKind::ReverseSorter:     return "Reverse sorter";
     case ItemKind::Junction:          return "Junction";
     case ItemKind::Router:            return "Router";
+    case ItemKind::Unloader:          return "Unloader";
     case ItemKind::CargoHold:         return "Cargo hold";
     case ItemKind::AsteroidCollector: return "Asteroid collector";
     case ItemKind::TractorArray:      return "Tractor array";
@@ -63,6 +64,7 @@ const char* item_id(ItemKind kind) {
     case ItemKind::ReverseSorter:     return "ReverseSorter";
     case ItemKind::Junction:          return "Junction";
     case ItemKind::Router:            return "Router";
+    case ItemKind::Unloader:          return "Unloader";
     case ItemKind::CargoHold:         return "CargoHold";
     case ItemKind::AsteroidCollector: return "AsteroidCollector";
     case ItemKind::TractorArray:      return "TractorArray";

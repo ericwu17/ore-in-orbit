@@ -10,7 +10,7 @@ const std::vector<Milestone>& all_milestones() {
     static const std::vector<Milestone> milestones = {
         {"First light",
          {{IronPlate, 50}, {CopperPlate, 20}},
-         {FilterSorter, ReverseSorter, Router, SolarPanel, Steel}},
+         {FilterSorter, ReverseSorter, Router, Unloader, SolarPanel, Steel}},
         {"Heavy industry",
          {{Circuit, 100}, {Steel, 50}},
          {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel, BatteryBank}},
@@ -60,10 +60,19 @@ bool Progress::on_delivered(ItemKind kind) {
     for (const ItemStack& s : m->deliver) {
         int& have = delivered[static_cast<std::size_t>(s.kind)];
         if (s.kind == kind)
-            have = std::min(have + 1, s.count);
+            ++have;
         done = done && have >= s.count;
     }
     return done && complete_current();
+}
+
+void Progress::on_unloaded(ItemKind kind) {
+    const Milestone* m = current_milestone();
+    if (!m)
+        return;
+    for (const ItemStack& s : m->deliver)
+        if (s.kind == kind)
+            --delivered[static_cast<std::size_t>(kind)];
 }
 
 bool Progress::complete_current() {

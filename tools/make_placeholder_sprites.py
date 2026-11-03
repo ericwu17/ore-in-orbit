@@ -67,8 +67,8 @@ ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = STEEL_HOVER
 
 # Buildings: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, tunnel_entrance, sorter, reverse_sorter, junction, router, tile,
-# turret, bridge.
+# Looks: hull, belt, tunnel, tunnel_entrance, sorter, reverse_sorter, junction, router, unloader,
+# tile, turret, bridge.
 BUILDINGS = {
     "TransportBelt":     (1, 1, "belt", BELT, ""),
     "ExpressBelt":       (1, 1, "belt", EXPRESS_BELT, ""),
@@ -77,6 +77,7 @@ BUILDINGS = {
     "ReverseSorter":     (1, 1, "reverse_sorter", BELT, ""),
     "Junction":          (1, 1, "junction", BELT, ""),
     "Router":            (1, 1, "router", BELT, ""),
+    "Unloader":          (1, 1, "unloader", STORAGE, ""),
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
     "AsteroidCollector": (2, 2, "tile", COLLECTOR, "A"),
     "TractorArray":      (3, 3, "tile", COLLECTOR, "TA"),
@@ -258,6 +259,13 @@ def building_image(w, h, look, color, label):
             arrow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             arrow_up(ImageDraw.Draw(arrow), W / 2, H / 2 - s * 0.25, s * 0.13, GLYPH)
             img.alpha_composite(arrow.rotate(-90 * i))
+    elif look == "unloader":
+        # A storage plate with a hazard-striped intake along its back
+        # (south) edge, and an arrow out the front.
+        bevel(d, box, color, edge)
+        hazard(img, (box[0] + edge, box[3] - s * 0.2, box[2] - edge, box[3] - edge), ACCENT, s * 0.08)
+        d = ImageDraw.Draw(img)
+        arrow_up(d, W / 2, H / 2 - s * 0.08, s * 0.24, GLYPH)
     else:  # tile, turret, bridge: a machine housing
         bevel(d, box, color, edge)
         # A recessed panel inside, where the label goes.

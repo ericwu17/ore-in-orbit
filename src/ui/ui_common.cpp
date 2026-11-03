@@ -116,6 +116,9 @@ std::optional<BuildingSettings> SettingsOf(const Building& b) {
     else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
         s.filter = sorter->get_filter();
         s.has_filter = true;
+    } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
+        s.filter = unloader->get_filter();
+        s.has_filter = true;
     } else
         return std::nullopt;
     return s;
@@ -134,7 +137,7 @@ bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
         return s.recipe && s.recipe != now->recipe && ship.set_recipe(p, s.recipe);
     if (dynamic_cast<const Collector*>(b))
         return s.target && s.target != now->target && ship.set_collector_target(p, *s.target);
-    return s.has_filter && s.filter != now->filter && ship.set_sort_filter(p, s.filter);
+    return s.has_filter && s.filter != now->filter && ship.set_filter(p, s.filter);
 }
 
 bool SameSettings(const BuildingSettings& a, const BuildingSettings& b) {

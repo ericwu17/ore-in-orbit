@@ -1,8 +1,8 @@
 // test_milestones.cpp — headless tests for the milestones: deliveries to the
-// bridge count toward the current one (hand-crafts and refunds don't),
-// completing one moves on and unlocks its recipes, locked recipes can't be
-// hand-crafted or picked for a machine, and every milestone can be reached
-// with what the ones before it unlock.
+// bridge count toward the current one (hand-crafts and refunds don't), net
+// of what unloaders take out, completing one moves on and unlocks its
+// recipes, locked recipes can't be hand-crafted or picked for a machine, and
+// every milestone can be reached with what the ones before it unlock.
 #include "sim/building.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
@@ -107,7 +107,7 @@ void test_no_dead_ends() {
     }
 }
 
-// Deliveries count, capped at what's needed; the last one completes the
+// Deliveries count, past what's needed too; the last one completes the
 // milestone, which resets the counts for the next.
 void test_progress() {
     Progress progress;
@@ -121,7 +121,7 @@ void test_progress() {
     const ItemStack& b = first.deliver[1];
     for (int i = 0; i < a.count + 5; ++i)
         assert(!progress.on_delivered(a.kind));
-    assert(progress.delivered_count(a.kind) == a.count);
+    assert(progress.delivered_count(a.kind) == a.count + 5);
     for (int i = 1; i < b.count; ++i)
         assert(!progress.on_delivered(b.kind));
     assert(progress.on_delivered(b.kind));
@@ -139,6 +139,52 @@ void test_progress() {
     assert(!progress.on_delivered(ItemKind::Processor));
     for (int i = 0; i < kItemKindCount; ++i)
         assert(progress.unlocked(static_cast<ItemKind>(i)));
+}
+
+// What unloaders take out of a bridge counts against the milestone, below 0
+// if need be; a kind it doesn't ask for isn't counted either way.
+void test_unloaded() {
+    Progress progress;
+    const ItemStack& a = all_milestones().front().deliver[0];
+    progress.on_unloaded(a.kind);
+    progress.on_unloaded(a.kind);
+    assert(progress.delivered_count(a.kind) == -2);
+    progress.on_unloaded(ItemKind::Gear);
+    assert(progress.delivered_count(ItemKind::Gear) == 0);
+    for (int i = 0; i < a.count + 1; ++i)
+        assert(!progress.on_delivered(a.kind));
+    assert(progress.delivered_count(a.kind) == a.count - 1);
+}
+
+// Items going round from the bridge, through an unloader and belts, back
+// into it gain nothing: the count only dips while they're on their way.
+void test_unload_loop() {
+    World world;
+    Ship& ship = world.flagship();
+    const Progress& progress = ship.get_bridge().get_progress();
+    ship.inventory().add(ItemKind::Unloader, 1);
+    const GridPos unloader{kBesideBridge.x, kBesideBridge.y + 1};
+    assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
+    assert(ship.set_filter(unloader, ItemKind::IronPlate));
+    assert(ship.place(ItemKind::TransportBelt, {unloader.x + 1, unloader.y}, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, {unloader.x + 1, kBesideBridge.y}, Direction::West) ==
+           BuildResult::Ok);
+    assert(ship.place(ItemKind::TransportBelt, kBesideBridge, Direction::West) == BuildResult::Ok);
+
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    int lowest = 0;
+    for (Tick t = 0; t < 10 * kTicksPerSecond; ++t) {
+        world.advance_tick();
+        lowest = std::min(lowest, progress.delivered_count(ItemKind::IronPlate));
+        assert(progress.delivered_count(ItemKind::IronPlate) <= 0);
+    }
+    assert(lowest < 0);  // it did go round
+
+    assert(ship.remove_building(unloader) == BuildResult::Ok);
+    for (Tick t = 0; t < 5 * kTicksPerSecond; ++t)
+        world.advance_tick();
+    assert(progress.delivered_count(ItemKind::IronPlate) == 0);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates);
 }
 
 // On the ship: what a neighbor puts into the bridge counts, hand-crafts
@@ -185,7 +231,9 @@ int main() {
     test_table();
     test_no_dead_ends();
     test_progress();
+    test_unloaded();
     test_on_ship();
+    test_unload_loop();
     std::puts("test_milestones: all passed");
     return 0;
 }

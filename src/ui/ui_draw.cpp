@@ -159,7 +159,7 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
     case ItemKind::FilterSorter:
     case ItemKind::ReverseSorter:
         // No arrow: it doesn't face a way. Its filter is drawn over it (see
-        // DrawSorterFilter).
+        // DrawFilterIcon).
         draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
         draw->AddRect(a, b, theme::U32(*kind == ItemKind::ReverseSorter ? theme::kAccent : theme::kWarn, alpha),
                       rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
@@ -177,6 +177,12 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
             const ImVec2 v = DirectionVector(dir);
             DrawArrow(draw, ImVec2(c.x + v.x * cell * 0.25f, c.y + v.y * cell * 0.25f), v, cell * 0.12f, glyph);
         }
+        break;
+    case ItemKind::Unloader:
+        // A storage-colored tile with an arrow out the way it faces; its
+        // filter is drawn over it (see DrawFilterIcon).
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileStorage, alpha), rounding);
+        DrawArrow(draw, ImVec2(c.x + d.x * cell * 0.25f, c.y + d.y * cell * 0.25f), d, cell * 0.14f, glyph);
         break;
     default:
         letter_tile(TileColor(*kind), TileLabel(*kind));
@@ -292,8 +298,8 @@ void DrawRouterItem(ImDrawList* draw, const Router& router, ImVec2 min, float ce
         DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.16f), *held);
 }
 
-void DrawSorterFilter(ImDrawList* draw, const Sorter& sorter, ImVec2 min, float cell) {
-    if (const std::optional<ItemKind> filter = sorter.get_filter())
+void DrawFilterIcon(ImDrawList* draw, std::optional<ItemKind> filter, ImVec2 min, float cell) {
+    if (filter)
         DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.2f), *filter);
 }
 

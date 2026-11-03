@@ -98,6 +98,7 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::TransportBelt:
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
+    case ItemKind::Unloader:
         return true;
     default:
         return false;
@@ -146,7 +147,8 @@ int max_hp_of(std::optional<ItemKind> kind) {
     case ItemKind::FilterSorter:
     case ItemKind::ReverseSorter:
     case ItemKind::Junction:
-    case ItemKind::Router:            return 50;
+    case ItemKind::Router:
+    case ItemKind::Unloader:          return 50;
     case ItemKind::SolarPanel:        return 100;
     case ItemKind::AsteroidCollector: return 150;
     case ItemKind::CargoHold:
@@ -183,6 +185,13 @@ Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize
 void Bridge::receive(ItemKind kind) {
     inventory.add(kind);
     progress->on_delivered(kind);
+}
+
+void Bridge::unload(ItemKind kind) {
+    const bool taken = inventory.take(kind);
+    assert(taken);
+    (void)taken;
+    progress->on_unloaded(kind);
 }
 
 bool Bridge::can_hand_craft(const Recipe& recipe) const {
@@ -443,6 +452,16 @@ void Router::pop() {
     elapsed = 0;
 }
 
+void Unloader::tick() {
+    if (cooldown > 0)
+        --cooldown;
+}
+
+void Unloader::unloaded(ItemKind kind) {
+    cooldown = kUnloaderTicks;
+    next_kind = (static_cast<std::size_t>(kind) + 1) % static_cast<std::size_t>(kItemKindCount);
+}
+
 bool Machine::crafts(CraftCategory category) const {
     return machine_crafts(*item_kind(), category);
 }
@@ -540,6 +559,8 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Junction>();
     case ItemKind::Router:
         return std::make_unique<Router>();
+    case ItemKind::Unloader:
+        return std::make_unique<Unloader>(facing);
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
     case ItemKind::SolarFurnace:

@@ -516,15 +516,19 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(),
                              thruster && thruster->offline() ? 0.4f : 1.0f, tunnel && tunnel->is_exit());
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
-                // A tunnel with nowhere to send its items.
-                if (tunnel && !tunnel->linked())
+                // A tunnel with nowhere to send its items, an unloader with
+                // nothing to take them from.
+                const auto* unloader = dynamic_cast<const Unloader*>(b);
+                if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
                 if (const auto* collector = dynamic_cast<const Collector*>(b))
                     DrawCollectorStatus(draw, *collector, min, max, cell);
                 if (const auto* machine = dynamic_cast<const Machine*>(b))
                     DrawMachineStatus(draw, *machine, min, max, cell);
                 if (const auto* sorter = dynamic_cast<const Sorter*>(b))
-                    DrawSorterFilter(draw, *sorter, min, cell);
+                    DrawFilterIcon(draw, sorter->get_filter(), min, cell);
+                if (unloader)
+                    DrawFilterIcon(draw, unloader->get_filter(), min, cell);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
                 if (b == InspectedBuilding(ship)) {
                     DrawCornerBrackets(draw, min, max, theme::U32(theme::kAccent), cell);

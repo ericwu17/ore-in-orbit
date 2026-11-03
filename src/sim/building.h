@@ -11,6 +11,7 @@
 //   ├── Sorter       routes items by kind (filter and reverse sorters)
 //   ├── Junction     lets two belt lines cross
 //   ├── Router       spreads items out to its neighbors
+//   ├── Unloader     takes items out of the bridge or a cargo hold
 //   ├── CargoHold    item storage
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── PowerPlant   solar panel / array, battery bank (nothing uses power
@@ -128,6 +129,11 @@ public:
     // Item output: what it has made, waiting to go to its neighbors (any
     // kind in it, one item per tick); null if it makes nothing.
     virtual Inventory* output_buffer() { return nullptr; }
+    // Storage an unloader can take items out of (the bridge, cargo holds);
+    // null if it isn't storage. unload() takes one `kind` out of it, which
+    // it must hold.
+    virtual const Inventory* storage() const { return nullptr; }
+    virtual void unload(ItemKind) {}
     // Which neighbor gets offered output next (round robin, kept by the Ship).
     std::size_t next_output_side = 0;
 };
@@ -166,6 +172,9 @@ public:
     // they deliver counts toward the current milestone.
     bool accepts(ItemKind) const override { return true; }
     void receive(ItemKind kind) override;
+    // What an unloader takes counts against the current milestone.
+    const Inventory* storage() const override { return &inventory; }
+    void unload(ItemKind kind) override;
 
     Inventory& get_inventory() { return inventory; }
     const Inventory& get_inventory() const { return inventory; }
@@ -427,6 +436,41 @@ public:
     Direction next_out = Direction::North;
 };
 
+// Ticks an unloader waits after taking an item before it takes the next:
+// 6 a second, all a transport belt carries.
+constexpr Tick kUnloaderTicks = 10;
+
+// The unloader, the way items leave storage: it faces a way, as belts do,
+// and takes items out of the bridge or cargo hold behind it into whatever is
+// in front, one every kUnloaderTicks (see Ship::unload). It takes only the
+// kind its filter picks, or with no filter every kind the storage holds, in
+// turn. It holds nothing itself: it takes an item only if the cell in front
+// takes it at once, and belts can't feed it.
+class Unloader : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    std::optional<ItemKind> filter;
+    Tick cooldown = 0;  // ticks until it can take an item
+
+public:
+    explicit Unloader(Direction facing)
+        : Building(ItemKind::Unloader, facing, footprint_of(ItemKind::Unloader, facing)) {}
+
+    std::optional<ItemKind> get_filter() const { return filter; }
+    void set_filter(std::optional<ItemKind> item) { filter = item; }
+    void tick() override;
+    bool ready() const { return cooldown == 0; }
+    // It took one `kind`: wait, and with no filter try the kinds after it
+    // first next time.
+    void unloaded(ItemKind kind);
+    // The kind an unfiltered one tries first (round robin, kept with
+    // unloaded()).
+    std::size_t next_kind = 0;
+};
+
 // Storage: takes any item until it holds kCargoCapacity.
 constexpr int kCargoCapacity = 100;
 
@@ -445,6 +489,8 @@ public:
     std::vector<ItemStack> contents() const override { return stored.stacks(); }
     bool accepts(ItemKind) const override { return stored.total() < kCargoCapacity; }
     void receive(ItemKind kind) override { stored.add(kind); }
+    const Inventory* storage() const override { return &stored; }
+    void unload(ItemKind kind) override { stored.take(kind); }
 };
 
 // A machine's buffers, in crafts of its recipe: it takes ingredients until

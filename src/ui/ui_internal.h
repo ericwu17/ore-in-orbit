@@ -96,14 +96,14 @@ extern BuildUiState g_build;
 // How long a message (SetMessage) shows.
 constexpr double kMessageSeconds = 3.0;
 
-// A machine's recipe, a collector's target or a sorter's filter: what a
-// building of that kind is set to do.
+// A machine's recipe, a collector's target or a sorter's or unloader's
+// filter: what a building of that kind is set to do.
 struct BuildingSettings {
     ItemKind kind = ItemKind::TransportBelt;  // the building they came from
     const Recipe* recipe = nullptr;
     std::optional<ItemKind> target;
     std::optional<ItemKind> filter;
-    bool has_filter = false;  // a sorter's (whose filter may be none)
+    bool has_filter = false;  // a sorter's or unloader's (whose filter may be none)
 };
 
 // The settings last picked for each kind of building, which new ones of that
@@ -267,8 +267,8 @@ void DrawCollectorStatus(ImDrawList* draw, const Collector& collector, ImVec2 mi
 void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell);
 // The item a router holds, in the middle of its tile.
 void DrawRouterItem(ImDrawList* draw, const Router& router, ImVec2 min, float cell);
-// A sorter's filter item, in the middle of its tile.
-void DrawSorterFilter(ImDrawList* draw, const Sorter& sorter, ImVec2 min, float cell);
+// A sorter's or unloader's filter item (if any), in the middle of its tile.
+void DrawFilterIcon(ImDrawList* draw, std::optional<ItemKind> filter, ImVec2 min, float cell);
 
 // What an icon in a panel shows: an item, a building as built, or
 // nothing ("None" in a picker).

@@ -138,6 +138,10 @@ struct SaveAccess {
                 lanes[direction_id(static_cast<Direction>(d))] = std::move(lane);
             }
             j["lanes"] = std::move(lanes);
+        } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
+            j["filter"] = save_optional_item(unloader->filter);
+            j["cooldown"] = unloader->cooldown;
+            j["next_kind"] = unloader->next_kind;
         } else if (const auto* router = dynamic_cast<const Router*>(&b)) {
             j["held"] = save_optional_item(router->held);
             j["came_from"] = direction_id(router->came_from);
@@ -162,11 +166,12 @@ struct SaveAccess {
     }
 
     // The fleet's milestone progress: the milestone being worked on, and
-    // what has been delivered toward it, as item counts.
+    // what has been delivered toward it, net, as item counts (below 0 when
+    // more were unloaded than delivered).
     static Json save_progress(const Progress& progress) {
         Json delivered = Json::object();
         for (int i = 0; i < kItemKindCount; ++i)
-            if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n > 0)
+            if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n != 0)
                 delivered[item_id(static_cast<ItemKind>(i))] = n;
         return {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
     }
@@ -175,18 +180,25 @@ struct SaveAccess {
         Progress progress;
         progress.current = static_cast<std::size_t>(
             load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
-        const Inventory delivered = load_inventory(j.at("delivered"));
+        const Json& delivered = j.at("delivered");
+        if (!delivered.is_object())
+            throw LoadError("expected an object of item counts, not " + delivered.dump());
         const Milestone* milestone = progress.current_milestone();
-        for (const ItemStack& s : delivered.stacks()) {
-            int need = 0;
-            if (milestone)
-                for (const ItemStack& d : milestone->deliver)
-                    if (d.kind == s.kind)
-                        need = d.count;
-            if (s.count > need)
-                throw LoadError(std::string("more ") + item_id(s.kind) + " delivered than the milestone needs");
-            progress.delivered[static_cast<std::size_t>(s.kind)] = s.count;
+        for (const auto& [id, count] : delivered.items()) {
+            const ItemKind kind = load_item(Json(id));
+            const bool asked = milestone && std::any_of(milestone->deliver.begin(), milestone->deliver.end(),
+                                                        [&](const ItemStack& d) { return d.kind == kind; });
+            if (!asked)
+                throw LoadError(std::string(item_id(kind)) + " delivered, which the milestone doesn't ask for");
+            progress.delivered[static_cast<std::size_t>(kind)] =
+                static_cast<int>(load_int(count, -kMaxSavedCount, kMaxSavedCount));
         }
+        // A milestone completes as soon as every count reaches what it
+        // needs, so they can't all have.
+        if (milestone && std::all_of(milestone->deliver.begin(), milestone->deliver.end(), [&](const ItemStack& d) {
+                return progress.delivered[static_cast<std::size_t>(d.kind)] >= d.count;
+            }))
+            throw LoadError("everything the milestone needs delivered, but not complete");
         return progress;
     }
 
@@ -240,6 +252,10 @@ struct SaveAccess {
                     junction->lanes[static_cast<std::size_t>(d)].push_back(
                         {load_item(item.at("item")), load_tick(item.at("elapsed"), kJunctionTicks)});
             }
+        } else if (auto* unloader = dynamic_cast<Unloader*>(&b)) {
+            unloader->filter = load_optional_item(j.at("filter"));
+            unloader->cooldown = load_tick(j.at("cooldown"), kUnloaderTicks);
+            unloader->next_kind = static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount - 1));
         } else if (auto* router = dynamic_cast<Router*>(&b)) {
             router->held = load_optional_item(j.at("held"));
             router->came_from = load_direction(j.at("came_from"));

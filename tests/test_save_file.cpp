@@ -93,7 +93,7 @@ World busy_world() {
 
     assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
-    assert(ship.set_sort_filter({x0 + 3, c - 2}, ItemKind::IronOre));
+    assert(ship.set_filter({x0 + 3, c - 2}, ItemKind::IronOre));
     assert(ship.insert_item({x0 + 2, c - 2}, {x0 + 1, c - 2}, ItemKind::Silica));
 
     assert(ship.place(ItemKind::SolarFurnace, {x0, c}) == BuildResult::Ok);
@@ -340,8 +340,8 @@ void test_refused() {
     });
     refused_after(save, "a milestone past the last", [](Json& j) { progress(j)["milestone"] = 99; });
     refused_after(save, "no milestone", [](Json& j) { progress(j).erase("milestone"); });
-    refused_after(save, "more delivered than the milestone needs",
-                  [](Json& j) { progress(j)["delivered"] = {{"IronPlate", 51}}; });
+    refused_after(save, "everything the milestone needs delivered, but not complete",
+                  [](Json& j) { progress(j)["delivered"] = {{"IronPlate", 50}, {"CopperPlate", 20}}; });
     refused_after(save, "a delivery the milestone doesn't need",
                   [](Json& j) { progress(j)["delivered"] = {{"Gear", 1}}; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
@@ -462,6 +462,12 @@ void test_refused() {
     refused(with_building(R"({"kind": "Router", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "held": "Gear", "came_from": "Up", "elapsed": 0, "next_out": "North"})"),
             "a router item from an unknown side");
+    refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
+                              "filter": null, "cooldown": 99, "next_kind": 0})"),
+            "an unloader waiting longer than it ever does");
+    refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
+                              "filter": "Gear", "cooldown": 0, "next_kind": 999})"),
+            "an unloader's turn past the last kind");
 }
 
 // Cargo in flight names ships by id, and lands after the save's tick, by
@@ -546,12 +552,50 @@ void test_tunnel_round_trip() {
     assert(dynamic_cast<const CargoHold&>(*copy.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
 }
 
+// Unloaders keep their filter and where they are in their wait and their
+// turn through the kinds, so a loaded game unloads just as the original
+// does; and the milestone's count may be below 0.
+void test_unloader_round_trip() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add({{ItemKind::Unloader, 2}, {ItemKind::CargoHold, 1}});
+    const GridPos from{x0, c + 8};
+    const GridPos filtered{x0 + 2, c + 8};
+    const GridPos unfiltered{x0 + 2, c + 9};
+    const GridPos to{x0 + 3, c + 8};
+    assert(ship.place(ItemKind::CargoHold, from) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Unloader, filtered, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Unloader, unfiltered, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CargoHold, to) == BuildResult::Ok);
+    assert(ship.set_filter(filtered, ItemKind::Gear));
+    for (const ItemKind kind : {ItemKind::Gear, ItemKind::Steel, ItemKind::Glass})
+        for (int i = 0; i < 10; ++i)
+            assert(ship.insert_item(from, {x0 - 1, c + 8}, kind));
+    run(world, kUnloaderTicks + 3);
+    ship.get_bridge().get_progress().on_unloaded(ItemKind::IronPlate);
+
+    const std::string text = save_text(world);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded && error.empty());
+    assert(save_text(loaded->world) == text);
+    const Ship& copy = loaded->world.flagship();
+    const auto* u = dynamic_cast<const Unloader*>(copy.building_at(filtered));
+    assert(u && u->facing() == Direction::East && u->get_filter() == ItemKind::Gear);
+    assert(!dynamic_cast<const Unloader&>(*copy.building_at(unfiltered)).get_filter());
+    assert(loaded->world.get_fleet().get_progress().delivered_count(ItemKind::IronPlate) == -1);
+    run(world, 40);
+    run(loaded->world, 40);
+    assert(save_text(loaded->world) == save_text(world));
+}
+
 }  // namespace
 
 int main() {
     test_names();
     test_round_trip();
     test_tunnel_round_trip();
+    test_unloader_round_trip();
     test_determinism();
     test_header_only();
     test_refused();

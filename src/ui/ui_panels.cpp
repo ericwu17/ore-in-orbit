@@ -333,6 +333,18 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : carried.stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
+    if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
+        const std::optional<ItemKind> filter = unloader->get_filter();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Filter:");
+        ImGui::SameLine();
+        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
+        ImGui::TextColored(theme::kTextDim,
+                           "Takes %s out of the bridge or cargo\nhold behind it, onto what's in front:\n"
+                           "up to %d a second",
+                           filter ? item_name(*filter) : "every item, in turn,",
+                           static_cast<int>(kTicksPerSecond / kUnloaderTicks));
+    }
     if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
         const std::optional<ItemKind> filter = sorter->get_filter();
         ImGui::AlignTextToFramePadding();
@@ -399,7 +411,7 @@ namespace {
 
 // The inspected building (clicked on the grid): its details, and for a
 // machine, the recipe picker; for a collector, what it gathers; for a
-// sorter, the filter picker.
+// sorter or an unloader, the filter picker.
 void DrawInspector(Ship& ship) {
     const Building* b = InspectedBuilding(ship);
     if (!b)
@@ -477,19 +489,21 @@ void DrawInspector(Ship& ship) {
             ImGui::EndCombo();
         }
     }
-    if (const auto* sorter = dynamic_cast<const Sorter*>(b)) {
-        const std::optional<ItemKind> current = sorter->get_filter();
+    if (dynamic_cast<const Unloader*>(b) && !ship.unload_source(*g_build.inspected))
+        ImGui::TextColored(theme::kWarnText, "Nothing to unload: put the bridge or\na cargo hold behind it");
+    if (const std::optional<BuildingSettings> settings = SettingsOf(*b); settings && settings->has_filter) {
+        const std::optional<ItemKind> current = settings->filter;
         ImGui::SetNextItemWidth(-1.0f);
         if (BeginIconCombo("##filter", current ? ItemIcon(*current) : Icon{},
                            current ? item_name(*current) : "Pick a filter")) {
             BeginComboSearch();
             if (ComboSearchShows("None")) {
-                if (ComboSearchOption(Icon{}, !current) && ship.set_sort_filter(*g_build.inspected, std::nullopt))
+                if (ComboSearchOption(Icon{}, !current) && ship.set_filter(*g_build.inspected, std::nullopt))
                     remember();
                 ImGui::SetItemTooltip("None");
             }
             if (const std::optional<ItemKind> picked = ComboSearchItemOptions(current))
-                if (ship.set_sort_filter(*g_build.inspected, *picked))
+                if (ship.set_filter(*g_build.inspected, *picked))
                     remember();
             EndComboSearch();
             ImGui::EndCombo();

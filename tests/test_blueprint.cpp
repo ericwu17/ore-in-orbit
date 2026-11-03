@@ -81,7 +81,7 @@ void build_patch(Ship& ship) {
     assert(ship.set_recipe({x0 + 1, c + 2}, kFurnaceRecipe));
     assert(ship.place(ItemKind::Refinery, {x0 + 3, c}) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0, c + 3}) == BuildResult::Ok);
-    assert(ship.set_sort_filter({x0, c + 3}, ItemKind::IronOre));
+    assert(ship.set_filter({x0, c + 3}, ItemKind::IronOre));
 }
 
 const BlueprintBuilding* find(const Blueprint& blueprint, ItemKind kind) {
@@ -251,6 +251,24 @@ void test_tunnels() {
     assert(dynamic_cast<const CargoHold&>(*ship.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
 }
 
+// An unloader's facing and filter come with a copy, and turn with it;
+// through a string too.
+void test_unloaders() {
+    Ship ship = stocked_ship();
+    assert(ship.place(ItemKind::Unloader, {x0, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.set_filter({x0, c}, ItemKind::Gear));
+    const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0, c});
+    assert(copy && copy->buildings.size() == 1 && copy->buildings[0].filter == ItemKind::Gear);
+
+    const GridPos at{x0, c + 3};
+    assert(paste(ship, rotated_cw(*copy), at).pasted);
+    const auto* unloader = dynamic_cast<const Unloader*>(ship.building_at(at));
+    assert(unloader && unloader->facing() == Direction::South && unloader->get_filter() == ItemKind::Gear);
+
+    std::string error;
+    assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
+}
+
 // The blueprint string `text` with `change` made to its JSON.
 std::string changed(const std::string& text, const std::function<void(Json&)>& change) {
     Json j = Json::parse(text);
@@ -392,6 +410,7 @@ int main() {
     test_paste_settings();
     test_rotate();
     test_tunnels();
+    test_unloaders();
     test_strings();
     const fs::path dir = fs::temp_directory_path() / "ore-in-orbit-test-blueprints";
     fs::remove_all(dir);

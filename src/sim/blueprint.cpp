@@ -63,6 +63,8 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
             copy.target = collector->get_target();
         if (const auto* sorter = dynamic_cast<const Sorter*>(t.building))
             copy.filter = sorter->get_filter();
+        if (const auto* unloader = dynamic_cast<const Unloader*>(t.building))
+            copy.filter = unloader->get_filter();
         blueprint.buildings.push_back(copy);
     }
     return blueprint;
@@ -168,7 +170,7 @@ PasteResult paste(Ship& ship, const Blueprint& blueprint, GridPos origin) {
         if (b.target)
             ship.set_collector_target(entry.at, *b.target);
         if (b.filter)
-            ship.set_sort_filter(entry.at, *b.filter);
+            ship.set_filter(entry.at, *b.filter);
     }
     result.pasted = true;
     return result;

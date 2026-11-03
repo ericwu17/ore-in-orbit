@@ -82,6 +82,7 @@ enum class ItemKind {
     ReverseSorter,
     Junction,
     Router,
+    Unloader,
     CargoHold,
     // Placeable: collectors.
     AsteroidCollector,

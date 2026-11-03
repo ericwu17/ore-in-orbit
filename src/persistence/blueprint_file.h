@@ -10,9 +10,10 @@
 //                 {"kind":"SolarFurnace","x":2,"y":0,"facing":"North","recipe":"Iron plate"}]}
 //
 // Buildings carry "recipe" (machines), "target" (collectors) and "filter"
-// (sorters) when set. Items, directions and recipes are written by name,
-// as saves write them (persistence/json_io.h). Reading checks everything a
-// paste relies on, and refuses a bad string with a reason, never an assert.
+// (sorters, unloaders) when set. Items, directions and recipes are written
+// by name, as saves write them (persistence/json_io.h). Reading checks
+// everything a paste relies on, and refuses a bad string with a reason,
+// never an assert.
 //
 // The library is a folder (main.cpp uses blueprints/ in SDL's per-user
 // app-data directory, next to saves/) with one "blueprint-<N>.json" per

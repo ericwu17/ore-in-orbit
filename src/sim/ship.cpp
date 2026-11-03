@@ -397,12 +397,23 @@ bool Ship::sort_item(GridPos at, GridPos from, const Building* source, Sorter& s
     return false;
 }
 
-bool Ship::set_sort_filter(GridPos p, std::optional<ItemKind> item) {
-    auto* sorter = dynamic_cast<Sorter*>(building_at_mut(p));
-    if (!sorter)
+bool Ship::set_filter(GridPos p, std::optional<ItemKind> item) {
+    Building* b = building_at_mut(p);
+    if (auto* sorter = dynamic_cast<Sorter*>(b))
+        sorter->set_filter(item);
+    else if (auto* unloader = dynamic_cast<Unloader*>(b))
+        unloader->set_filter(item);
+    else
         return false;
-    sorter->set_filter(item);
     return true;
+}
+
+const Building* Ship::unload_source(GridPos p) const {
+    const auto* unloader = dynamic_cast<const Unloader*>(building_at(p));
+    if (!unloader)
+        return nullptr;
+    const Building* source = building_at(neighbor(p, rotated_cw(rotated_cw(unloader->facing()))));
+    return source && source->storage() ? source : nullptr;
 }
 
 bool Ship::set_collector_target(GridPos p, ItemKind target) {
@@ -471,6 +482,30 @@ void Ship::push_output(GridPos p, Building& b) {
     }
 }
 
+void Ship::unload(GridPos p, Unloader& unloader) {
+    if (!unloader.ready() || !unload_source(p))
+        return;
+    Building& source = *building_at_mut(neighbor(p, rotated_cw(rotated_cw(unloader.facing()))));
+    const Inventory& stored = *source.storage();
+    const GridPos front = neighbor(p, unloader.facing());
+    const auto take = [&](ItemKind kind) {
+        if (stored.count(kind) <= 0 || !insert_item(front, p, kind))
+            return false;
+        source.unload(kind);
+        unloader.unloaded(kind);
+        return true;
+    };
+    if (const std::optional<ItemKind> filter = unloader.get_filter()) {
+        take(*filter);
+        return;
+    }
+    // Every kind in turn, from the one after the last taken.
+    constexpr auto kinds = static_cast<std::size_t>(kItemKindCount);
+    for (std::size_t k = 0; k < kinds; ++k)
+        if (take(static_cast<ItemKind>((unloader.next_kind + k) % kinds)))
+            return;
+}
+
 void Ship::tick() {
     for (const GridPos p : placed)
         at(buildings, p)->tick();
@@ -496,6 +531,10 @@ void Ship::tick() {
             belt->pop_front();
         }
     }
-    for (const GridPos p : placed)
-        push_output(p, *at(buildings, p));
+    for (const GridPos p : placed) {
+        Building& b = *at(buildings, p);
+        push_output(p, b);
+        if (auto* unloader = dynamic_cast<Unloader*>(&b))
+            unload(p, *unloader);
+    }
 }

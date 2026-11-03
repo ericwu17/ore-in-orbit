@@ -5,7 +5,9 @@
 // The milestones come one at a time, in order. Items count toward the
 // current one when a belt (or building) delivers them into the bridge, not
 // when they are hand-crafted or refunded; they still go into the inventory,
-// so nothing is used up. Completing one unlocks the recipes making the items
+// so nothing is used up. What counts is net: an item an unloader takes out
+// of a bridge counts against it, so items going round from a bridge back
+// into one gain nothing. Completing one unlocks the recipes making the items
 // it lists. A recipe no milestone lists is unlocked from the start.
 #pragma once
 
@@ -45,7 +47,8 @@ private:
     friend struct SaveAccess;
 
     std::size_t current = 0;  // index of the milestone being worked on
-    // Delivered toward it, per item kind, each capped at what it needs.
+    // Delivered toward it, net of what was unloaded, per item kind: below 0
+    // when more were unloaded than delivered.
     std::array<int, kItemKindCount> delivered{};
 
 public:
@@ -55,12 +58,15 @@ public:
     // The milestone being worked on, or null once every one is complete.
     const Milestone* current_milestone() const;
     bool all_complete() const { return current_milestone() == nullptr; }
-    // How many of `kind` have been delivered toward the current one.
+    // How many of `kind` have been delivered toward the current one, net.
     int delivered_count(ItemKind kind) const { return delivered[static_cast<std::size_t>(kind)]; }
 
     // Counts one item delivered to the bridge; true if that completed the
     // current milestone (and moved on to the next).
     bool on_delivered(ItemKind kind);
+    // Counts one item an unloader took out of a bridge against the current
+    // milestone.
+    void on_unloaded(ItemKind kind);
     // Completes the current milestone at once (the debug menu); false if
     // every one already is.
     bool complete_current();

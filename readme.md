@@ -77,6 +77,14 @@ straight); junctions let two belt lines cross, each item leaving by the side
 opposite the one it came in by; routers pass each item on to their other
 three sides in turn.
 
+Unloaders are how items leave storage: an unloader faces a way, like a belt,
+and takes items out of the bridge or the cargo hold behind it into whatever
+is in front of it (a belt, a machine, a turret, another hold), one every
+1/6 of a second, as fast as a transport belt carries them. It takes only the
+item picked for it, or with none every item the storage holds, in turn,
+skipping those the front won't take. One with no bridge or hold behind it is
+outlined in amber.
+
 Belt tunnels work as in Factorio: they carry a line underground, under
 anything, and come in pairs. A tunnel links up by itself with the nearest one
 ahead of it facing the same way, up to 5 cells off (4 between them), so a row
@@ -89,8 +97,10 @@ holds on to them, and those on their way when an exit goes wait for the next.
 
 Progress comes in milestones, shown in the right panel: deliver the items
 each one asks for to the bridge (by belt; hand-crafting doesn't count) to
-unlock the next tier of recipes. Locked recipes show greyed out, marked with
-the milestone that unlocks them.
+unlock the next tier of recipes. What counts is net: an item an unloader
+takes out of the bridge counts against the milestone, so sending items
+round from the bridge back into it gains nothing. Locked recipes show
+greyed out, marked with the milestone that unlocks them.
 
 ### The fleet
 
@@ -160,9 +170,9 @@ and their tooltips and the inspector say they do nothing (`is_unfinished` in
   turning at corners. Belt tunnels go down one per click, showing what they
   would link to.
 - **Left click a building**: inspect it (at the top of the right panel);
-  pick a machine's recipe, a collector's target or a sorter's item. New
-  machines, collectors and sorters start with the settings last picked for
-  their kind.
+  pick a machine's recipe, a collector's target or a sorter's or
+  unloader's item. New machines, collectors, sorters and unloaders start
+  with the settings last picked for their kind.
 - **Right click / drag**: remove buildings and refund them (not the bridge
   or the engines, which are part of the ship's layout).
 - **Shift + right click a building**: copy its settings (recipe, target or
@@ -201,10 +211,10 @@ and their tooltips and the inspector say they do nothing (`is_unfinished` in
 Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
 and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
 A copy holds the buildings in the box with their settings — machine
-recipes, collector targets and sorter filters — but never the items in
-them, nor the hull (the ship's layout fixes that). A building partly inside
-the box comes whole; the bridge and the engines never come. R turns a copy
-while pasting.
+recipes, collector targets and sorter and unloader filters — but never the
+items in them, nor the hull (the ship's layout fixes that). A building
+partly inside the box comes whole; the bridge and the engines never come. R
+turns a copy while pasting.
 
 Pasting is all or nothing: the buildings go down only if every one fits,
 on hull, and the bridge has everything it takes; otherwise nothing
@@ -276,9 +286,10 @@ One directory per layer under `src/`; includes name their layer
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
     `Collector`, `Conveyor`, `Machine`, ...), each kind's footprint
     (`footprint_of`, e.g. 2x2 collectors), the collectors' rates and buffers
-    (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), machines and which recipes they
-    run, the `make_building` factory and `Inventory` (the bridge's, and
-    building buffers).
+    (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), unloaders and the
+    storage they take from, machines and which recipes they run, the
+    `make_building` factory and `Inventory` (the bridge's, and building
+    buffers).
   - `recipes.h/.cpp` — every `Recipe` (inputs, outputs, time, the
     `CraftCategory` of machine that makes it, and whether the bridge can
     hand-craft it); a building's cost is the recipe that makes its item.

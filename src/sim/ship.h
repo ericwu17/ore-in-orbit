@@ -18,7 +18,7 @@
 // included (see insert_item). Filter and reverse sorters pass each item
 // straight on to a neighbor in the same step; junctions and routers hold
 // items a moment, then pass them on. A belt tunnel carries items underground
-// to its other end.
+// to its other end. Unloaders take items out of the storage behind them.
 #pragma once
 
 #include "sim/building.h"
@@ -101,6 +101,10 @@ private:
     // Offers one item from `b`'s output buffer to its neighbors, round
     // robin; moves it to the first that takes it.
     void push_output(GridPos p, Building& b);
+    // For the unloader at `p`, once it's ready: takes one item out of the
+    // storage behind it into the cell in front, if that takes one (the
+    // filter's kind, or the first kind in turn that it takes).
+    void unload(GridPos p, Unloader& unloader);
     // For a junction or router at `p`: hands on the items that are ready to
     // go (one per way across a junction; a router's one, to the next
     // neighbor in turn that takes it).
@@ -214,9 +218,13 @@ public:
     // the ingredients it held to the inventory; false if there's no machine
     // there, it can't run `recipe` or `recipe` isn't unlocked yet.
     bool set_recipe(GridPos p, const Recipe* recipe);
-    // Sets the filter of the sorter at `p` (nullopt: none, every item turns);
-    // false if there's no sorter there.
-    bool set_sort_filter(GridPos p, std::optional<ItemKind> item);
+    // Sets the filter of the sorter or unloader at `p` (nullopt: none: every
+    // item turns at a sorter, an unloader takes every kind); false if there's
+    // neither there.
+    bool set_filter(GridPos p, std::optional<ItemKind> item);
+    // The storage (the bridge or a cargo hold) behind the unloader at `p`,
+    // which it takes items out of; null if there's none, or no unloader.
+    const Building* unload_source(GridPos p) const;
     // Aims the collector at `p` at `target`; false if there's no collector
     // there or it can't gather that.
     bool set_collector_target(GridPos p, ItemKind target);
@@ -224,6 +232,7 @@ public:
     // One simulation step: every building ticks (gathering, crafting, belts
     // moving), then junctions and routers pass on what's ready, then each
     // belt's front item goes to what it points at (a tunnel's, to its exit),
-    // then each building puts one item of output out to a neighbor.
+    // then each building puts one item of output out to a neighbor, and
+    // each ready unloader takes one out of storage.
     void tick();
 };
