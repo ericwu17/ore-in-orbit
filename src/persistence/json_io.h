@@ -59,15 +59,15 @@ constexpr int kRemovedItemCount = 3;
 // An item, or nullopt for a removed one (any other unknown item still
 // throws).
 std::optional<ItemKind> load_item_unless_removed(const Json& j);
-// What a removed recipe (one that made a removed item) took, less any
-// removed items, to refund a craft of it that was under way; null for any
-// other name. load_recipe() reads a removed recipe as none.
-const std::vector<ItemStack>* removed_recipe_inputs(std::string_view name);
+// Whether `name` is a removed recipe (one that made a removed item). A craft
+// of one that was under way is dropped, its ingredients with it.
+// load_recipe() reads a removed recipe as none.
+bool is_removed_recipe(std::string_view name);
 
 Direction load_direction(const Json& j);
 
 // A recipe by name, or null for none (or a removed one: see
-// removed_recipe_inputs).
+// is_removed_recipe).
 Json save_recipe(const Recipe* recipe);
 const Recipe* load_recipe(const Json& j);
 

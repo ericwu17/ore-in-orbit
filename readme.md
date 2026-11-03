@@ -255,8 +255,8 @@ upgrades between formats.
 The game once had power buildings (solar panel, solar array, battery bank),
 since removed. Saves and blueprints from then still load: those buildings,
 any of them in inventories, on belts or in flight, and recipes, filters and
-requests for them are simply left out (a hand-craft queued for one refunds
-its ingredients).
+requests for them are simply left out (a craft of one under way is dropped,
+its ingredients with it).
 
 ## Sprites
 

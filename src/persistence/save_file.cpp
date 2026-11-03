@@ -237,12 +237,9 @@ struct SaveAccess {
                 throw LoadError("too many crafts queued");
             for (const Json& job : jobs) {
                 // A craft of a removed recipe is dropped, its ingredients
-                // (taken when it was queued) refunded.
-                if (const Json& name = job.at("recipe"); name.is_string())
-                    if (const std::vector<ItemStack>* inputs = removed_recipe_inputs(name.get<std::string>())) {
-                        bridge->inventory.add(*inputs);
-                        continue;
-                    }
+                // (taken when it was queued) with it.
+                if (const Json& name = job.at("recipe"); name.is_string() && is_removed_recipe(name.get<std::string>()))
+                    continue;
                 const Recipe* recipe = load_recipe(job.at("recipe"));
                 if (!recipe || !recipe->hand_craftable || !progress.unlocked(*recipe))
                     throw LoadError("the bridge can't craft " + job.at("recipe").dump());
@@ -328,22 +325,19 @@ struct SaveAccess {
             if (recipe && !m->can_run(*recipe))
                 throw LoadError(std::string(item_id(*m->item_kind())) + " can't run " + recipe_name(*recipe));
             m->recipe = recipe;
-            m->input = load_inventory(j.at("input"));
-            m->output = load_inventory(j.at("output"));
-            // A removed recipe: none now, and the ingredients of a craft
-            // under way back with the rest it was holding.
-            const std::vector<ItemStack>* removed = nullptr;
-            if (const Json& name = j.at("recipe"); name.is_string())
-                removed = removed_recipe_inputs(name.get<std::string>());
-            if (const Json& work = j.at("work"); removed && !work.is_null()) {
-                m->input.add(*removed);
-            } else if (!work.is_null()) {
+            // A removed recipe: none now, and a craft of it under way
+            // dropped, its ingredients with it.
+            const Json& name = j.at("recipe");
+            const bool removed = name.is_string() && is_removed_recipe(name.get<std::string>());
+            if (const Json& work = j.at("work"); !removed && !work.is_null()) {
                 if (!recipe)
                     throw LoadError("crafting without a recipe");
                 // A craft finishes (and work resets) when it reaches the
                 // recipe's ticks.
                 m->work = load_progress(work, recipe->ticks);
             }
+            m->input = load_inventory(j.at("input"));
+            m->output = load_inventory(j.at("output"));
             m->only_when_requested = load_on_request(j);
         }
     }

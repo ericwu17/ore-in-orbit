@@ -55,25 +55,6 @@ std::optional<ItemKind> load_optional_item(const Json& j) {
     return j.is_null() ? std::nullopt : load_item_unless_removed(j);
 }
 
-namespace {
-
-struct RemovedRecipe {
-    const char* name;
-    std::vector<ItemStack> inputs;
-};
-
-const std::vector<RemovedRecipe>& removed_recipes() {
-    using enum ItemKind;
-    static const std::vector<RemovedRecipe> recipes = {
-        {"Solar panel", {{IronPlate, 2}, {Glass, 4}, {Circuit, 2}}},
-        {"Solar array", {{StructuralFrame, 5}}},  // and 10 solar panels, removed too
-        {"Battery bank", {{Steel, 4}, {Circuit, 4}}},
-    };
-    return recipes;
-}
-
-}  // namespace
-
 bool is_removed_item(std::string_view id) {
     return id == "SolarPanel" || id == "SolarArray" || id == "BatteryBank";
 }
@@ -84,11 +65,8 @@ std::optional<ItemKind> load_item_unless_removed(const Json& j) {
     return load_item(j);
 }
 
-const std::vector<ItemStack>* removed_recipe_inputs(std::string_view name) {
-    for (const RemovedRecipe& r : removed_recipes())
-        if (name == r.name)
-            return &r.inputs;
-    return nullptr;
+bool is_removed_recipe(std::string_view name) {
+    return name == "Solar panel" || name == "Solar array" || name == "Battery bank";
 }
 
 Direction load_direction(const Json& j) {
@@ -107,7 +85,7 @@ const Recipe* load_recipe(const Json& j) {
     if (j.is_null())
         return nullptr;
     const std::string name = load_string(j, "a recipe");
-    if (removed_recipe_inputs(name))
+    if (is_removed_recipe(name))
         return nullptr;
     for (const Recipe& r : all_recipes())
         if (name == recipe_name(r))

@@ -708,12 +708,10 @@ void test_forgets_power() {
     const Ship& copy = loaded->world.flagship();
     assert(!copy.building_at({x0 + 8, c - 6}));
     assert(copy.placement_order().size() == ship.placement_order().size() - 1);
-    // The hand-craft's ingredients refunded, the rest as it was.
+    // The hand-craft dropped, its ingredients with it, the rest as it was.
     const Bridge& bridge = copy.get_bridge();
     assert(bridge.craft_queue().size() == 2);
-    assert(bridge.get_inventory().count(ItemKind::Glass) == ship.inventory().count(ItemKind::Glass) + 4);
-    assert(bridge.get_inventory().count(ItemKind::Circuit) == ship.inventory().count(ItemKind::Circuit) + 2);
-    assert(bridge.get_inventory().total() == ship.inventory().total() + 8);
+    assert(bridge.get_inventory().total() == ship.inventory().total());
     assert(bridge.get_requests().size() == 1 && bridge.get_requests()[0].kind == ItemKind::Gear);
     const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
     assert(sorter && !sorter->get_filter());
@@ -722,11 +720,11 @@ void test_forgets_power() {
     const auto& hold = dynamic_cast<const CargoHold&>(*copy.building_at({x0 + 5, c - 6}));
     assert(hold.get_stored().total() ==
            dynamic_cast<const CargoHold&>(*ship.building_at({x0 + 5, c - 6})).get_stored().total());
-    // No recipe, and the ingredients of the craft under way back in its input.
+    // No recipe, and the craft under way dropped, its ingredients with it.
     const auto& machine = dynamic_cast<const Machine&>(*copy.building_at({x0, c}));
     const auto& before = dynamic_cast<const Machine&>(*ship.building_at({x0, c}));
     assert(!machine.get_recipe() && !machine.crafting());
-    assert(machine.get_input().count(ItemKind::IronPlate) == before.get_input().count(ItemKind::IronPlate) + 2);
+    assert(machine.get_input().total() == before.get_input().total());
     assert(machine.get_output().total() == before.get_output().total());
     assert(loaded->world.get_fleet().in_flight()[0].items.size() == 1);
 
