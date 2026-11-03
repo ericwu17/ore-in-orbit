@@ -93,11 +93,9 @@ Inventory load_inventory(const Json& j) {
     if (!j.is_object())
         throw LoadError("expected an object of item counts, not " + j.dump());
     Inventory inv;
-    for (const auto& [id, count] : j.items()) {
-        const int n = static_cast<int>(load_int(count, 0, kMaxSavedCount));
-        if (const std::optional<ItemKind> kind = load_item_unless_removed(Json(id)))
-            inv.add(*kind, n);
-    }
+    for (const auto& [id, count] : j.items())
+        if (const std::optional<ItemKind> kind = load_item(Json(id)))
+            inv.add(*kind, static_cast<int>(load_int(count, 0, kMaxSavedCount)));
     return inv;
 }
 
@@ -201,7 +199,10 @@ struct SaveAccess {
             throw LoadError("expected an object of item counts, not " + delivered.dump());
         const Milestone* milestone = progress.current_milestone();
         for (const auto& [id, count] : delivered.items()) {
-            const ItemKind kind = load_item(Json(id));
+            const std::optional<ItemKind> known = load_item(Json(id));
+            if (!known)
+                continue;
+            const ItemKind kind = *known;
             const bool asked = milestone && std::any_of(milestone->deliver.begin(), milestone->deliver.end(),
                                                         [&](const ItemStack& d) { return d.kind == kind; });
             if (!asked)
@@ -236,13 +237,12 @@ struct SaveAccess {
             if (jobs.size() > kMaxSavedQueue)
                 throw LoadError("too many crafts queued");
             for (const Json& job : jobs) {
-                // A craft of a removed recipe is dropped, its ingredients
+                // A craft of an unknown recipe is dropped, its ingredients
                 // (taken when it was queued) with it.
-                const std::optional<const Recipe*> loaded = load_recipe_unless_removed(job.at("recipe"));
-                if (!loaded)
+                const Recipe* recipe = load_recipe(job.at("recipe"));
+                if (!recipe)
                     continue;
-                const Recipe* recipe = *loaded;
-                if (!recipe || !recipe->hand_craftable || !progress.unlocked(*recipe))
+                if (!recipe->hand_craftable || !progress.unlocked(*recipe))
                     throw LoadError("the bridge can't craft " + job.at("recipe").dump());
                 // A job finishes (and leaves the queue) when it reaches the
                 // recipe's ticks.
@@ -251,9 +251,9 @@ struct SaveAccess {
             // None in saves from before there were requests.
             const auto requests = j.find("requests");
             for (const Json& r : requests == j.end() ? Json::array() : load_array(*requests, "requests")) {
-                const std::optional<ItemKind> requested = load_item_unless_removed(r.at("item"));
+                const std::optional<ItemKind> requested = load_item(r.at("item"));
                 if (!requested)
-                    continue;  // a request for a removed item
+                    continue;
                 const ItemKind kind = *requested;
                 if (is_layout_part(kind))
                     throw LoadError(std::string("a request for ") + item_id(kind) + ", which only comes with a layout");
@@ -265,26 +265,27 @@ struct SaveAccess {
             // A catch takes progress back down when it reaches the
             // interval (in hundredths of a tick).
             c->progress = load_progress(j.at("progress"), c->spec->interval * 100);
-            const ItemKind target = load_item(j.at("target"));
-            if (!c->can_target(target))
-                throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(target));
-            c->target = target;
+            if (const std::optional<ItemKind> target = load_item(j.at("target"))) {
+                if (!c->can_target(*target))
+                    throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(*target));
+                c->target = *target;
+            }
             c->caught = load_inventory(j.at("caught"));
             c->only_when_requested = load_on_request(j);
         } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
             for (const Json& item : load_array(j.at("items"), "belt items")) {
-                const std::optional<ItemKind> kind = load_item_unless_removed(item.at("item"));
+                const std::optional<ItemKind> kind = load_item(item.at("item"));
+                if (!kind)
+                    continue;  // gone, leaving a gap
                 // A tunnel's items may be on their way underground.
                 const int furthest = dynamic_cast<const Tunnel*>(belt) ? kBeltLength * kTunnelRange : kBeltLength;
                 const int pos = static_cast<int>(load_int(item.at("pos"), 0, furthest));
-                if (!kind)
-                    continue;  // a removed item: gone, leaving a gap
                 if (!belt->has_room_at(pos))
                     throw LoadError("belt items too close together");
                 belt->insert(*kind, pos);
             }
         } else if (auto* sorter = dynamic_cast<Sorter*>(&b)) {
-            sorter->set_filter(load_optional_item(j.at("filter")));
+            sorter->set_filter(load_item(j.at("filter")));
             sorter->next_right = j.at("next_right").get<bool>();
         } else if (auto* junction = dynamic_cast<Junction*>(&b)) {
             const Json& lanes = j.at("lanes");
@@ -292,23 +293,20 @@ struct SaveAccess {
                 const Json& lane = load_array(lanes.at(direction_id(static_cast<Direction>(d))), "junction items");
                 if (lane.size() > kJunctionCapacity)
                     throw LoadError("too many items in a junction");
-                for (const Json& item : lane) {
-                    const std::optional<ItemKind> kind = load_item_unless_removed(item.at("item"));
-                    const Tick elapsed = load_tick(item.at("elapsed"), kJunctionTicks);
-                    if (kind)
-                        junction->lanes[static_cast<std::size_t>(d)].push_back({*kind, elapsed});
-                }
+                for (const Json& item : lane)
+                    if (const std::optional<ItemKind> kind = load_item(item.at("item")))
+                        junction->lanes[static_cast<std::size_t>(d)].push_back(
+                            {*kind, load_tick(item.at("elapsed"), kJunctionTicks)});
             }
         } else if (auto* unloader = dynamic_cast<Unloader*>(&b)) {
-            unloader->filter = load_optional_item(j.at("filter"));
+            unloader->filter = load_item(j.at("filter"));
             unloader->cooldown = load_tick(j.at("cooldown"), kUnloaderTicks);
             // Only where it starts looking next: a save from when there were
-            // the removed items too may point past the end, which wraps round.
-            unloader->next_kind =
-                static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount + static_cast<int>(kRemovedItems.size()) - 1)) %
-                static_cast<std::size_t>(kItemKindCount);
+            // other items may point past the end, which wraps round.
+            unloader->next_kind = static_cast<std::size_t>(load_int(j.at("next_kind"), 0, INT32_MAX)) %
+                                  static_cast<std::size_t>(kItemKindCount);
         } else if (auto* router = dynamic_cast<Router*>(&b)) {
-            router->held = load_optional_item(j.at("held"));
+            router->held = load_item(j.at("held"));
             router->came_from = load_direction(j.at("came_from"));
             router->elapsed = load_tick(j.at("elapsed"), kRouterTicks);
             router->next_out = load_direction(j.at("next_out"));
@@ -322,16 +320,13 @@ struct SaveAccess {
             turret->shots = static_cast<int>(load_int(j.at("shots"), 0, turret->spec->shots_per_ammo - 1));
             turret->cooldown = load_tick(j.at("cooldown"), turret->spec->interval);
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
-            // A removed recipe: none now, and a craft of it under way
+            // An unknown recipe: none now, and a craft of it under way
             // dropped, its ingredients with it.
-            const std::optional<const Recipe*> loaded = load_recipe_unless_removed(j.at("recipe"));
-            const Recipe* recipe = loaded.value_or(nullptr);
+            const Recipe* recipe = load_recipe(j.at("recipe"));
             if (recipe && !m->can_run(*recipe))
                 throw LoadError(std::string(item_id(*m->item_kind())) + " can't run " + recipe_name(*recipe));
             m->recipe = recipe;
-            if (const Json& work = j.at("work"); loaded && !work.is_null()) {
-                if (!recipe)
-                    throw LoadError("crafting without a recipe");
+            if (const Json& work = j.at("work"); recipe && !work.is_null()) {
                 // A craft finishes (and work resets) when it reaches the
                 // recipe's ticks.
                 m->work = load_progress(work, recipe->ticks);
@@ -399,9 +394,9 @@ struct SaveAccess {
             bridge->share_progress(progress);
             b = std::move(bridge);
         } else {
-            const std::optional<ItemKind> known = load_item_unless_removed(kind_json);
+            const std::optional<ItemKind> known = load_item(kind_json);
             if (!known)
-                return;  // a removed building: never there
+                return;  // never there
             const ItemKind kind = *known;
             if (!is_building(kind))
                 throw LoadError(std::string("not a building: ") + item_id(kind));

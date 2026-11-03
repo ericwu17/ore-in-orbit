@@ -250,13 +250,10 @@ or double-click it), renames it (the pencil), copies it, or deletes it
 (after asking). Saves are JSON, so you can read them; one the game can't
 read stays in the list, greyed out, with the reason in its tooltip. That
 goes for saves from an older save format too (`kSaveVersion`): there are no
-upgrades between formats.
-
-The game once had power buildings (solar panel, solar array, battery bank),
-since removed. Saves and blueprints from then still load: those buildings,
-any of them in inventories, on belts or in flight, and recipes, filters and
-requests for them are simply left out (a craft of one under way is dropped,
-its ingredients with it).
+upgrades between formats. Items and recipes the game no longer knows don't
+make a save or blueprint unreadable, though: they're simply left out, with
+the buildings, crafts, filters and requests that name them (a craft of one
+under way is dropped, its ingredients with it).
 
 ## Sprites
 

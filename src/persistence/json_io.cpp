@@ -1,8 +1,6 @@
 // json_io.cpp — JSON helpers shared by saves and blueprints (see json_io.h).
 #include "persistence/json_io.h"
 
-#include <algorithm>
-
 namespace json_io {
 
 const char* direction_id(Direction d) {
@@ -34,37 +32,18 @@ std::int64_t load_int(const Json& j, std::int64_t lo, std::int64_t hi) {
     return j.get<std::int64_t>();
 }
 
-std::optional<ItemKind> item_from_id(std::string_view id) {
-    for (int i = 0; i < kItemKindCount; ++i)
-        if (id == item_id(static_cast<ItemKind>(i)))
-            return static_cast<ItemKind>(i);
-    return std::nullopt;
-}
-
-ItemKind load_item(const Json& j) {
-    const std::string id = load_string(j, "an item");
-    const std::optional<ItemKind> kind = item_from_id(id);
-    if (!kind)
-        throw LoadError("unknown item \"" + id + "\"");
-    return *kind;
-}
-
 Json save_optional_item(std::optional<ItemKind> kind) {
     return kind ? Json(item_id(*kind)) : Json(nullptr);
 }
 
-std::optional<ItemKind> load_optional_item(const Json& j) {
-    return j.is_null() ? std::nullopt : load_item_unless_removed(j);
-}
-
-bool is_removed_item(std::string_view id) {
-    return std::ranges::find(kRemovedItems, id) != kRemovedItems.end();
-}
-
-std::optional<ItemKind> load_item_unless_removed(const Json& j) {
-    if (j.is_string() && is_removed_item(j.get<std::string>()))
+std::optional<ItemKind> load_item(const Json& j) {
+    if (j.is_null())
         return std::nullopt;
-    return load_item(j);
+    const std::string id = load_string(j, "an item");
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (id == item_id(static_cast<ItemKind>(i)))
+            return static_cast<ItemKind>(i);
+    return std::nullopt;
 }
 
 Direction load_direction(const Json& j) {
@@ -86,13 +65,7 @@ const Recipe* load_recipe(const Json& j) {
     for (const Recipe& r : all_recipes())
         if (name == recipe_name(r))
             return &r;
-    throw LoadError("unknown recipe \"" + name + "\"");
-}
-
-std::optional<const Recipe*> load_recipe_unless_removed(const Json& j) {
-    if (j.is_string() && std::ranges::find(kRemovedRecipes, j.get<std::string>()) != kRemovedRecipes.end())
-        return std::nullopt;
-    return load_recipe(j);
+    return nullptr;
 }
 
 const Json& load_array(const Json& j, const char* what) {

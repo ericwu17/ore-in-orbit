@@ -59,9 +59,9 @@ Json save_blueprint(const Blueprint& blueprint) {
 // Reads one building into `blueprint`, checking it fits inside it, clear of
 // the ones before (`taken`, per cell), and that its settings suit it.
 void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken) {
-    const std::optional<ItemKind> known = load_item_unless_removed(j.at("kind"));
+    const std::optional<ItemKind> known = load_item(j.at("kind"));
     if (!known)
-        return;  // a removed building: left out (see is_removed_item)
+        return;  // left out
     const ItemKind kind = *known;
     if (!is_placeable(kind))
         throw LoadError(std::string("not a building: ") + item_id(kind));
@@ -90,7 +90,7 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
         const auto* machine = dynamic_cast<const Machine*>(building.get());
         if (!machine)
             throw LoadError(std::string(item_id(kind)) + " has no recipe");
-        b.recipe = load_recipe_unless_removed(*recipe).value_or(nullptr);  // a removed one: none
+        b.recipe = load_recipe(*recipe);
         if (b.recipe && !machine->can_run(*b.recipe))
             throw LoadError(std::string(item_id(kind)) + " can't run " + recipe_name(*b.recipe));
     }
@@ -99,13 +99,13 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
         if (!collector)
             throw LoadError(std::string(item_id(kind)) + " has no target");
         b.target = load_item(*target);
-        if (!collector->can_target(*b.target))
+        if (b.target && !collector->can_target(*b.target))
             throw LoadError(std::string(item_id(kind)) + " can't gather " + item_id(*b.target));
     }
     if (const auto filter = j.find("filter"); filter != j.end()) {
         if (!dynamic_cast<const Sorter*>(building.get()) && !dynamic_cast<const Unloader*>(building.get()))
             throw LoadError(std::string(item_id(kind)) + " has no filter");
-        b.filter = load_optional_item(*filter);
+        b.filter = load_item(*filter);
     }
     if (const auto on = j.find("only_when_requested"); on != j.end()) {
         if (!dynamic_cast<const Collector*>(building.get()) && !dynamic_cast<const Machine*>(building.get()))

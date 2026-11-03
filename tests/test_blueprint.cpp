@@ -332,8 +332,8 @@ void test_strings() {
     assert(full.find('\n') == std::string::npos);
     assert(blueprint_from_string(full, error) == bp);
 
-    // Blueprints from when there were power buildings still read, without
-    // them, and without filters and recipes for them.
+    // Unknown buildings (here the power buildings, since removed) are left
+    // out, and unknown filters and recipes unset.
     const std::string with_power = changed(full, [](Json& j) {
         for (Json& b : j["buildings"]) {
             if (b["kind"] == "FilterSorter")
@@ -357,8 +357,6 @@ void test_strings() {
     refused(changed(full, [](Json& j) { j.erase("name"); }));
     refused(changed(full, [](Json& j) { j["width"] = 0; }));
     refused(changed(full, [](Json& j) { j["height"] = kShipGridSize + 1; }));
-    refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "Banana"; }));
-    refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "Hull"; }));         // not an item any more
     refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "IonThruster"; }));  // the layout's alone
     refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "IronPlate"; }));
     refused(changed(full, [](Json& j) { j["buildings"][0]["x"] = -1; }));
@@ -380,11 +378,6 @@ void test_strings() {
         for (Json& b : j["buildings"])
             if (b["kind"] == "SolarFurnace")
                 b["recipe"] = "Gear";  // an assembly recipe, in a furnace
-    }));
-    refused(changed(full, [](Json& j) {
-        for (Json& b : j["buildings"])
-            if (b["kind"] == "SolarFurnace")
-                b["recipe"] = "Moonshine";
     }));
     // A sorter's filter may be cleared.
     const std::string cleared = changed(full, [](Json& j) {

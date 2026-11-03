@@ -325,16 +325,10 @@ void test_refused() {
     refused_after(save, "a name that isn't text", [](Json& j) { j["name"] = 42; });
     refused_after(save, "a negative play time", [](Json& j) { j["played"] = -1; });
     refused_after(save, "no world", [](Json& j) { j.erase("world"); });
-    refused_after(save, "an unknown item", [](Json& j) { bridge(j)["inventory"] = {{"Unobtainium", 5}}; });
-    refused_after(save, "a display name for an item", [](Json& j) { bridge(j)["inventory"] = {{"Iron plate", 5}}; });
     refused_after(save, "a negative count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", -5}}; });
     refused_after(save, "a fractional count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1.5}}; });
     refused_after(save, "an absurd count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1e30}}; });
     refused_after(save, "a count as text", [](Json& j) { bridge(j)["inventory"] = {{"Gear", "5"}}; });
-    refused_after(save, "hull, no longer an item", [](Json& j) { bridge(j)["inventory"] = {{"Hull", 5}}; });
-    refused_after(save, "an unknown recipe", [](Json& j) {
-        bridge(j)["queue"] = Json::parse(R"([{"recipe": "Unobtainium", "elapsed": 0}])");
-    });
     refused_after(save, "a recipe that isn't unlocked yet", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
     });
@@ -352,9 +346,6 @@ void test_refused() {
     });
     refused_after(save, "no craft queue", [](Json& j) { bridge(j).erase("queue"); });
     refused_after(save, "requests that aren't a list", [](Json& j) { bridge(j)["requests"] = {{"Gear", 5}}; });
-    refused_after(save, "a request for an unknown item", [](Json& j) {
-        bridge(j)["requests"] = Json::parse(R"([{"item": "Unobtainium", "count": 5}])");
-    });
     refused_after(save, "a negative request", [](Json& j) {
         bridge(j)["requests"] = Json::parse(R"([{"item": "Gear", "count": -1}])");
     });
@@ -461,13 +452,8 @@ void test_refused() {
     refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "items": [{"item": "IronOre", "pos": 61}]})"),
             "a belt item off the belt");
-    refused(with_building(R"({"kind": "Hull", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
-            "hull as a building");
     refused(with_building(R"({"kind": "SolarFurnace", "x": 83, "y": 64, "facing": "North", "output_side": 0})"),
             "a building partly off hull");
-    refused(with_building(R"({"kind": "FilterSorter", "x": 70, "y": 64, "facing": "North", "output_side": 0,
-                              "filter": "Unobtainium", "next_right": false})"),
-            "an unknown filter");
     refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "lanes": {"North": [], "East": [{"item": "Gear", "elapsed": 9999}],
                                         "South": [], "West": []}})"),
@@ -481,9 +467,6 @@ void test_refused() {
     refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
             "an unloader waiting longer than it ever does");
-    refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "filter": "Gear", "cooldown": 0, "next_kind": 999})"),
-            "an unloader's turn past the last kind");
 }
 
 // Cargo in flight names ships by id, and lands after the save's tick, by
@@ -496,7 +479,6 @@ void test_transfers_refused() {
     refused_after(save, "cargo to a ship id not given out yet", [&](Json& j) { transfer(j)["to"] = 7; });
     refused_after(save, "cargo that should have landed", [&](Json& j) { transfer(j)["arrives"] = 100; });
     refused_after(save, "cargo that takes too long", [&](Json& j) { transfer(j)["arrives"] = 100 + kTransferTicks + 1; });
-    refused_after(save, "cargo with an unknown item", [&](Json& j) { transfer(j)["items"] = {{"Unobtainium", 1}}; });
 }
 
 // Machines check their recipe and progress, collectors their target, and
@@ -511,7 +493,6 @@ void test_machine_refused() {
     assert(loads(save.dump()));
     auto furnace = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(save, "a recipe the machine can't run", [&](Json& j) { furnace(j)["recipe"] = "Gear"; });
-    refused_after(save, "crafting without a recipe", [&](Json& j) { furnace(j)["recipe"] = nullptr; });
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
     refused_after(save, "no output buffer", [&](Json& j) { furnace(j).erase("output"); });
     refused_after(save, "running on request, not true or false",
@@ -669,10 +650,9 @@ void test_before_requests() {
 
 }  // namespace
 
-// The power buildings (solar panel, solar array, battery bank) are gone
-// from the game, but saves from before still load, in the same format: the
-// game forgets them, wherever the save has them.
-void test_forgets_power() {
+// Items and recipes the game doesn't know (here the power buildings, since
+// removed) are left out, wherever the save has them, and the rest loads.
+void test_skips_unknown() {
     const World world = busy_world();
     const Ship& ship = world.flagship();
     Json j = Json::parse(save_text(world));
@@ -733,10 +713,6 @@ void test_forgets_power() {
     for (const char* id : {"SolarPanel", "SolarArray", "BatteryBank", "Solar panel"})
         assert(resaved.find(id) == std::string::npos);
     run(loaded->world, 600);
-
-    // Any other unknown item is still refused.
-    furnace["output"]["Banana"] = 1;
-    assert(!load_text(j.dump(), error) && !error.empty());
 }
 
 int main() {
@@ -751,7 +727,7 @@ int main() {
     test_refused();
     test_transfers_refused();
     test_machine_refused();
-    test_forgets_power();
+    test_skips_unknown();
     std::puts("test_save_file: all passed");
     return 0;
 }
