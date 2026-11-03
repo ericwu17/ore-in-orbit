@@ -11,7 +11,7 @@
 //   ui_draw.cpp        drawing buildings, items and icons into a draw list
 //   ui_grid.cpp        the ship build grid: camera, building, copy and paste
 //   ui_panels.cpp      the build palette (left) and the craft panel (right),
-//                      with the inspector and the milestone
+//                      with the milestone; and the inspector window
 //   ui_fleet.cpp       the fleet's tabs and windows, and the star map
 //   ui_blueprints.cpp  the Blueprints window (the library)
 //   ui_menus.cpp       the main menu, the save list and the credits
@@ -401,13 +401,21 @@ std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current);
 // and the settings new ones get, copying and pasting, and the cargo
 // (everything else in the inventory).
 void DrawBuildPalette(Ship& ship, float width);
-// The right panel: the inspector, the current milestone, the fleet, the
-// bridge's craft queue and hand-crafting, and the recipe book for everything
-// else.
+// The right panel: the current milestone, the fleet, the bridge's craft
+// queue and hand-crafting, and the recipe book for everything else.
 void DrawCraftPanel(World& world, FleetShip& current, float width);
+// The inspector window, while a building is inspected (clicked on the grid;
+// Esc or its cross closes it), where it was last moved to and at the size it
+// was last resized to (at first, in the middle of the screen): a heading with its picture, name and health,
+// then what it's doing and, in a second column, what can be set: for a
+// machine, the recipe picker; for a collector, what it gathers (for both,
+// whether they run only on request); for a sorter or an unloader, the filter
+// picker; for the bridge, its item requests.
+void DrawInspectorWindow(Ship& ship);
 // What a building is and what it's doing: for the grid's hover tooltip
-// (`in_tooltip`, which writes item names out) and the inspector (where
-// hovering an icon shows its name).
+// (`in_tooltip`, which writes item names out and starts with its picture,
+// name and health) and the inspector window (where hovering an icon shows
+// its name, and which draws its own heading).
 void BuildingDetails(const Building& b, bool in_tooltip);
 
 // ui_fleet.cpp

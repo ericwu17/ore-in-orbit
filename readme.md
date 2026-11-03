@@ -172,8 +172,8 @@ the enemies behind. Buildings mend slowly while no enemy is near.
   leaves no gaps, and belts drawn by dragging face the way the drag goes,
   turning at corners. Belt tunnels go down one per click, showing what they
   would link to.
-- **Left click a building**: inspect it (at the top of the right panel);
-  pick a machine's recipe, a collector's target or a sorter's or
+- **Left click a building**: inspect it (in a window that keeps where you
+  move it and how you size it); pick a machine's recipe, a collector's target or a sorter's or
   unloader's item, and whether a machine or collector runs only while the
   bridge requests it. Inspecting the bridge lists its item requests, to
   change, remove or add to. New machines, collectors, sorters and unloaders
@@ -365,7 +365,7 @@ One directory per layer under `src/`; includes name their layer
     ship): building, removing, copying and pasting with the mouse, and the
     enemies.
   - `ui_panels.cpp` — the build palette (left) and the craft panel
-    (right): the inspector, the milestone, hand-crafting.
+    (right): the milestone, hand-crafting; and the inspector window.
   - `ui_fleet.cpp` — the fleet's tabs and its section of the right panel,
     the Send cargo and Build a new ship windows, and the star map.
   - `ui_blueprints.cpp` — the Blueprints window.

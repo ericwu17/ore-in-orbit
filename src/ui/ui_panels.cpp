@@ -1,6 +1,6 @@
 // ui_panels.cpp — the game screen's side panels: the build palette (left)
-// and the craft panel (right), with the inspector, the milestone and
-// hand-crafting (see ui_internal.h).
+// and the craft panel (right), with the milestone and hand-crafting; and the
+// inspector window (see ui_internal.h).
 #include "ui/ui_internal.h"
 
 #include <algorithm>
@@ -247,18 +247,23 @@ void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
 
 void BuildingDetails(const Building& b, bool in_tooltip) {
     const std::optional<ItemKind> kind = b.item_kind();
-    // Its picture, and its name beside it.
-    const float picture = ImGui::GetFrameHeight() * 1.6f;
-    const ImVec2 picture_min = ImGui::GetCursorScreenPos();
-    ImGui::Dummy(ImVec2(picture, picture));
-    DrawIcon(ImGui::GetWindowDrawList(), BuildingIcon(b), picture_min,
-             ImVec2(picture_min.x + picture, picture_min.y + picture));
-    ImGui::SameLine();
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
-    ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
-    ImGui::TextColored(b.damaged() ? theme::kBad : theme::kTextDim, "Health %d / %d", b.get_hp(), b.max_hp());
+    // Its picture, its name beside it, and its health (the inspector window
+    // has its own heading with them).
+    if (in_tooltip) {
+        const float picture = ImGui::GetFrameHeight() * 1.6f;
+        const ImVec2 picture_min = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(picture, picture));
+        DrawIcon(ImGui::GetWindowDrawList(), BuildingIcon(b), picture_min,
+                 ImVec2(picture_min.x + picture, picture_min.y + picture));
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
+        ImGui::TextColored(b.damaged() ? theme::kBad : theme::kTextDim, "Health %d / %d", b.get_hp(), b.max_hp());
+    }
 
-    const float bar_w = ImGui::GetFrameHeight() * 8.0f;
+    // Across the inspector window's column; a set width in the tooltip,
+    // which fits itself to what's in it.
+    const float bar_w = in_tooltip ? ImGui::GetFrameHeight() * 8.0f : -FLT_MIN;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
         std::string crafts;
         for (int c = 0; c < kCraftCategoryCount; ++c)
@@ -313,14 +318,14 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt)) {
             const int cells = tunnel->get_distance();
             if (tunnel->is_exit())
-                ImGui::TextColored(theme::kTextDim, "Exit: items come up from the\nentrance %d cell%s back", cells,
+                ImGui::TextColored(theme::kTextDim, "Exit: items come up from the entrance %d cell%s back", cells,
                                    cells == 1 ? "" : "s");
             else if (tunnel->linked())
-                ImGui::TextColored(theme::kTextDim, "Entrance: items go under to the\nexit %d cell%s ahead", cells,
+                ImGui::TextColored(theme::kTextDim, "Entrance: items go under to the exit %d cell%s ahead", cells,
                                    cells == 1 ? "" : "s");
             else
                 ImGui::TextColored(theme::kWarnText,
-                                   "No exit: place a belt tunnel facing the\nsame way, up to %d cells ahead",
+                                   "No exit: place a belt tunnel facing the same way, up to %d cells ahead",
                                    kTunnelRange);
         }
         Inventory carried;
@@ -336,7 +341,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         ImGui::SameLine();
         AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
         ImGui::TextColored(theme::kTextDim,
-                           "Takes %s out of the bridge or cargo\nhold behind it, onto what's in front:\n"
+                           "Takes %s out of the bridge or cargo hold behind it, onto what's in front: "
                            "up to %d a second",
                            filter ? item_name(*filter) : "every item, in turn,",
                            static_cast<int>(kTicksPerSecond / kUnloaderTicks));
@@ -348,12 +353,12 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         ImGui::SameLine();
         AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
         if (sorter->inverted())
-            ImGui::TextColored(theme::kTextDim, "Matching items turn left or right;\nothers go straight through");
+            ImGui::TextColored(theme::kTextDim, "Matching items turn left or right; others go straight through");
         else
-            ImGui::TextColored(theme::kTextDim, "Matching items go straight through;\nothers turn left or right");
+            ImGui::TextColored(theme::kTextDim, "Matching items go straight through; others turn left or right");
     }
     if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
-        ImGui::TextColored(theme::kTextDim, "Items cross straight over, out the\nopposite side");
+        ImGui::TextColored(theme::kTextDim, "Items cross straight over, out the opposite side");
         Inventory crossing;
         for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
             for (const JunctionItem& item : junction->lane(travel))
@@ -362,7 +367,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
     if (const auto* router = dynamic_cast<const Router*>(&b)) {
-        ImGui::TextColored(theme::kTextDim, "Passes items to its other three sides\nin turn");
+        ImGui::TextColored(theme::kTextDim, "Passes items to its other three sides in turn");
         if (const std::optional<ItemKind> held = router->get_held())
             AmountLine(ItemIcon(*held), item_name(*held), theme::kText, in_tooltip);
     }
@@ -404,7 +409,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         ImGui::TextColored(theme::kTextDim, "On standby: the bridge has what it requests");
     if (!kind)
         ImGui::TextColored(theme::kTextDim, "Belts deliver into its inventory");
-    if (b.rotatable())
+    if (in_tooltip && b.rotatable())
         ImGui::TextColored(theme::kTextDim, "Facing %s", DirectionName(b.facing()));
 }
 
@@ -483,42 +488,36 @@ void DrawOnRequest(Ship& ship, const Building& b) {
                have >= *wanted ? "  in the bridge: on standby" : "  in the bridge: running");
 }
 
-// The inspected building (clicked on the grid): its details, and for a
-// machine, the recipe picker; for a collector, what it gathers (for both,
-// whether they run only on request); for a sorter or an unloader, the filter
-// picker; for the bridge, its item requests.
-void DrawInspector(Ship& ship) {
-    const Building* b = InspectedBuilding(ship);
-    if (!b)
-        return;
-    // The heading, with a cross at its right end to close it.
-    const ImVec2 heading_min = ImGui::GetCursorScreenPos();
-    const float heading_w = ImGui::GetContentRegionAvail().x;
-    theme::SectionHeading("Inspect");
-    const ImVec2 after_heading = ImGui::GetCursorScreenPos();
-    const float s = ImGui::GetTextLineHeight();
-    ImGui::SetCursorScreenPos(ImVec2(heading_min.x + heading_w - s, heading_min.y + ImGui::GetStyle().ItemSpacing.y +
-                                                                        (ImGui::GetFrameHeight() - s) * 0.5f));
-    if (theme::CloseButton("##close_inspector")) {
-        g_build.inspected.reset();
-        g_build.inspected_building = nullptr;
+// Whether the inspector window has a settings column for `b`: the bridge
+// (its requests), a machine, a collector, or anything with a filter.
+bool HasSettings(const Building& b) {
+    if (dynamic_cast<const Bridge*>(&b) || dynamic_cast<const Machine*>(&b) || dynamic_cast<const Collector*>(&b))
+        return true;
+    const std::optional<BuildingSettings> settings = SettingsOf(b);
+    return settings && settings->has_filter;
+}
+
+// The inspector window's settings column (HasSettings): for the bridge, its
+// item requests; for a machine, the recipe picker; for a collector, what it
+// gathers (for both, whether they run only on request); for a sorter or an
+// unloader, the filter picker.
+void DrawSettings(Ship& ship, const Building& b) {
+    if (dynamic_cast<const Bridge*>(&b)) {
+        DrawRequests(ship.get_bridge());
         return;
     }
-    ImGui::SetItemTooltip("Close (Esc)");
-    ImGui::SetCursorScreenPos(after_heading);
+    ImGui::SeparatorText("Settings");
     // Whatever is picked below is what new ones of its kind start with.
     const auto remember = [&] {
         if (const Building* changed = ship.building_at(*g_build.inspected))
             if (const std::optional<BuildingSettings> settings = SettingsOf(*changed))
                 RememberSettings(*settings);
     };
-    BuildingDetails(*b, false);
-    if (dynamic_cast<const Bridge*>(b))
-        DrawRequests(ship.get_bridge());
-    if (const auto* machine = dynamic_cast<const Machine*>(b)) {
+    if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
         const Progress& progress = ship.get_bridge().get_progress();
         const Recipe* current = machine->get_recipe();
-        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::TextColored(theme::kTextDim, "Recipe");
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (BeginIconCombo("##recipe", current ? RecipeIcon(*current) : Icon{},
                            current ? recipe_name(*current) : "Pick a recipe")) {
             BeginComboSearch();
@@ -546,10 +545,12 @@ void DrawInspector(Ship& ship) {
             ImGui::EndCombo();
         }
         ImGui::TextColored(theme::kTextDim, "Changing it returns held ingredients to the bridge.");
+        ImGui::Spacing();
     }
-    if (const auto* collector = dynamic_cast<const Collector*>(b)) {
+    if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         const ItemKind current = collector->get_target();
-        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::TextColored(theme::kTextDim, "Gathers");
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (BeginIconCombo("##target", ItemIcon(current), item_name(current))) {
             BeginComboSearch();
             for (const ItemKind kind : collector->get_spec().targets) {
@@ -565,13 +566,13 @@ void DrawInspector(Ship& ship) {
             EndComboSearch();
             ImGui::EndCombo();
         }
+        ImGui::Spacing();
     }
-    DrawOnRequest(ship, *b);
-    if (dynamic_cast<const Unloader*>(b) && !ship.unload_source(*g_build.inspected))
-        ImGui::TextColored(theme::kWarnText, "Nothing to unload: put the bridge or\na cargo hold behind it");
-    if (const std::optional<BuildingSettings> settings = SettingsOf(*b); settings && settings->has_filter) {
+    DrawOnRequest(ship, b);
+    if (const std::optional<BuildingSettings> settings = SettingsOf(b); settings && settings->has_filter) {
         const std::optional<ItemKind> current = settings->filter;
-        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::TextColored(theme::kTextDim, "Filter");
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (BeginIconCombo("##filter", current ? ItemIcon(*current) : Icon{},
                            current ? item_name(*current) : "Pick a filter")) {
             BeginComboSearch();
@@ -587,7 +588,100 @@ void DrawInspector(Ship& ship) {
             ImGui::EndCombo();
         }
     }
+    if (dynamic_cast<const Unloader*>(&b) && !ship.unload_source(*g_build.inspected))
+        ImGui::TextColored(theme::kWarnText, "Nothing to unload: put the bridge or a cargo hold behind it");
 }
+
+// The top of the inspector window: a sunk strip with an amber stripe down
+// its left edge, the building's picture, and beside it its name, its health
+// and which way it faces.
+void DrawInspectorHeader(const Building& b) {
+    const std::optional<ItemKind> kind = b.item_kind();
+    const float fh = ImGui::GetFrameHeight();
+    const float pad = ImGui::GetStyle().WindowPadding.y;
+    const float stripe = std::max(3.0f, fh * 0.15f);
+    const float picture = fh * 2.6f;
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    // The strip goes behind what's on it, whose height it takes: draw that
+    // first, on top, then the strip under it.
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->ChannelsSplit(2);
+    draw->ChannelsSetCurrent(1);
+    const ImVec2 picture_min(min.x + stripe + pad, min.y + pad);
+    ImGui::SetCursorScreenPos(picture_min);
+    ImGui::Dummy(ImVec2(picture, picture));
+    DrawIcon(draw, BuildingIcon(b), picture_min, ImVec2(picture_min.x + picture, picture_min.y + picture));
+    ImGui::SameLine(0.0f, pad);
+    ImGui::BeginGroup();
+    ImGui::PushFont(nullptr, theme::kFontTitle);
+    ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
+    ImGui::PopFont();
+    const std::string health = "Health " + Fraction(b.get_hp(), b.max_hp());
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, b.damaged() ? theme::kBad : theme::kGood);
+    ImGui::ProgressBar(static_cast<float>(b.get_hp()) / static_cast<float>(std::max(1, b.max_hp())),
+                       ImVec2(min.x + width - pad - ImGui::GetCursorScreenPos().x, 0.0f), health.c_str());
+    ImGui::PopStyleColor();
+    if (b.rotatable())
+        ImGui::TextColored(theme::kTextDim, "Facing %s", DirectionName(b.facing()));
+    ImGui::EndGroup();
+    const ImVec2 max(min.x + width, std::max(picture_min.y + picture, ImGui::GetItemRectMax().y) + pad);
+    draw->ChannelsSetCurrent(0);
+    draw->AddRectFilled(min, max, theme::U32(theme::kInset));
+    draw->AddRect(min, max, theme::U32(theme::kBevelDark));
+    draw->AddRectFilled(min, ImVec2(min.x + stripe, max.y), theme::U32(theme::kAccent));
+    draw->ChannelsMerge();
+    ImGui::SetCursorScreenPos(min);
+    ImGui::Dummy(ImVec2(width, max.y - min.y));
+}
+
+}  // namespace
+
+void DrawInspectorWindow(Ship& ship) {
+    const Building* b = InspectedBuilding(ship);
+    if (!b)
+        return;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float fh = ImGui::GetFrameHeight();
+    // In the middle of the screen the first time it opens; after that, where
+    // it was last moved to and at the size it was last resized to (ImGui
+    // keeps both, in imgui.ini too), up to most of the screen; what doesn't
+    // fit scrolls.
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fh * 32.0f, fh * 20.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(fh * 22.0f, fh * 8.0f),
+                                        ImVec2(viewport->WorkSize.x * 0.9f, viewport->WorkSize.y * 0.8f));
+    bool open = true;
+    const bool shown = ImGui::Begin("Inspect###inspector", &open, ImGuiWindowFlags_NoCollapse);
+    if (!open) {
+        g_build.inspected.reset();
+        g_build.inspected_building = nullptr;
+    }
+    if (!shown || !open) {
+        ImGui::End();
+        return;
+    }
+    ImGui::PushTextWrapPos(0.0f);
+    DrawInspectorHeader(*b);
+    // What it's doing on the left and what can be set on the right, or just
+    // what it's doing, across the window, when nothing can be.
+    if (HasSettings(*b) &&
+        ImGui::BeginTable("##inspector", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        ImGui::SeparatorText("Status");
+        BuildingDetails(*b, false);
+        ImGui::TableNextColumn();
+        DrawSettings(ship, *b);
+        ImGui::EndTable();
+    } else {
+        ImGui::SeparatorText("Status");
+        BuildingDetails(*b, false);
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::End();
+}
+
+namespace {
 
 // The milestone being worked on: what to deliver, how much has been, and
 // what it unlocks.
@@ -631,10 +725,6 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
 
     ImGui::BeginChild("##craft_panel", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     Bridge& bridge = ship.get_bridge();
-    // The inspector first, so a click on the grid shows up where it's seen.
-    ImGui::PushTextWrapPos(0.0f);
-    DrawInspector(ship);
-    ImGui::PopTextWrapPos();
     DrawMilestone(bridge.get_progress());
     ImGui::PushTextWrapPos(0.0f);
     DrawFleetSection(world, current);
