@@ -1,0 +1,26 @@
+# Builds the game and runs the headless tests (make test) on every push.
+name: Tests
+
+on:
+  push:
+  workflow_dispatch:   # also allows a manual run from the Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true   # imgui and implot, needed for the app build
+
+      # The same packages Makefile.linux lists for Debian/Ubuntu.
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libsdl2-dev libgl-dev
+
+      - name: Run tests
+        run: make -j"$(nproc)" test
+
+      # Also build the app, so a compile error in src/ui/ or src/app/
+      # (which the tests don't link) fails the run too.
+      - name: Build app
+        run: make -j"$(nproc)"
