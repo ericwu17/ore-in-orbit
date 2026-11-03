@@ -70,6 +70,16 @@ into whatever they point at, the bridge included. Machines craft the recipe
 the player picks for them, and collectors gather what the player aims them
 at (click one on the grid).
 
+The bridge keeps item requests (click it on the grid): how many of an item
+to keep in its inventory. Any machine or collector can be set to run only
+while the bridge requests what it makes (a collector's target, a machine's
+recipe's product): while the bridge has fewer than it asks for, it runs, and
+once it has them it goes on standby (dimmed on the grid), finishing the craft
+under way but starting no other; with nothing requested, it stays off. It
+still takes ingredients and hands on what it made. Only the bridge's own
+inventory counts, not cargo holds or what's on the belts. It's off unless
+set: new machines and collectors always run.
+
 The belt blocks work as in Mindustry too: filter sorters route items by kind
 (the one picked for it goes straight through, the rest turn left or right),
 and reverse sorters the other way round (the one picked turns, the rest go
@@ -171,12 +181,15 @@ and their tooltips and the inspector say they do nothing (`is_unfinished` in
   would link to.
 - **Left click a building**: inspect it (at the top of the right panel);
   pick a machine's recipe, a collector's target or a sorter's or
-  unloader's item. New machines, collectors, sorters and unloaders start
-  with the settings last picked for their kind.
+  unloader's item, and whether a machine or collector runs only while the
+  bridge requests it. Inspecting the bridge lists its item requests, to
+  change, remove or add to. New machines, collectors, sorters and unloaders
+  start with the settings last picked for their kind (but always run, not
+  only on request).
 - **Right click / drag**: remove buildings and refund them (not the bridge
   or the engines, which are part of the ship's layout).
 - **Shift + right click a building**: copy its settings (recipe, target or
-  filter). **Shift + left click / drag**: paste them onto each building
+  filter, and running only on request). **Shift + left click / drag**: paste them onto each building
   that can take them.
 - **Right click an item in the build palette**, or click it under Hand-craft
   in the right panel: hand-craft one (Shift: 5).
@@ -211,7 +224,8 @@ and their tooltips and the inspector say they do nothing (`is_unfinished` in
 Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
 and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
 A copy holds the buildings in the box with their settings — machine
-recipes, collector targets and sorter and unloader filters — but never the
+recipes, collector targets, sorter and unloader filters and whether machines
+and collectors run only on request — but never the
 items in them, nor the hull (the ship's layout fixes that). A building
 partly inside the box comes whole; the bridge and the engines never come. R
 turns a copy while pasting.
@@ -284,7 +298,8 @@ One directory per layer under `src/`; includes name their layer
     `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory
     holds) with each item's name and id (`items.cpp`).
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
-    `Collector`, `Conveyor`, `Machine`, ...), each kind's footprint
+    `Collector`, `Conveyor`, `Machine`, ...), the bridge's item requests
+    and running only on them (`product_of`), each kind's footprint
     (`footprint_of`, e.g. 2x2 collectors), the collectors' rates and buffers
     (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), unloaders and the
     storage they take from, machines and which recipes they run, the

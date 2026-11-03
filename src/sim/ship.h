@@ -228,8 +228,13 @@ public:
     // Aims the collector at `p` at `target`; false if there's no collector
     // there or it can't gather that.
     bool set_collector_target(GridPos p, ItemKind target);
+    // Sets whether the collector or machine at `p` runs only while the
+    // bridge requests its product; false if there's neither there.
+    bool set_only_when_requested(GridPos p, bool on);
 
-    // One simulation step: every building ticks (gathering, crafting, belts
+    // One simulation step: collectors and machines set to run only on
+    // request go on standby (or off it) by the bridge's requests as they
+    // stand, every building ticks (gathering, crafting, belts
     // moving), then junctions and routers pass on what's ready, then each
     // belt's front item goes to what it points at (a tunnel's, to its exit),
     // then each building puts one item of output out to a neighbor, and

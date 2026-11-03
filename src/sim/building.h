@@ -3,8 +3,9 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 //   Building (abstract)
-//   ├── Bridge       the ship's command center; owns the inventory, follows
-//   │                the fleet's milestone progress, hand-crafts
+//   ├── Bridge       the ship's command center; owns the inventory and the
+//   │                item requests, follows the fleet's milestone progress,
+//   │                hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts
 //   │   └── Tunnel   the belt tunnel: two of them carry items underground
@@ -32,6 +33,11 @@
 // through accepts() / receive() and offers what it makes from its
 // output_buffer(); the Ship moves them between neighbors each tick (see
 // Ship::tick).
+//
+// The bridge's item requests say how many of an item the player wants kept
+// in its inventory. A collector or machine set to run only while the bridge
+// requests its product (product_of) is on standby while that request is met,
+// or there is none; the Ship sets it each tick.
 #pragma once
 
 #include "sim/game_types.h"
@@ -145,6 +151,9 @@ struct CraftJob {
     Tick elapsed = 0;
 };
 
+// The most of one item the bridge can be asked to keep.
+constexpr int kMaxRequest = 1'000'000;
+
 // The bridge's footprint is kBridgeSize square.
 constexpr int kBridgeSize = 6;
 
@@ -156,6 +165,9 @@ private:
 
     Inventory inventory;
     std::deque<CraftJob> queue;  // front is in progress
+    // How many of each item the player wants kept in the inventory, in the
+    // order they were asked for; at most one per kind (a count may be 0).
+    std::vector<ItemStack> requests;
     // The milestones are the fleet's: every ship's bridge shares one
     // Progress (see Fleet), and deliveries to any of them count. A bridge
     // on its own (a lone Ship) has one of its own.
@@ -192,6 +204,17 @@ public:
     // Drops queued job `index`, refunding its inputs; false if there is none.
     bool cancel_craft(std::size_t index);
     const std::deque<CraftJob>& craft_queue() const { return queue; }
+
+    // Item requests (see the top of this file).
+    const std::vector<ItemStack>& get_requests() const { return requests; }
+    // The count asked for of `kind`, if any.
+    std::optional<int> request_for(ItemKind kind) const;
+    // Asks for `count` (0 to kMaxRequest) of `kind`, or changes the count already
+    // asked for.
+    void set_request(ItemKind kind, int count);
+    void remove_request(ItemKind kind);
+    // Whether `kind` is asked for and the inventory holds fewer.
+    bool request_unmet(ItemKind kind) const;
 };
 
 // How a collector gathers: one catch every `interval` ticks into its
@@ -219,6 +242,8 @@ private:
     Inventory caught;   // raw resources
     ItemKind target;    // what it catches, one of spec->targets
     int yield = 100;    // of `target` where the ship is: % of the home sector's
+    bool only_when_requested = false;
+    bool standby = false;  // kept by the Ship (not saved)
 
 public:
     explicit Collector(ItemKind k);
@@ -230,7 +255,15 @@ public:
     // Aims it at `kind`, which can_target() must allow. What it already
     // caught stays in the buffer.
     void set_target(ItemKind kind);
-    // Gathers at the yield last set, unless the buffer is full.
+    // Whether it runs only while the bridge requests its target (see the
+    // top of this file); new ones always run.
+    bool get_only_when_requested() const { return only_when_requested; }
+    void set_only_when_requested(bool on) { only_when_requested = on; }
+    // On standby, it gathers nothing (its buffer still empties).
+    bool on_standby() const { return standby; }
+    void set_standby(bool on) { standby = on; }
+    // Gathers at the yield last set, unless the buffer is full or it's on
+    // standby.
     void tick() override;
     // The yield of its target where the ship is (see Ship::set_yields): it
     // gathers that many % as fast as at home; 0 stalls it.
@@ -513,6 +546,8 @@ private:
     Inventory input;
     Inventory output;
     std::optional<Tick> work;  // while crafting: progress, in ticks at speed 1
+    bool only_when_requested = false;
+    bool standby = false;  // kept by the Ship (not saved)
 
     bool can_start() const;
 
@@ -531,6 +566,15 @@ public:
     // already made stay in the output buffer.
     std::vector<ItemStack> set_recipe(const Recipe* r);
 
+    // Whether it runs only while the bridge requests its recipe's product
+    // (see the top of this file); new ones always run.
+    bool get_only_when_requested() const { return only_when_requested; }
+    void set_only_when_requested(bool on) { only_when_requested = on; }
+    // On standby, it finishes the craft under way but starts no other (it
+    // still takes ingredients, and its products still go out).
+    bool on_standby() const { return standby; }
+    void set_standby(bool on) { standby = on; }
+
     void tick() override;
     std::vector<ItemStack> contents() const override;
     bool accepts(ItemKind kind) const override;
@@ -545,6 +589,11 @@ public:
     // Crafts per minute while kept supplied (0 without a recipe).
     double crafts_per_minute() const;
 };
+
+// What a production building makes: a collector's target, or the main
+// output of a machine's recipe; nullopt for anything else (or a machine with
+// no recipe).
+std::optional<ItemKind> product_of(const Building& b);
 
 // The recipes a machine of this kind can run, in all_recipes() order.
 std::vector<const Recipe*> machine_recipes(ItemKind kind);

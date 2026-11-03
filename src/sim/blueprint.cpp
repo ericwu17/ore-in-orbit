@@ -57,10 +57,14 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
         copy.kind = *t.building->item_kind();
         copy.offset = {t.at.x - min.x, t.at.y - min.y};
         copy.facing = t.building->facing();
-        if (const auto* machine = dynamic_cast<const Machine*>(t.building))
+        if (const auto* machine = dynamic_cast<const Machine*>(t.building)) {
             copy.recipe = machine->get_recipe();
-        if (const auto* collector = dynamic_cast<const Collector*>(t.building))
+            copy.only_when_requested = machine->get_only_when_requested();
+        }
+        if (const auto* collector = dynamic_cast<const Collector*>(t.building)) {
             copy.target = collector->get_target();
+            copy.only_when_requested = collector->get_only_when_requested();
+        }
         if (const auto* sorter = dynamic_cast<const Sorter*>(t.building))
             copy.filter = sorter->get_filter();
         if (const auto* unloader = dynamic_cast<const Unloader*>(t.building))
@@ -171,6 +175,8 @@ PasteResult paste(Ship& ship, const Blueprint& blueprint, GridPos origin) {
             ship.set_collector_target(entry.at, *b.target);
         if (b.filter)
             ship.set_filter(entry.at, *b.filter);
+        if (b.only_when_requested)
+            ship.set_only_when_requested(entry.at, true);
     }
     result.pasted = true;
     return result;

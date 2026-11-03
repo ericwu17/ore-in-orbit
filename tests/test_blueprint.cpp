@@ -68,7 +68,8 @@ const Recipe* const kFurnaceRecipe = machine_recipe(ItemKind::SolarFurnace, true
 //
 //   A A v R R R      A  asteroid collector (aimed at silica), 2x2
 //   A A v R R R      v  belts facing south (one carrying an item)
-//   . F F R R R      F  solar furnace (with a recipe), 2x2
+//   . F F R R R      F  solar furnace (with a recipe, running only on
+//                       request), 2x2
 //   S F F . . .      R  refinery, 3x3
 //                    S  filter sorter (filtering iron ore)
 void build_patch(Ship& ship) {
@@ -79,6 +80,7 @@ void build_patch(Ship& ship) {
     assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::IronOre));
     assert(ship.place(ItemKind::SolarFurnace, {x0 + 1, c + 2}) == BuildResult::Ok);
     assert(ship.set_recipe({x0 + 1, c + 2}, kFurnaceRecipe));
+    assert(ship.set_only_when_requested({x0 + 1, c + 2}, true));
     assert(ship.place(ItemKind::Refinery, {x0 + 3, c}) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0, c + 3}) == BuildResult::Ok);
     assert(ship.set_filter({x0, c + 3}, ItemKind::IronOre));
@@ -103,9 +105,11 @@ void test_copy() {
     assert(bp->buildings[0].kind == ItemKind::AsteroidCollector && bp->buildings[5].kind == ItemKind::FilterSorter);
     const BlueprintBuilding* collector = find(*bp, ItemKind::AsteroidCollector);
     assert(collector->offset == (GridPos{0, 0}) && collector->target == ItemKind::Silica && !collector->recipe);
+    assert(!collector->only_when_requested);
     const BlueprintBuilding* belt = find(*bp, ItemKind::TransportBelt);
     assert(belt->offset == (GridPos{2, 0}) && belt->facing == Direction::South);
     assert(find(*bp, ItemKind::SolarFurnace)->recipe == kFurnaceRecipe);
+    assert(find(*bp, ItemKind::SolarFurnace)->only_when_requested);
     assert(find(*bp, ItemKind::Refinery)->offset == (GridPos{3, 0}) && !find(*bp, ItemKind::Refinery)->recipe);
     const BlueprintBuilding* sorter = find(*bp, ItemKind::FilterSorter);
     assert(sorter->offset == (GridPos{0, 3}) && sorter->filter == ItemKind::IronOre);
@@ -201,6 +205,22 @@ void test_paste_settings() {
     assert(locked.pasted && locked.settings_skipped == 1);
     const auto* placed = dynamic_cast<const Machine*>(ship.building_anchored_at({x0 + 5, c}));
     assert(placed && !placed->get_recipe());
+
+    // Running only on request comes with it; the rest run as new ones do.
+    Blueprint pair;
+    pair.size = {4, 2};
+    BlueprintBuilding on_request;
+    on_request.kind = ItemKind::AsteroidCollector;
+    on_request.target = ItemKind::Carbon;
+    on_request.only_when_requested = true;
+    pair.buildings.push_back(on_request);
+    BlueprintBuilding always = on_request;
+    always.offset = {2, 0};
+    always.only_when_requested = false;
+    pair.buildings.push_back(always);
+    assert(paste(ship, pair, {x0, c + 4}).pasted);
+    assert(dynamic_cast<const Collector&>(*ship.building_anchored_at({x0, c + 4})).get_only_when_requested());
+    assert(!dynamic_cast<const Collector&>(*ship.building_anchored_at({x0 + 2, c + 4})).get_only_when_requested());
 }
 
 void test_rotate() {
@@ -334,6 +354,12 @@ void test_strings() {
     refused(changed(full, [](Json& j) { j["buildings"][1]["target"] = "IronOre"; }));
     refused(changed(full, [](Json& j) { j["buildings"][1]["filter"] = "IronOre"; }));
     refused(changed(full, [](Json& j) { j["buildings"][1]["recipe"] = "Gear"; }));
+    refused(changed(full, [](Json& j) { j["buildings"][1]["only_when_requested"] = true; }));  // a belt
+    refused(changed(full, [](Json& j) {
+        for (Json& b : j["buildings"])
+            if (b["kind"] == "SolarFurnace")
+                b["only_when_requested"] = 1;
+    }));
     refused(changed(full, [](Json& j) {
         for (Json& b : j["buildings"])
             if (b["kind"] == "SolarFurnace")

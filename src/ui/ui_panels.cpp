@@ -401,6 +401,11 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : hold->get_stored().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
+    const auto* producer_collector = dynamic_cast<const Collector*>(&b);
+    const auto* producer_machine = dynamic_cast<const Machine*>(&b);
+    if ((producer_collector && producer_collector->on_standby()) ||
+        (producer_machine && producer_machine->on_standby()))
+        ImGui::TextColored(theme::kTextDim, "On standby: the bridge has what it requests");
     if (!kind)
         ImGui::TextColored(theme::kTextDim, "Belts deliver into its inventory");
     if (b.rotatable())
@@ -409,9 +414,83 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
 
 namespace {
 
+// What a new request asks for.
+constexpr int kNewRequest = 100;
+
+// The bridge's item requests, in its inspector: one row per item asked for,
+// with its count to change, and a picker to ask for another.
+void DrawRequests(Bridge& bridge) {
+    ImGui::SeparatorText("Requests");
+    ImGui::TextColored(theme::kTextDim,
+                       "How many of each item to keep in the bridge. Machines and collectors set to run only on "
+                       "request stop once it has them.");
+    // A copy: a row can remove its request.
+    const std::vector<ItemStack> requests = bridge.get_requests();
+    if (requests.empty())
+        ImGui::TextColored(theme::kTextDim, "None");
+    for (const ItemStack& r : requests) {
+        ImGui::PushID(static_cast<int>(r.kind));
+        ImGui::AlignTextToFramePadding();
+        IconImage(ItemIcon(r.kind), ImGui::GetFrameHeight());
+        ImGui::SetItemTooltip("%s", item_name(r.kind));
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        int count = r.count;
+        ImGui::SetNextItemWidth(ImGui::GetFrameHeight() * 5.0f);
+        if (ImGui::InputInt("##count", &count, 1, 10))
+            bridge.set_request(r.kind, std::clamp(count, 0, kMaxRequest));
+        ImGui::SetItemTooltip("How many %s to keep in the bridge", item_name(r.kind));
+        const int have = bridge.get_inventory().count(r.kind);
+        ImGui::SameLine();
+        ImGui::TextColored(have >= r.count ? theme::kGood : theme::kTextDim, "have %s", ShortCount(have).c_str());
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+        if (theme::CloseButton("##remove"))
+            bridge.remove_request(r.kind);
+        ImGui::SetItemTooltip("Stop requesting %s", item_name(r.kind));
+        ImGui::PopID();
+    }
+    ImGui::SetNextItemWidth(-1.0f);
+    if (BeginIconCombo("##add_request", Icon{}, "Request an item")) {
+        BeginComboSearch();
+        if (const std::optional<ItemKind> picked = ComboSearchItemOptions(std::nullopt))
+            if (!bridge.request_for(*picked))
+                bridge.set_request(*picked, kNewRequest);
+        EndComboSearch();
+        ImGui::EndCombo();
+    }
+}
+
+// For a machine or collector, in its inspector: whether it runs only while
+// the bridge requests what it makes, and how that request stands. Not one
+// of the settings new ones start with: they always run.
+void DrawOnRequest(Ship& ship, const Building& b) {
+    const auto* collector = dynamic_cast<const Collector*>(&b);
+    const auto* machine = dynamic_cast<const Machine*>(&b);
+    if (!collector && !machine)
+        return;
+    bool on = collector ? collector->get_only_when_requested() : machine->get_only_when_requested();
+    if (ImGui::Checkbox("Only while the bridge requests it", &on))
+        ship.set_only_when_requested(*g_build.inspected, on);
+    ImGui::SetItemTooltip("Runs only while the bridge has fewer of what it makes than\nit requests (click the bridge to request items)");
+    const std::optional<ItemKind> product = product_of(b);
+    if (!on || !product)
+        return;
+    const Bridge& bridge = ship.get_bridge();
+    const std::optional<int> wanted = bridge.request_for(*product);
+    if (!wanted) {
+        ImGui::TextColored(theme::kWarnText, "The bridge requests no %s: it stays off (click the bridge to request some)",
+                           item_name(*product));
+        return;
+    }
+    const int have = bridge.get_inventory().count(*product);
+    AmountLine(ItemIcon(*product), Fraction(have, *wanted), have >= *wanted ? theme::kGood : theme::kText, false,
+               have >= *wanted ? "  in the bridge: on standby" : "  in the bridge: running");
+}
+
 // The inspected building (clicked on the grid): its details, and for a
-// machine, the recipe picker; for a collector, what it gathers; for a
-// sorter or an unloader, the filter picker.
+// machine, the recipe picker; for a collector, what it gathers (for both,
+// whether they run only on request); for a sorter or an unloader, the filter
+// picker; for the bridge, its item requests.
 void DrawInspector(Ship& ship) {
     const Building* b = InspectedBuilding(ship);
     if (!b)
@@ -438,6 +517,8 @@ void DrawInspector(Ship& ship) {
                 RememberSettings(*settings);
     };
     BuildingDetails(*b, false);
+    if (dynamic_cast<const Bridge*>(b))
+        DrawRequests(ship.get_bridge());
     if (const auto* machine = dynamic_cast<const Machine*>(b)) {
         const Progress& progress = ship.get_bridge().get_progress();
         const Recipe* current = machine->get_recipe();
@@ -489,6 +570,7 @@ void DrawInspector(Ship& ship) {
             ImGui::EndCombo();
         }
     }
+    DrawOnRequest(ship, *b);
     if (dynamic_cast<const Unloader*>(b) && !ship.unload_source(*g_build.inspected))
         ImGui::TextColored(theme::kWarnText, "Nothing to unload: put the bridge or\na cargo hold behind it");
     if (const std::optional<BuildingSettings> settings = SettingsOf(*b); settings && settings->has_filter) {

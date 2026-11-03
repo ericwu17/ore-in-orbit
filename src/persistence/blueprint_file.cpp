@@ -42,6 +42,8 @@ Json save_blueprint(const Blueprint& blueprint) {
             j["target"] = item_id(*b.target);
         if (b.filter)
             j["filter"] = item_id(*b.filter);
+        if (b.only_when_requested)
+            j["only_when_requested"] = true;
         buildings.push_back(std::move(j));
     }
     return {
@@ -101,6 +103,11 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
         if (!dynamic_cast<const Sorter*>(building.get()) && !dynamic_cast<const Unloader*>(building.get()))
             throw LoadError(std::string(item_id(kind)) + " has no filter");
         b.filter = load_optional_item(*filter);
+    }
+    if (const auto on = j.find("only_when_requested"); on != j.end()) {
+        if (!dynamic_cast<const Collector*>(building.get()) && !dynamic_cast<const Machine*>(building.get()))
+            throw LoadError(std::string(item_id(kind)) + " doesn't run on request");
+        b.only_when_requested = on->get<bool>();
     }
     blueprint.buildings.push_back(b);
 }

@@ -33,7 +33,8 @@
 // The version write_save() writes; read_save() reads only this one. Bump it
 // when the format changes (or an item or recipe is renamed or removed, or a
 // building's footprint or a ship layout changes, which can leave saved ones
-// overlapping or off their hull).
+// overlapping or off their hull). A new key whose absence means what older
+// saves meant (none, off) can be optional instead, read with that default.
 constexpr int kSaveVersion = 9;
 
 // What the save list shows about a save, read without loading the World.

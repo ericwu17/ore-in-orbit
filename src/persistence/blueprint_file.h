@@ -9,8 +9,9 @@
 //    "buildings":[{"kind":"TransportBelt","x":0,"y":0,"facing":"East"},
 //                 {"kind":"SolarFurnace","x":2,"y":0,"facing":"North","recipe":"Iron plate"}]}
 //
-// Buildings carry "recipe" (machines), "target" (collectors) and "filter"
-// (sorters, unloaders) when set. Items, directions and recipes are written
+// Buildings carry "recipe" (machines), "target" (collectors), "filter"
+// (sorters, unloaders) and "only_when_requested" (machines, collectors: true,
+// running only on the bridge's request) when set. Items, directions and recipes are written
 // by name, as saves write them (persistence/json_io.h). Reading checks
 // everything a paste relies on, and refuses a bad string with a reason,
 // never an assert.

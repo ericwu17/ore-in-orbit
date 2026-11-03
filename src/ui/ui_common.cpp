@@ -109,11 +109,13 @@ std::optional<BuildingSettings> SettingsOf(const Building& b) {
         return std::nullopt;
     BuildingSettings s;
     s.kind = *kind;
-    if (const auto* machine = dynamic_cast<const Machine*>(&b))
+    if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
         s.recipe = machine->get_recipe();
-    else if (const auto* collector = dynamic_cast<const Collector*>(&b))
+        s.only_when_requested = machine->get_only_when_requested();
+    } else if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         s.target = collector->get_target();
-    else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
+        s.only_when_requested = collector->get_only_when_requested();
+    } else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
         s.filter = sorter->get_filter();
         s.has_filter = true;
     } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
@@ -125,7 +127,11 @@ std::optional<BuildingSettings> SettingsOf(const Building& b) {
 }
 
 void RememberSettings(const BuildingSettings& s) {
-    g_settings.last[static_cast<int>(s.kind)] = s;
+    // New ones always run, whatever the request: running only on request
+    // is copied and pasted, but never what new ones start with.
+    BuildingSettings remembered = s;
+    remembered.only_when_requested = false;
+    g_settings.last[static_cast<int>(s.kind)] = remembered;
 }
 
 bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
@@ -133,15 +139,26 @@ bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
     const std::optional<BuildingSettings> now = b ? SettingsOf(*b) : std::nullopt;
     if (!now)
         return false;
-    if (dynamic_cast<const Machine*>(b))
-        return s.recipe && s.recipe != now->recipe && ship.set_recipe(p, s.recipe);
-    if (dynamic_cast<const Collector*>(b))
-        return s.target && s.target != now->target && ship.set_collector_target(p, *s.target);
-    return s.has_filter && s.filter != now->filter && ship.set_filter(p, s.filter);
+    const bool machine = dynamic_cast<const Machine*>(b) != nullptr;
+    const bool collector = dynamic_cast<const Collector*>(b) != nullptr;
+    if (!machine && !collector)
+        return s.has_filter && s.filter != now->filter && ship.set_filter(p, s.filter);
+    bool changed = false;
+    if (machine)
+        changed = s.recipe && s.recipe != now->recipe && ship.set_recipe(p, s.recipe);
+    else
+        changed = s.target && s.target != now->target && ship.set_collector_target(p, *s.target);
+    // Running only on request, from the same family only (a collector's
+    // settings always have a target, a machine's never).
+    const bool same_family = machine ? !s.target && !s.has_filter : s.target.has_value();
+    if (same_family && s.only_when_requested != now->only_when_requested)
+        changed = ship.set_only_when_requested(p, s.only_when_requested) || changed;
+    return changed;
 }
 
 bool SameSettings(const BuildingSettings& a, const BuildingSettings& b) {
-    return a.recipe == b.recipe && a.target == b.target && a.filter == b.filter;
+    return a.recipe == b.recipe && a.target == b.target && a.filter == b.filter &&
+           a.only_when_requested == b.only_when_requested;
 }
 
 const char* SettingsName(const BuildingSettings& s) {

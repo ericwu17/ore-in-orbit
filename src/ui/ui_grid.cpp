@@ -361,7 +361,9 @@ void SettingsDrag(Ship& ship, GridPos cell) {
         }
         g_settings.copied = here;
         const char* name = SettingsName(*here);
-        SetMessage(std::string("Settings copied: ") + (name ? name : "none"), theme::kGood);
+        SetMessage(std::string("Settings copied: ") + (name ? name : "none") +
+                       (here->only_when_requested ? ", only on request" : ""),
+                   theme::kGood);
         return;
     }
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
@@ -513,17 +515,23 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 // An engine knocked offline, dimmed till it mends.
                 const auto* thruster = dynamic_cast<const Thruster*>(b);
                 const auto* tunnel = dynamic_cast<const Tunnel*>(b);
-                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(),
-                             thruster && thruster->offline() ? 0.4f : 1.0f, tunnel && tunnel->is_exit());
+                // A machine or collector on standby (the bridge has what it
+                // requests), dimmed less.
+                const auto* collector = dynamic_cast<const Collector*>(b);
+                const auto* machine = dynamic_cast<const Machine*>(b);
+                const bool standby = (collector && collector->on_standby()) || (machine && machine->on_standby());
+                const float alpha = thruster && thruster->offline() ? 0.4f : standby ? 0.55f : 1.0f;
+                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), alpha,
+                             tunnel && tunnel->is_exit());
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 // A tunnel with nowhere to send its items, an unloader with
                 // nothing to take them from.
                 const auto* unloader = dynamic_cast<const Unloader*>(b);
                 if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
-                if (const auto* collector = dynamic_cast<const Collector*>(b))
+                if (collector)
                     DrawCollectorStatus(draw, *collector, min, max, cell);
-                if (const auto* machine = dynamic_cast<const Machine*>(b))
+                if (machine)
                     DrawMachineStatus(draw, *machine, min, max, cell);
                 if (const auto* sorter = dynamic_cast<const Sorter*>(b))
                     DrawFilterIcon(draw, sorter->get_filter(), min, cell);

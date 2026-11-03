@@ -216,6 +216,29 @@ bool Bridge::cancel_craft(std::size_t index) {
     return true;
 }
 
+std::optional<int> Bridge::request_for(ItemKind kind) const {
+    const auto it = std::find_if(requests.begin(), requests.end(), [&](const ItemStack& r) { return r.kind == kind; });
+    return it == requests.end() ? std::nullopt : std::optional<int>(it->count);
+}
+
+void Bridge::set_request(ItemKind kind, int count) {
+    assert(count >= 0 && count <= kMaxRequest);
+    const auto it = std::find_if(requests.begin(), requests.end(), [&](const ItemStack& r) { return r.kind == kind; });
+    if (it == requests.end())
+        requests.push_back({kind, count});
+    else
+        it->count = count;
+}
+
+void Bridge::remove_request(ItemKind kind) {
+    std::erase_if(requests, [&](const ItemStack& r) { return r.kind == kind; });
+}
+
+bool Bridge::request_unmet(ItemKind kind) const {
+    const std::optional<int> wanted = request_for(kind);
+    return wanted && inventory.count(kind) < *wanted;
+}
+
 void Bridge::tick() {
     if (queue.empty())
         return;
@@ -257,7 +280,7 @@ void Collector::set_target(ItemKind kind) {
 }
 
 void Collector::tick() {
-    if (full())
+    if (full() || standby)
         return;
     progress += static_cast<Tick>(yield);
     if (progress < spec->interval * 100)
@@ -482,7 +505,7 @@ std::vector<ItemStack> Machine::set_recipe(const Recipe* r) {
 }
 
 bool Machine::can_start() const {
-    if (!recipe || !input.has(recipe->inputs))
+    if (standby || !recipe || !input.has(recipe->inputs))
         return false;
     for (const ItemStack& s : recipe->outputs)
         if (output.count(s.kind) + s.count > s.count * kOutputCrafts)
@@ -532,6 +555,15 @@ double Machine::crafts_per_minute() const {
     if (!recipe)
         return 0.0;
     return 60.0 * static_cast<double>(kTicksPerSecond) * crafting_speed() / static_cast<double>(recipe->ticks);
+}
+
+std::optional<ItemKind> product_of(const Building& b) {
+    if (const auto* collector = dynamic_cast<const Collector*>(&b))
+        return collector->get_target();
+    if (const auto* machine = dynamic_cast<const Machine*>(&b))
+        if (const Recipe* recipe = machine->get_recipe())
+            return recipe->outputs.front().kind;
+    return std::nullopt;
 }
 
 std::vector<const Recipe*> machine_recipes(ItemKind kind) {

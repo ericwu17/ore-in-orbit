@@ -425,6 +425,17 @@ bool Ship::set_collector_target(GridPos p, ItemKind target) {
     return true;
 }
 
+bool Ship::set_only_when_requested(GridPos p, bool on) {
+    Building* b = building_at_mut(p);
+    if (auto* collector = dynamic_cast<Collector*>(b))
+        collector->set_only_when_requested(on);
+    else if (auto* machine = dynamic_cast<Machine*>(b))
+        machine->set_only_when_requested(on);
+    else
+        return false;
+    return true;
+}
+
 void Ship::pass_on(GridPos p, Building& b) {
     if (auto* junction = dynamic_cast<Junction*>(&b)) {
         for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
@@ -507,6 +518,17 @@ void Ship::unload(GridPos p, Unloader& unloader) {
 }
 
 void Ship::tick() {
+    for (const GridPos p : placed) {
+        Building& b = *at(buildings, p);
+        const auto standby = [&](bool only_when_requested) {
+            const std::optional<ItemKind> product = product_of(b);
+            return only_when_requested && !(product && bridge->request_unmet(*product));
+        };
+        if (auto* collector = dynamic_cast<Collector*>(&b))
+            collector->set_standby(standby(collector->get_only_when_requested()));
+        else if (auto* machine = dynamic_cast<Machine*>(&b))
+            machine->set_standby(standby(machine->get_only_when_requested()));
+    }
     for (const GridPos p : placed)
         at(buildings, p)->tick();
     for (const GridPos p : placed)

@@ -116,10 +116,21 @@ struct SaveAccess {
             for (const CraftJob& job : bridge->queue)
                 jobs.push_back({{"recipe", save_recipe(job.recipe)}, {"elapsed", job.elapsed}});
             j["queue"] = std::move(jobs);
+            // Item requests, in the order they were asked for; only when
+            // there are any.
+            if (!bridge->requests.empty()) {
+                Json requests = Json::array();
+                for (const ItemStack& r : bridge->requests)
+                    requests.push_back({{"item", item_id(r.kind)}, {"count", r.count}});
+                j["requests"] = std::move(requests);
+            }
         } else if (const auto* c = dynamic_cast<const Collector*>(&b)) {
             j["progress"] = c->progress;
             j["target"] = item_id(c->target);
             j["caught"] = save_inventory(c->caught);
+            // Running only on request, only when it does.
+            if (c->only_when_requested)
+                j["only_when_requested"] = true;
         } else if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
             Json items = Json::array();
             for (const BeltItem& item : belt->get_items())
@@ -161,6 +172,8 @@ struct SaveAccess {
             j["work"] = m->work ? Json(*m->work) : Json(nullptr);
             j["input"] = save_inventory(m->input);
             j["output"] = save_inventory(m->output);
+            if (m->only_when_requested)
+                j["only_when_requested"] = true;
         }
         // Power plants and survey scanners hold no state.
     }
@@ -202,6 +215,13 @@ struct SaveAccess {
         return progress;
     }
 
+    // Whether a machine or collector runs only on request: not, in saves
+    // from before it could.
+    static bool load_on_request(const Json& j) {
+        const auto on = j.find("only_when_requested");
+        return on != j.end() && on->get<bool>();
+    }
+
     // Reads a building's own state from `j` into the new building `b`. A
     // bridge already follows the fleet's progress (loaded first: the craft
     // queue may only hold unlocked recipes).
@@ -220,6 +240,16 @@ struct SaveAccess {
                 // recipe's ticks.
                 bridge->queue.push_back({recipe, load_progress(job.at("elapsed"), recipe->ticks)});
             }
+            // None in saves from before there were requests.
+            const auto requests = j.find("requests");
+            for (const Json& r : requests == j.end() ? Json::array() : load_array(*requests, "requests")) {
+                const ItemKind kind = load_item(r.at("item"));
+                if (is_layout_part(kind))
+                    throw LoadError(std::string("a request for ") + item_id(kind) + ", which only comes with a layout");
+                if (bridge->request_for(kind))
+                    throw LoadError(std::string("two requests for ") + item_id(kind));
+                bridge->requests.push_back({kind, static_cast<int>(load_int(r.at("count"), 0, kMaxRequest))});
+            }
         } else if (auto* c = dynamic_cast<Collector*>(&b)) {
             // A catch takes progress back down when it reaches the
             // interval (in hundredths of a tick).
@@ -229,6 +259,7 @@ struct SaveAccess {
                 throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(target));
             c->target = target;
             c->caught = load_inventory(j.at("caught"));
+            c->only_when_requested = load_on_request(j);
         } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
             for (const Json& item : load_array(j.at("items"), "belt items")) {
                 const ItemKind kind = load_item(item.at("item"));
@@ -284,6 +315,7 @@ struct SaveAccess {
             }
             m->input = load_inventory(j.at("input"));
             m->output = load_inventory(j.at("output"));
+            m->only_when_requested = load_on_request(j);
         }
     }
 

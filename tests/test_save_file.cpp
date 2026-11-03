@@ -351,6 +351,22 @@ void test_refused() {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Gear", "elapsed": 100000}])");
     });
     refused_after(save, "no craft queue", [](Json& j) { bridge(j).erase("queue"); });
+    refused_after(save, "requests that aren't a list", [](Json& j) { bridge(j)["requests"] = {{"Gear", 5}}; });
+    refused_after(save, "a request for an unknown item", [](Json& j) {
+        bridge(j)["requests"] = Json::parse(R"([{"item": "Unobtainium", "count": 5}])");
+    });
+    refused_after(save, "a negative request", [](Json& j) {
+        bridge(j)["requests"] = Json::parse(R"([{"item": "Gear", "count": -1}])");
+    });
+    refused_after(save, "an absurd request", [](Json& j) {
+        bridge(j)["requests"] = Json::array({{{"item", "Gear"}, {"count", kMaxRequest + 1}}});
+    });
+    refused_after(save, "two requests for one item", [](Json& j) {
+        bridge(j)["requests"] = Json::parse(R"([{"item": "Gear", "count": 5}, {"item": "Gear", "count": 9}])");
+    });
+    refused_after(save, "a request for an engine", [](Json& j) {
+        bridge(j)["requests"] = Json::parse(R"([{"item": "IonThruster", "count": 1}])");
+    });
     refused_after(save, "no layout", [](Json& j) { ship_json(j).erase("layout"); });
     refused_after(save, "an unknown layout", [](Json& j) { ship_json(j)["layout"] = "battlestar"; });
     refused_after(save, "hull tiles instead of a layout", [](Json& j) {
@@ -490,13 +506,16 @@ void test_machine_refused() {
     Json save = minimal();
     buildings(save).push_back(Json::parse(R"({
         "kind": "SolarFurnace", "x": 70, "y": 58, "facing": "North", "output_side": 0,
-        "recipe": "Iron plate", "work": 10, "input": {}, "output": {"IronPlate": 2}})"));
+        "recipe": "Iron plate", "work": 10, "input": {}, "output": {"IronPlate": 2},
+        "only_when_requested": true})"));
     assert(loads(save.dump()));
     auto furnace = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(save, "a recipe the machine can't run", [&](Json& j) { furnace(j)["recipe"] = "Gear"; });
     refused_after(save, "crafting without a recipe", [&](Json& j) { furnace(j)["recipe"] = nullptr; });
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
     refused_after(save, "no output buffer", [&](Json& j) { furnace(j).erase("output"); });
+    refused_after(save, "running on request, not true or false",
+                  [&](Json& j) { furnace(j)["only_when_requested"] = "yes"; });
 
     // A collector gathers only what it can be aimed at.
     Json gathering = minimal();
@@ -589,6 +608,65 @@ void test_unloader_round_trip() {
     assert(save_text(loaded->world) == save_text(world));
 }
 
+// The bridge's requests keep their order and counts, and machines and
+// collectors whether they run only on request; a loaded game goes on
+// standby just as the original does.
+void test_request_round_trip() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add(ItemKind::IronOre, 10);
+    const GridPos furnace{x0, c + 8};
+    const GridPos collector{x0, c + 10};
+    assert(ship.place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);
+    assert(ship.set_recipe(furnace, &recipe_named("Iron plate")));
+    assert(ship.set_only_when_requested(furnace, true));
+    assert(ship.place(ItemKind::AsteroidCollector, collector) == BuildResult::Ok);
+    Bridge& bridge = ship.get_bridge();
+    bridge.set_request(ItemKind::Gear, 40);
+    bridge.set_request(ItemKind::IronPlate, ship.inventory().count(ItemKind::IronPlate) + 1);
+    bridge.set_request(ItemKind::Carbon, 0);
+    for (int i = 0; i < 2; ++i)
+        assert(ship.insert_item(furnace, {x0 - 1, c + 8}, ItemKind::IronOre));
+    run(world, 30);
+
+    const std::string text = save_text(world);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded && error.empty());
+    assert(save_text(loaded->world) == text);
+    const Ship& copy = loaded->world.flagship();
+    const std::vector<ItemStack>& requests = copy.get_bridge().get_requests();
+    assert(requests.size() == 3 && requests[0].kind == ItemKind::Gear && requests[0].count == 40);
+    assert(requests[1].kind == ItemKind::IronPlate && requests[2].kind == ItemKind::Carbon && requests[2].count == 0);
+    assert(dynamic_cast<const Machine&>(*copy.building_at(furnace)).get_only_when_requested());
+    assert(!dynamic_cast<const Collector&>(*copy.building_at(collector)).get_only_when_requested());
+    run(world, 300);
+    run(loaded->world, 300);
+    assert(save_text(loaded->world) == save_text(world));
+}
+
+// Saves from before item requests (the same format version) have no
+// requests, and every machine and collector in them always runs.
+void test_before_requests() {
+    Json save = minimal();
+    buildings(save).push_back(Json::parse(R"({
+        "kind": "SolarFurnace", "x": 70, "y": 58, "facing": "North", "output_side": 0,
+        "recipe": "Iron plate", "work": null, "input": {}, "output": {}})"));
+    buildings(save).push_back(Json::parse(R"({
+        "kind": "AsteroidCollector", "x": 72, "y": 58, "facing": "North", "output_side": 0,
+        "progress": 0, "target": "Carbon", "caught": {}})"));
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    assert(loaded && error.empty());
+    const Ship& ship = loaded->world.flagship();
+    assert(ship.get_bridge().get_requests().empty());
+    assert(!dynamic_cast<const Machine&>(*ship.building_at({70, 58})).get_only_when_requested());
+    assert(!dynamic_cast<const Collector&>(*ship.building_at({72, 58})).get_only_when_requested());
+    // Saved again, it's written as it was: the keys only come when set.
+    const std::string text = save_text(loaded->world);
+    assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -596,6 +674,8 @@ int main() {
     test_round_trip();
     test_tunnel_round_trip();
     test_unloader_round_trip();
+    test_request_round_trip();
+    test_before_requests();
     test_determinism();
     test_header_only();
     test_refused();

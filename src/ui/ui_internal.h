@@ -97,13 +97,15 @@ extern BuildUiState g_build;
 constexpr double kMessageSeconds = 3.0;
 
 // A machine's recipe, a collector's target or a sorter's or unloader's
-// filter: what a building of that kind is set to do.
+// filter, and whether a machine or collector runs only on the bridge's
+// request: what a building of that kind is set to do.
 struct BuildingSettings {
     ItemKind kind = ItemKind::TransportBelt;  // the building they came from
     const Recipe* recipe = nullptr;
     std::optional<ItemKind> target;
     std::optional<ItemKind> filter;
     bool has_filter = false;  // a sorter's or unloader's (whose filter may be none)
+    bool only_when_requested = false;  // a machine's or collector's
 };
 
 // The settings last picked for each kind of building, which new ones of that
