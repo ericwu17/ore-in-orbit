@@ -59,7 +59,10 @@ Json save_blueprint(const Blueprint& blueprint) {
 // Reads one building into `blueprint`, checking it fits inside it, clear of
 // the ones before (`taken`, per cell), and that its settings suit it.
 void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken) {
-    const ItemKind kind = load_item(j.at("kind"));
+    const std::optional<ItemKind> known = load_item_unless_removed(j.at("kind"));
+    if (!known)
+        return;  // a removed building: left out (see is_removed_item)
+    const ItemKind kind = *known;
     if (!is_placeable(kind))
         throw LoadError(std::string("not a building: ") + item_id(kind));
     BlueprintBuilding b;

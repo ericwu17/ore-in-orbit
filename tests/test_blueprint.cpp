@@ -332,6 +332,22 @@ void test_strings() {
     assert(full.find('\n') == std::string::npos);
     assert(blueprint_from_string(full, error) == bp);
 
+    // Blueprints from when there were power buildings still read, without
+    // them, and without filters and recipes for them.
+    const std::string with_power = changed(full, [](Json& j) {
+        for (Json& b : j["buildings"]) {
+            if (b["kind"] == "FilterSorter")
+                b["filter"] = "BatteryBank";
+            if (b["kind"] == "SolarFurnace")
+                b["recipe"] = "Solar array";
+        }
+        j["buildings"].push_back({{"kind", "SolarArray"}, {"x", 0}, {"y", 0}, {"facing", "North"}});
+    });
+    const std::optional<Blueprint> forgot = blueprint_from_string(with_power, error);
+    assert(forgot && forgot->buildings.size() == bp.buildings.size());
+    assert(!find(*forgot, ItemKind::FilterSorter)->filter);
+    assert(!find(*forgot, ItemKind::SolarFurnace)->recipe);
+
     // Damaged or foreign strings are refused, with a reason.
     refused("");
     refused("not a blueprint");

@@ -161,13 +161,6 @@ autocannon fires slug magazines fast and short, the railgun (from the
 all its waves and they're beaten, it's cleared, for good. Jumping away leaves
 the enemies behind. Buildings mend slowly while no enemy is near.
 
-### Not finished yet
-
-The power buildings (solar panel, solar array, battery bank) are there for a
-power system that doesn't exist yet. They can still be unlocked and built,
-and their tooltips and the inspector say they do nothing (`is_unfinished` in
-`src/sim/building.h` lists them).
-
 ## Controls
 
 - **Escape**: back to the main menu (from the save list or the credits). In
@@ -258,6 +251,12 @@ or double-click it), renames it (the pencil), copies it, or deletes it
 read stays in the list, greyed out, with the reason in its tooltip. That
 goes for saves from an older save format too (`kSaveVersion`): there are no
 upgrades between formats.
+
+The game once had power buildings (solar panel, solar array, battery bank),
+since removed. Saves and blueprints from then still load: those buildings,
+any of them in inventories, on belts or in flight, and recipes, filters and
+requests for them are simply left out (a hand-craft queued for one refunds
+its ingredients).
 
 ## Sprites
 

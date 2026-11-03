@@ -93,8 +93,11 @@ Inventory load_inventory(const Json& j) {
     if (!j.is_object())
         throw LoadError("expected an object of item counts, not " + j.dump());
     Inventory inv;
-    for (const auto& [id, count] : j.items())
-        inv.add(load_item(Json(id)), static_cast<int>(load_int(count, 0, kMaxSavedCount)));
+    for (const auto& [id, count] : j.items()) {
+        const int n = static_cast<int>(load_int(count, 0, kMaxSavedCount));
+        if (const std::optional<ItemKind> kind = load_item_unless_removed(Json(id)))
+            inv.add(*kind, n);
+    }
     return inv;
 }
 
@@ -175,7 +178,7 @@ struct SaveAccess {
             if (m->only_when_requested)
                 j["only_when_requested"] = true;
         }
-        // Power plants and survey scanners hold no state.
+        // Survey scanners hold no state.
     }
 
     // The fleet's milestone progress: the milestone being worked on, and
@@ -233,6 +236,13 @@ struct SaveAccess {
             if (jobs.size() > kMaxSavedQueue)
                 throw LoadError("too many crafts queued");
             for (const Json& job : jobs) {
+                // A craft of a removed recipe is dropped, its ingredients
+                // (taken when it was queued) refunded.
+                if (const Json& name = job.at("recipe"); name.is_string())
+                    if (const std::vector<ItemStack>* inputs = removed_recipe_inputs(name.get<std::string>())) {
+                        bridge->inventory.add(*inputs);
+                        continue;
+                    }
                 const Recipe* recipe = load_recipe(job.at("recipe"));
                 if (!recipe || !recipe->hand_craftable || !progress.unlocked(*recipe))
                     throw LoadError("the bridge can't craft " + job.at("recipe").dump());
@@ -243,7 +253,10 @@ struct SaveAccess {
             // None in saves from before there were requests.
             const auto requests = j.find("requests");
             for (const Json& r : requests == j.end() ? Json::array() : load_array(*requests, "requests")) {
-                const ItemKind kind = load_item(r.at("item"));
+                const std::optional<ItemKind> requested = load_item_unless_removed(r.at("item"));
+                if (!requested)
+                    continue;  // a request for a removed item
+                const ItemKind kind = *requested;
                 if (is_layout_part(kind))
                     throw LoadError(std::string("a request for ") + item_id(kind) + ", which only comes with a layout");
                 if (bridge->request_for(kind))
@@ -262,13 +275,15 @@ struct SaveAccess {
             c->only_when_requested = load_on_request(j);
         } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
             for (const Json& item : load_array(j.at("items"), "belt items")) {
-                const ItemKind kind = load_item(item.at("item"));
+                const std::optional<ItemKind> kind = load_item_unless_removed(item.at("item"));
                 // A tunnel's items may be on their way underground.
                 const int furthest = dynamic_cast<const Tunnel*>(belt) ? kBeltLength * kTunnelRange : kBeltLength;
                 const int pos = static_cast<int>(load_int(item.at("pos"), 0, furthest));
+                if (!kind)
+                    continue;  // a removed item: gone, leaving a gap
                 if (!belt->has_room_at(pos))
                     throw LoadError("belt items too close together");
-                belt->insert(kind, pos);
+                belt->insert(*kind, pos);
             }
         } else if (auto* sorter = dynamic_cast<Sorter*>(&b)) {
             sorter->set_filter(load_optional_item(j.at("filter")));
@@ -279,14 +294,21 @@ struct SaveAccess {
                 const Json& lane = load_array(lanes.at(direction_id(static_cast<Direction>(d))), "junction items");
                 if (lane.size() > kJunctionCapacity)
                     throw LoadError("too many items in a junction");
-                for (const Json& item : lane)
-                    junction->lanes[static_cast<std::size_t>(d)].push_back(
-                        {load_item(item.at("item")), load_tick(item.at("elapsed"), kJunctionTicks)});
+                for (const Json& item : lane) {
+                    const std::optional<ItemKind> kind = load_item_unless_removed(item.at("item"));
+                    const Tick elapsed = load_tick(item.at("elapsed"), kJunctionTicks);
+                    if (kind)
+                        junction->lanes[static_cast<std::size_t>(d)].push_back({*kind, elapsed});
+                }
             }
         } else if (auto* unloader = dynamic_cast<Unloader*>(&b)) {
             unloader->filter = load_optional_item(j.at("filter"));
             unloader->cooldown = load_tick(j.at("cooldown"), kUnloaderTicks);
-            unloader->next_kind = static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount - 1));
+            // Only where it starts looking next: a save from when there were
+            // the removed items too may point past the end, which wraps round.
+            unloader->next_kind =
+                static_cast<std::size_t>(load_int(j.at("next_kind"), 0, kItemKindCount + kRemovedItemCount - 1)) %
+                static_cast<std::size_t>(kItemKindCount);
         } else if (auto* router = dynamic_cast<Router*>(&b)) {
             router->held = load_optional_item(j.at("held"));
             router->came_from = load_direction(j.at("came_from"));
@@ -306,15 +328,22 @@ struct SaveAccess {
             if (recipe && !m->can_run(*recipe))
                 throw LoadError(std::string(item_id(*m->item_kind())) + " can't run " + recipe_name(*recipe));
             m->recipe = recipe;
-            if (const Json& work = j.at("work"); !work.is_null()) {
+            m->input = load_inventory(j.at("input"));
+            m->output = load_inventory(j.at("output"));
+            // A removed recipe: none now, and the ingredients of a craft
+            // under way back with the rest it was holding.
+            const std::vector<ItemStack>* removed = nullptr;
+            if (const Json& name = j.at("recipe"); name.is_string())
+                removed = removed_recipe_inputs(name.get<std::string>());
+            if (const Json& work = j.at("work"); removed && !work.is_null()) {
+                m->input.add(*removed);
+            } else if (!work.is_null()) {
                 if (!recipe)
                     throw LoadError("crafting without a recipe");
                 // A craft finishes (and work resets) when it reaches the
                 // recipe's ticks.
                 m->work = load_progress(work, recipe->ticks);
             }
-            m->input = load_inventory(j.at("input"));
-            m->output = load_inventory(j.at("output"));
             m->only_when_requested = load_on_request(j);
         }
     }
@@ -376,7 +405,10 @@ struct SaveAccess {
             bridge->share_progress(progress);
             b = std::move(bridge);
         } else {
-            const ItemKind kind = load_item(kind_json);
+            const std::optional<ItemKind> known = load_item_unless_removed(kind_json);
+            if (!known)
+                return;  // a removed building: never there
+            const ItemKind kind = *known;
             if (!is_building(kind))
                 throw LoadError(std::string("not a building: ") + item_id(kind));
             b = make_building(kind, load_direction(j.at("facing")));

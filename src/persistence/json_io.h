@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace json_io {
 
@@ -45,11 +46,28 @@ std::optional<ItemKind> item_from_id(std::string_view id);
 ItemKind load_item(const Json& j);
 // An item, or null for none.
 Json save_optional_item(std::optional<ItemKind> kind);
+// An item, or nullopt for null or a removed item (see is_removed_item).
 std::optional<ItemKind> load_optional_item(const Json& j);
+
+// Items the game once had and has since forgotten (the power buildings:
+// solar panel, solar array, battery bank). Older saves and blueprints still
+// name them, without being an older format: loading leaves them out, as if
+// they had never been, instead of refusing the file.
+bool is_removed_item(std::string_view id);
+// How many there are.
+constexpr int kRemovedItemCount = 3;
+// An item, or nullopt for a removed one (any other unknown item still
+// throws).
+std::optional<ItemKind> load_item_unless_removed(const Json& j);
+// What a removed recipe (one that made a removed item) took, less any
+// removed items, to refund a craft of it that was under way; null for any
+// other name. load_recipe() reads a removed recipe as none.
+const std::vector<ItemStack>* removed_recipe_inputs(std::string_view name);
 
 Direction load_direction(const Json& j);
 
-// A recipe by name, or null for none.
+// A recipe by name, or null for none (or a removed one: see
+// removed_recipe_inputs).
 Json save_recipe(const Recipe* recipe);
 const Recipe* load_recipe(const Json& j);
 

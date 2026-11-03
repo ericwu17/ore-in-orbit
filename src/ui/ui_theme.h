@@ -65,7 +65,6 @@ constexpr ImVec4 kTileExpressBelt    = Rgb(150, 112, 40);
 constexpr ImVec4 kTileTunnelMouth    = kBevelDark;
 constexpr ImVec4 kTileStorage        = Rgb(112, 98, 72);   // cargo holds
 constexpr ImVec4 kTileMachine        = Rgb(70, 92, 116);   // blue-grey
-constexpr ImVec4 kTilePower          = Rgb(98, 120, 64);   // olive
 constexpr ImVec4 kTileSystem         = Rgb(150, 62, 48);   // oxide red
 constexpr ImVec4 kTileTurret         = Rgb(48, 52, 58);    // gunmetal
 constexpr ImVec4 kTileGlyph          = Rgb(236, 238, 241); // letters and arrows on tiles

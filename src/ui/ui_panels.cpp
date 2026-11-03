@@ -104,8 +104,6 @@ void DrawBuildPalette(Ship& ship, float width) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
             ImGui::TextColored(theme::kTextDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
-            if (is_unfinished(kind))
-                ImGui::TextColored(theme::kWarnText, "Not working yet: it does nothing once built");
             if (i < 9)
                 ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
             if (hand) {
@@ -259,8 +257,6 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (picture - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
     ImGui::TextColored(b.damaged() ? theme::kBad : theme::kTextDim, "Health %d / %d", b.get_hp(), b.max_hp());
-    if (kind && is_unfinished(*kind))
-        ImGui::TextColored(theme::kWarnText, "Not working yet: it does nothing");
 
     const float bar_w = ImGui::GetFrameHeight() * 8.0f;
     if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
