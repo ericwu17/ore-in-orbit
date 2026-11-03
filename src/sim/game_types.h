@@ -93,10 +93,6 @@ enum class ItemKind {
     FabricatorMk1,
     FabricatorMk2,
     FabricatorMk3,
-    // Placeable: power.
-    SolarPanel,
-    SolarArray,
-    BatteryBank,
     // Placeable: ship systems (the ion thruster only comes with a layout).
     SurveyScanner,
     IonThruster,

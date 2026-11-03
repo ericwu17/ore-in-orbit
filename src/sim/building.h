@@ -15,8 +15,6 @@
 //   ├── Unloader     takes items out of the bridge or a cargo hold
 //   ├── CargoHold    item storage
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
-//   ├── PowerPlant   solar panel / array, battery bank (nothing uses power
-//   │                yet)
 //   ├── Thruster     ion thruster (part of the ship's layout): charged with
 //   │                fuel cells for a jump
 //   ├── Turret       autocannon, railgun: fire the ammunition belts bring
@@ -77,9 +75,6 @@ public:
 GridSize footprint_of(ItemKind kind, Direction facing = Direction::North);
 // Whether the player picks a direction when placing it (belts).
 bool is_rotatable(ItemKind kind);
-// Buildings that can be unlocked and built but don't do anything yet: the
-// power buildings (nothing uses power).
-bool is_unfinished(ItemKind kind);
 // The damage a building of this kind takes before it's destroyed (nullopt:
 // the bridge).
 int max_hp_of(std::optional<ItemKind> kind);
@@ -597,11 +592,6 @@ std::optional<ItemKind> product_of(const Building& b);
 
 // The recipes a machine of this kind can run, in all_recipes() order.
 std::vector<const Recipe*> machine_recipes(ItemKind kind);
-
-class PowerPlant : public Building {
-public:
-    explicit PowerPlant(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
-};
 
 // Fuel cells an ion thruster holds: full, it's charged for a jump.
 constexpr int kThrusterCharge = 10;

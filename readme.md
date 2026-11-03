@@ -161,13 +161,6 @@ autocannon fires slug magazines fast and short, the railgun (from the
 all its waves and they're beaten, it's cleared, for good. Jumping away leaves
 the enemies behind. Buildings mend slowly while no enemy is near.
 
-### Not finished yet
-
-The power buildings (solar panel, solar array, battery bank) are there for a
-power system that doesn't exist yet. They can still be unlocked and built,
-and their tooltips and the inspector say they do nothing (`is_unfinished` in
-`src/sim/building.h` lists them).
-
 ## Controls
 
 - **Escape**: back to the main menu (from the save list or the credits). In
@@ -257,7 +250,10 @@ or double-click it), renames it (the pencil), copies it, or deletes it
 (after asking). Saves are JSON, so you can read them; one the game can't
 read stays in the list, greyed out, with the reason in its tooltip. That
 goes for saves from an older save format too (`kSaveVersion`): there are no
-upgrades between formats.
+upgrades between formats. Items and recipes the game no longer knows don't
+make a save or blueprint unreadable, though: they're simply left out, with
+the buildings, crafts, filters and requests that name them (a craft of one
+under way is dropped, its ingredients with it).
 
 ## Sprites
 

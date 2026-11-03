@@ -54,8 +54,8 @@ const Recipe& recipe_named(const char* name) {
 }
 
 // A ship with one of everything that holds state, part way through running:
-// a collector (aimed at silica) feeding belts into a cargo hold, a solar
-// panel, a filter sorter with items queued on the belt into it, two machines
+// a collector (aimed at silica) feeding belts into a cargo hold, a survey
+// scanner, a filter sorter with items queued on the belt into it, two machines
 // mid-craft, a west-facing express belt, a junction and a router holding
 // items, and the bridge hand-crafting, part way through a milestone; an
 // engine (ion thruster) part charged, an autocannon with ammunition
@@ -68,7 +68,7 @@ World busy_world() {
                                       {ItemKind::FilterSorter, 1},
                                       {ItemKind::Junction, 1},
                                       {ItemKind::Router, 1},
-                                      {ItemKind::SolarPanel, 1},
+                                      {ItemKind::SurveyScanner, 1},
                                       {ItemKind::Autocannon, 1},
                                       {ItemKind::Refinery, 1}});
     // Two milestones done (the refinery's recipes need them), and some way
@@ -84,7 +84,7 @@ World busy_world() {
     for (int x = x0 + 2; x <= x0 + 4; ++x)
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::SolarPanel, {x0 + 8, c - 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::SurveyScanner, {x0 + 8, c - 6}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
         assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
     assert(ship.place(ItemKind::Autocannon, {x0 + 2, c}) == BuildResult::Ok);
@@ -325,16 +325,10 @@ void test_refused() {
     refused_after(save, "a name that isn't text", [](Json& j) { j["name"] = 42; });
     refused_after(save, "a negative play time", [](Json& j) { j["played"] = -1; });
     refused_after(save, "no world", [](Json& j) { j.erase("world"); });
-    refused_after(save, "an unknown item", [](Json& j) { bridge(j)["inventory"] = {{"Unobtainium", 5}}; });
-    refused_after(save, "a display name for an item", [](Json& j) { bridge(j)["inventory"] = {{"Iron plate", 5}}; });
     refused_after(save, "a negative count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", -5}}; });
     refused_after(save, "a fractional count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1.5}}; });
     refused_after(save, "an absurd count", [](Json& j) { bridge(j)["inventory"] = {{"Gear", 1e30}}; });
     refused_after(save, "a count as text", [](Json& j) { bridge(j)["inventory"] = {{"Gear", "5"}}; });
-    refused_after(save, "hull, no longer an item", [](Json& j) { bridge(j)["inventory"] = {{"Hull", 5}}; });
-    refused_after(save, "an unknown recipe", [](Json& j) {
-        bridge(j)["queue"] = Json::parse(R"([{"recipe": "Unobtainium", "elapsed": 0}])");
-    });
     refused_after(save, "a recipe that isn't unlocked yet", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
     });
@@ -352,9 +346,6 @@ void test_refused() {
     });
     refused_after(save, "no craft queue", [](Json& j) { bridge(j).erase("queue"); });
     refused_after(save, "requests that aren't a list", [](Json& j) { bridge(j)["requests"] = {{"Gear", 5}}; });
-    refused_after(save, "a request for an unknown item", [](Json& j) {
-        bridge(j)["requests"] = Json::parse(R"([{"item": "Unobtainium", "count": 5}])");
-    });
     refused_after(save, "a negative request", [](Json& j) {
         bridge(j)["requests"] = Json::parse(R"([{"item": "Gear", "count": -1}])");
     });
@@ -461,13 +452,8 @@ void test_refused() {
     refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "items": [{"item": "IronOre", "pos": 61}]})"),
             "a belt item off the belt");
-    refused(with_building(R"({"kind": "Hull", "x": 70, "y": 64, "facing": "North", "output_side": 0})"),
-            "hull as a building");
     refused(with_building(R"({"kind": "SolarFurnace", "x": 83, "y": 64, "facing": "North", "output_side": 0})"),
             "a building partly off hull");
-    refused(with_building(R"({"kind": "FilterSorter", "x": 70, "y": 64, "facing": "North", "output_side": 0,
-                              "filter": "Unobtainium", "next_right": false})"),
-            "an unknown filter");
     refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "lanes": {"North": [], "East": [{"item": "Gear", "elapsed": 9999}],
                                         "South": [], "West": []}})"),
@@ -481,9 +467,6 @@ void test_refused() {
     refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
             "an unloader waiting longer than it ever does");
-    refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "filter": "Gear", "cooldown": 0, "next_kind": 999})"),
-            "an unloader's turn past the last kind");
 }
 
 // Cargo in flight names ships by id, and lands after the save's tick, by
@@ -496,7 +479,6 @@ void test_transfers_refused() {
     refused_after(save, "cargo to a ship id not given out yet", [&](Json& j) { transfer(j)["to"] = 7; });
     refused_after(save, "cargo that should have landed", [&](Json& j) { transfer(j)["arrives"] = 100; });
     refused_after(save, "cargo that takes too long", [&](Json& j) { transfer(j)["arrives"] = 100 + kTransferTicks + 1; });
-    refused_after(save, "cargo with an unknown item", [&](Json& j) { transfer(j)["items"] = {{"Unobtainium", 1}}; });
 }
 
 // Machines check their recipe and progress, collectors their target, and
@@ -511,7 +493,6 @@ void test_machine_refused() {
     assert(loads(save.dump()));
     auto furnace = [](Json& j) -> Json& { return buildings(j).back(); };
     refused_after(save, "a recipe the machine can't run", [&](Json& j) { furnace(j)["recipe"] = "Gear"; });
-    refused_after(save, "crafting without a recipe", [&](Json& j) { furnace(j)["recipe"] = nullptr; });
     refused_after(save, "craft progress past the end", [&](Json& j) { furnace(j)["work"] = 100000; });
     refused_after(save, "no output buffer", [&](Json& j) { furnace(j).erase("output"); });
     refused_after(save, "running on request, not true or false",
@@ -669,6 +650,71 @@ void test_before_requests() {
 
 }  // namespace
 
+// Items and recipes the game doesn't know (here the power buildings, since
+// removed) are left out, wherever the save has them, and the rest loads.
+void test_skips_unknown() {
+    const World world = busy_world();
+    const Ship& ship = world.flagship();
+    Json j = Json::parse(save_text(world));
+    Json& fleet = j["world"]["fleet"];
+    Json& flagship = fleet["ships"][0]["ship"];
+    const auto at = [&](int x, int y) -> Json& {
+        for (Json& b : flagship["buildings"])
+            if (b["x"] == x && b["y"] == y)
+                return b;
+        assert(false && "no building there");
+        return flagship;
+    };
+    // A solar panel where the survey scanner is (both 2x2, holding nothing).
+    at(x0 + 8, c - 6)["kind"] = "SolarPanel";
+    for (Json& b : flagship["buildings"])
+        if (b["kind"] == "Bridge") {
+            b["inventory"]["BatteryBank"] = 3;
+            b["requests"] = Json::array({{{"item", "SolarArray"}, {"count", 2}}, {{"item", "Gear"}, {"count", 5}}});
+            b["queue"].push_back({{"recipe", "Solar panel"}, {"elapsed", 10}});
+        }
+    at(x0 + 3, c - 2)["filter"] = "BatteryBank";                   // the sorter
+    at(x0 + 3, c + 4)["items"].push_back({{"item", "SolarPanel"}, {"pos", 0}});  // the express belt
+    at(x0 + 5, c - 6)["stored"]["SolarArray"] = 4;                 // the cargo hold
+    Json& furnace = at(x0, c);                                     // mid-craft
+    furnace["recipe"] = "Solar panel";
+    furnace["output"]["SolarPanel"] = 2;
+    fleet["transfers"][0]["items"]["BatteryBank"] = 1;
+    const std::string old_text = j.dump();
+
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(old_text, error);
+    assert(loaded && error.empty());
+    const Ship& copy = loaded->world.flagship();
+    assert(!copy.building_at({x0 + 8, c - 6}));
+    assert(copy.placement_order().size() == ship.placement_order().size() - 1);
+    // The hand-craft dropped, its ingredients with it, the rest as it was.
+    const Bridge& bridge = copy.get_bridge();
+    assert(bridge.craft_queue().size() == 2);
+    assert(bridge.get_inventory().total() == ship.inventory().total());
+    assert(bridge.get_requests().size() == 1 && bridge.get_requests()[0].kind == ItemKind::Gear);
+    const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
+    assert(sorter && !sorter->get_filter());
+    const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
+    assert(belt && belt->get_items().size() == 1 && belt->get_items()[0].kind == ItemKind::Glass);
+    const auto& hold = dynamic_cast<const CargoHold&>(*copy.building_at({x0 + 5, c - 6}));
+    assert(hold.get_stored().total() ==
+           dynamic_cast<const CargoHold&>(*ship.building_at({x0 + 5, c - 6})).get_stored().total());
+    // No recipe, and the craft under way dropped, its ingredients with it.
+    const auto& machine = dynamic_cast<const Machine&>(*copy.building_at({x0, c}));
+    const auto& before = dynamic_cast<const Machine&>(*ship.building_at({x0, c}));
+    assert(!machine.get_recipe() && !machine.crafting());
+    assert(machine.get_input().total() == before.get_input().total());
+    assert(machine.get_output().total() == before.get_output().total());
+    assert(loaded->world.get_fleet().in_flight()[0].items.size() == 1);
+
+    // Saved again, there's no trace of power, and it carries on.
+    const std::string resaved = save_text(loaded->world);
+    for (const char* id : {"SolarPanel", "SolarArray", "BatteryBank", "Solar panel"})
+        assert(resaved.find(id) == std::string::npos);
+    run(loaded->world, 600);
+}
+
 int main() {
     test_names();
     test_round_trip();
@@ -681,6 +727,7 @@ int main() {
     test_refused();
     test_transfers_refused();
     test_machine_refused();
+    test_skips_unknown();
     std::puts("test_save_file: all passed");
     return 0;
 }

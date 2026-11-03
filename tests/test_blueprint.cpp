@@ -332,6 +332,22 @@ void test_strings() {
     assert(full.find('\n') == std::string::npos);
     assert(blueprint_from_string(full, error) == bp);
 
+    // Unknown buildings (here the power buildings, since removed) are left
+    // out, and unknown filters and recipes unset.
+    const std::string with_power = changed(full, [](Json& j) {
+        for (Json& b : j["buildings"]) {
+            if (b["kind"] == "FilterSorter")
+                b["filter"] = "BatteryBank";
+            if (b["kind"] == "SolarFurnace")
+                b["recipe"] = "Solar array";
+        }
+        j["buildings"].push_back({{"kind", "SolarArray"}, {"x", 0}, {"y", 0}, {"facing", "North"}});
+    });
+    const std::optional<Blueprint> forgot = blueprint_from_string(with_power, error);
+    assert(forgot && forgot->buildings.size() == bp.buildings.size());
+    assert(!find(*forgot, ItemKind::FilterSorter)->filter);
+    assert(!find(*forgot, ItemKind::SolarFurnace)->recipe);
+
     // Damaged or foreign strings are refused, with a reason.
     refused("");
     refused("not a blueprint");
@@ -341,8 +357,6 @@ void test_strings() {
     refused(changed(full, [](Json& j) { j.erase("name"); }));
     refused(changed(full, [](Json& j) { j["width"] = 0; }));
     refused(changed(full, [](Json& j) { j["height"] = kShipGridSize + 1; }));
-    refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "Banana"; }));
-    refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "Hull"; }));         // not an item any more
     refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "IonThruster"; }));  // the layout's alone
     refused(changed(full, [](Json& j) { j["buildings"][0]["kind"] = "IronPlate"; }));
     refused(changed(full, [](Json& j) { j["buildings"][0]["x"] = -1; }));
@@ -364,11 +378,6 @@ void test_strings() {
         for (Json& b : j["buildings"])
             if (b["kind"] == "SolarFurnace")
                 b["recipe"] = "Gear";  // an assembly recipe, in a furnace
-    }));
-    refused(changed(full, [](Json& j) {
-        for (Json& b : j["buildings"])
-            if (b["kind"] == "SolarFurnace")
-                b["recipe"] = "Moonshine";
     }));
     // A sorter's filter may be cleared.
     const std::string cleared = changed(full, [](Json& j) {

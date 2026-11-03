@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace json_io {
 
@@ -41,15 +42,19 @@ std::string load_string(const Json& j, const char* what);
 // An integer from lo to hi (json's own get<int>() doesn't check the range).
 std::int64_t load_int(const Json& j, std::int64_t lo, std::int64_t hi);
 
-std::optional<ItemKind> item_from_id(std::string_view id);
-ItemKind load_item(const Json& j);
+// Items and recipes come and go between versions of the game, and saves and
+// blueprints name them without being of an older format. Loading leaves out
+// any it doesn't recognize, and whatever names one (a building, an item on a
+// belt, a craft), as if they had never been, instead of refusing the file.
+
 // An item, or null for none.
 Json save_optional_item(std::optional<ItemKind> kind);
-std::optional<ItemKind> load_optional_item(const Json& j);
+// An item, or nullopt for null or one the game doesn't know.
+std::optional<ItemKind> load_item(const Json& j);
 
 Direction load_direction(const Json& j);
 
-// A recipe by name, or null for none.
+// A recipe by name, or null for none (or one the game doesn't know).
 Json save_recipe(const Recipe* recipe);
 const Recipe* load_recipe(const Json& j);
 

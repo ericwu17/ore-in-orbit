@@ -67,8 +67,6 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::CargoHold:
     case ItemKind::AsteroidCollector:
     case ItemKind::SolarFurnace:
-    case ItemKind::SolarPanel:
-    case ItemKind::BatteryBank:
     case ItemKind::SurveyScanner:
     case ItemKind::Autocannon:
         size = {2, 2};
@@ -78,7 +76,6 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
-    case ItemKind::SolarArray:
     case ItemKind::Railgun:
         size = {3, 3};
         break;
@@ -99,17 +96,6 @@ bool is_rotatable(ItemKind kind) {
     case ItemKind::ExpressBelt:
     case ItemKind::BeltTunnel:
     case ItemKind::Unloader:
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool is_unfinished(ItemKind kind) {
-    switch (kind) {
-    case ItemKind::SolarPanel:
-    case ItemKind::SolarArray:
-    case ItemKind::BatteryBank:
         return true;
     default:
         return false;
@@ -149,14 +135,11 @@ int max_hp_of(std::optional<ItemKind> kind) {
     case ItemKind::Junction:
     case ItemKind::Router:
     case ItemKind::Unloader:          return 50;
-    case ItemKind::SolarPanel:        return 100;
     case ItemKind::AsteroidCollector: return 150;
     case ItemKind::CargoHold:
     case ItemKind::SolarFurnace:
-    case ItemKind::BatteryBank:
     case ItemKind::SurveyScanner:     return 200;
     case ItemKind::FabricatorMk1:     return 250;
-    case ItemKind::SolarArray:
     case ItemKind::IonThruster:       return 300;
     case ItemKind::TractorArray:
     case ItemKind::Refinery:
@@ -601,10 +584,6 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
         return std::make_unique<Machine>(kind);
-    case ItemKind::SolarPanel:
-    case ItemKind::SolarArray:
-    case ItemKind::BatteryBank:
-        return std::make_unique<PowerPlant>(kind);
     case ItemKind::IonThruster:
         return std::make_unique<Thruster>();
     case ItemKind::Autocannon:

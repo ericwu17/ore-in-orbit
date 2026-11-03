@@ -53,7 +53,6 @@ EXPRESS_BELT = (150, 112, 40)    # kTileExpressBelt
 STORAGE = (112, 98, 72)          # kTileStorage
 COLLECTOR = (150, 92, 58)        # kTileCollector: oxidized copper
 MACHINE = (70, 92, 116)          # kTileMachine
-POWER = (98, 120, 64)            # kTilePower
 SYSTEM = (150, 62, 48)           # kTileSystem
 TURRET = (48, 52, 58)            # kTileTurret
 BRIDGE_COLOR = (201, 133, 22)    # kTileBridge
@@ -86,9 +85,6 @@ BUILDINGS = {
     "FabricatorMk1":     (3, 3, "tile", MACHINE, "F1"),
     "FabricatorMk2":     (3, 3, "tile", MACHINE, "F2"),
     "FabricatorMk3":     (3, 3, "tile", MACHINE, "F3"),
-    "SolarPanel":        (2, 2, "tile", POWER, "SP"),
-    "SolarArray":        (3, 3, "tile", POWER, "SA"),
-    "BatteryBank":       (2, 2, "tile", POWER, "BB"),
     "SurveyScanner":     (2, 2, "tile", SYSTEM, "SS"),
     "IonThruster":       (2, 3, "tile", SYSTEM, "IT"),
     "Autocannon":        (2, 2, "turret", TURRET, "AC"),

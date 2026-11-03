@@ -32,27 +32,18 @@ std::int64_t load_int(const Json& j, std::int64_t lo, std::int64_t hi) {
     return j.get<std::int64_t>();
 }
 
-std::optional<ItemKind> item_from_id(std::string_view id) {
-    for (int i = 0; i < kItemKindCount; ++i)
-        if (id == item_id(static_cast<ItemKind>(i)))
-            return static_cast<ItemKind>(i);
-    return std::nullopt;
-}
-
-ItemKind load_item(const Json& j) {
-    const std::string id = load_string(j, "an item");
-    const std::optional<ItemKind> kind = item_from_id(id);
-    if (!kind)
-        throw LoadError("unknown item \"" + id + "\"");
-    return *kind;
-}
-
 Json save_optional_item(std::optional<ItemKind> kind) {
     return kind ? Json(item_id(*kind)) : Json(nullptr);
 }
 
-std::optional<ItemKind> load_optional_item(const Json& j) {
-    return j.is_null() ? std::nullopt : std::optional<ItemKind>(load_item(j));
+std::optional<ItemKind> load_item(const Json& j) {
+    if (j.is_null())
+        return std::nullopt;
+    const std::string id = load_string(j, "an item");
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (id == item_id(static_cast<ItemKind>(i)))
+            return static_cast<ItemKind>(i);
+    return std::nullopt;
 }
 
 Direction load_direction(const Json& j) {
@@ -74,7 +65,7 @@ const Recipe* load_recipe(const Json& j) {
     for (const Recipe& r : all_recipes())
         if (name == recipe_name(r))
             return &r;
-    throw LoadError("unknown recipe \"" + name + "\"");
+    return nullptr;
 }
 
 const Json& load_array(const Json& j, const char* what) {
