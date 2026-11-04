@@ -171,7 +171,7 @@ void test_other_sector() {
 }
 
 // Cargo goes into the inventory, but (like hand-crafting) doesn't count
-// toward the milestone; a delivery by belt to any ship does, and unlocks
+// toward the milestone; a delivery by tube to any ship does, and unlocks
 // recipes on every ship.
 void test_shared_progress() {
     World world;

@@ -6,12 +6,13 @@
 //
 //   {"format":"ore-in-orbit-blueprint","version":2,"name":"Iron line",
 //    "width":4,"height":2,
-//    "buildings":[{"kind":"TransportBelt","x":0,"y":0,"facing":"East"},
+//    "buildings":[{"kind":"CheckValve","x":0,"y":0,"facing":"East","color":"Amber"},
 //                 {"kind":"SolarFurnace","x":2,"y":0,"facing":"North","recipe":"Iron plate"}]}
 //
 // Buildings carry "recipe" (machines), "target" (collectors), "filter"
-// (sorters, unloaders) and "only_when_requested" (machines, collectors: true,
-// running only on the bridge's request) when set. Items, directions and recipes are written
+// (filter tubes, extractors), "color" (tube pieces: "Amber" when left out)
+// and "only_when_requested" (machines, collectors: true, running only on the
+// bridge's request) when set. Items, directions and recipes are written
 // by name, as saves write them (persistence/json_io.h). Reading checks
 // everything a paste relies on, and refuses a bad string with a reason,
 // never an assert.

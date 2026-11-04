@@ -14,7 +14,7 @@ namespace {
 
 // The debug menu's item cheat: what to give, and how many.
 struct DebugGiveState {
-    ItemKind kind = ItemKind::TransportBelt;
+    ItemKind kind = ItemKind::Tube;
     int count = 100;
     char search[64] = {};
 };
@@ -114,7 +114,7 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
             world.reveal_map();
         ImGui::SameLine();
         if (ImGui::Button("Charge thrusters")) {
-            // Fed from the cell above, as from a belt.
+            // Fed from the cell above, as from a tube.
             for (const GridPos p : current.ship.placement_order())
                 if (dynamic_cast<const Thruster*>(current.ship.building_anchored_at(p)))
                     while (current.ship.insert_item(p, {p.x, p.y - 1}, ItemKind::FuelCell)) {

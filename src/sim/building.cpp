@@ -92,10 +92,9 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
 
 bool is_rotatable(ItemKind kind) {
     switch (kind) {
-    case ItemKind::TransportBelt:
-    case ItemKind::ExpressBelt:
-    case ItemKind::BeltTunnel:
-    case ItemKind::Unloader:
+    case ItemKind::CheckValve:
+    case ItemKind::Extractor:
+    case ItemKind::VacuumLine:
         return true;
     default:
         return false;
@@ -127,14 +126,13 @@ int max_hp_of(std::optional<ItemKind> kind) {
     if (!kind)
         return 2000;  // the bridge
     switch (*kind) {
-    case ItemKind::TransportBelt:
-    case ItemKind::ExpressBelt:
-    case ItemKind::BeltTunnel:
-    case ItemKind::FilterSorter:
-    case ItemKind::ReverseSorter:
-    case ItemKind::Junction:
-    case ItemKind::Router:
-    case ItemKind::Unloader:          return 50;
+    case ItemKind::Tube:
+    case ItemKind::CheckValve:
+    case ItemKind::FilterTube:
+    case ItemKind::OverflowTube:
+    case ItemKind::Crossover:
+    case ItemKind::Extractor:
+    case ItemKind::VacuumLine:        return 50;
     case ItemKind::AsteroidCollector: return 150;
     case ItemKind::CargoHold:
     case ItemKind::SolarFurnace:
@@ -332,139 +330,131 @@ std::vector<ItemStack> Thruster::contents() const {
     return {{ItemKind::FuelCell, fuel}};
 }
 
-int belt_speed(ItemKind kind) {
-    switch (kind) {
-    case ItemKind::TransportBelt: return 2;  // 2 cells per second
-    case ItemKind::ExpressBelt:
-    case ItemKind::BeltTunnel:    return 4;  // one tier: it never holds up a line
-    default:                      return 0;
+const char* tube_color_name(TubeColor color) {
+    switch (color) {
+    case TubeColor::Amber: return "Amber";
+    case TubeColor::Teal:  return "Teal";
+    }
+    return "?";
+}
+
+void Tube::tick() {
+    int limit = kTubeLength;
+    for (TubeItem& item : items) {
+        item.pos = std::max(item.pos, std::min(item.pos + kTubeSpeed, limit));
+        limit = item.pos - kTubeSpacing;
     }
 }
 
-void Conveyor::tick() {
-    int limit = length();
-    for (BeltItem& item : items) {
-        item.pos = std::max(item.pos, std::min(item.pos + speed(), limit));
-        limit = item.pos - kBeltSpacing;
-    }
-}
-
-std::vector<ItemStack> Conveyor::contents() const {
+std::vector<ItemStack> Tube::contents() const {
     Inventory held;
-    for (const BeltItem& item : items)
+    for (const TubeItem& item : items)
         held.add(item.kind);
     return held.stacks();
 }
 
-bool Conveyor::has_room_at(int pos) const {
-    for (const BeltItem& item : items)
-        if (std::abs(item.pos - pos) < kBeltSpacing)
-            return false;
-    return true;
+void Tube::insert(ItemKind kind, Direction from, Direction to) {
+    assert(has_room());
+    items.push_back(TubeItem{kind, 0, from, to});
 }
 
-void Conveyor::insert(ItemKind kind, int pos) {
-    assert(has_room_at(pos));
-    auto it = items.begin();
-    while (it != items.end() && it->pos > pos)
-        ++it;
-    items.insert(it, BeltItem{kind, pos});
+const TubeItem* Tube::item_at_front() const {
+    if (items.empty() || items.front().pos < kTubeLength)
+        return nullptr;
+    return &items.front();
 }
 
-std::optional<ItemKind> Conveyor::item_at_front() const {
+void Tube::pop_front() {
+    assert(!items.empty());
+    items.erase(items.begin());
+}
+
+void VacuumLine::tick() {
+    int limit = length();
+    for (VacuumItem& item : items) {
+        item.pos = std::max(item.pos, std::min(item.pos + kVacuumSpeed, limit));
+        limit = item.pos - kTubeSpacing;
+    }
+}
+
+std::vector<ItemStack> VacuumLine::contents() const {
+    Inventory held;
+    for (const VacuumItem& item : items)
+        held.add(item.kind);
+    return held.stacks();
+}
+
+void VacuumLine::insert(ItemKind kind) {
+    assert(has_room());
+    items.push_back(VacuumItem{kind, 0});
+}
+
+std::optional<ItemKind> VacuumLine::item_at_front() const {
     if (items.empty() || items.front().pos < length())
         return std::nullopt;
     return items.front().kind;
 }
 
-void Conveyor::pop_front() {
+void VacuumLine::pop_front() {
     assert(!items.empty());
     items.erase(items.begin());
 }
 
-void Tunnel::unlink() {
+void VacuumLine::unlink() {
     exit_cell.reset();
     entrance_cell.reset();
     distance = 0;
 }
 
-void Tunnel::link_exit(GridPos exit, int cells) {
+void VacuumLine::link_exit(GridPos exit, int cells) {
     exit_cell = exit;
     distance = cells;
 }
 
-void Tunnel::link_entrance(GridPos entrance, int cells) {
+void VacuumLine::link_entrance(GridPos entrance, int cells) {
     entrance_cell = entrance;
     distance = cells;
 }
 
-void Junction::tick() {
-    for (std::deque<JunctionItem>& lane : lanes)
-        for (JunctionItem& item : lane)
-            item.elapsed = std::min(item.elapsed + 1, kJunctionTicks);
+void Crossover::tick() {
+    for (std::deque<CrossoverItem>& lane : lanes)
+        for (CrossoverItem& item : lane)
+            item.elapsed = std::min(item.elapsed + 1, kCrossoverTicks);
 }
 
-std::vector<ItemStack> Junction::contents() const {
+std::vector<ItemStack> Crossover::contents() const {
     Inventory held;
-    for (const std::deque<JunctionItem>& lane : lanes)
-        for (const JunctionItem& item : lane)
+    for (const std::deque<CrossoverItem>& lane : lanes)
+        for (const CrossoverItem& item : lane)
             held.add(item.kind);
     return held.stacks();
 }
 
-void Junction::insert(ItemKind kind, Direction travel) {
+void Crossover::insert(ItemKind kind, Direction travel) {
     assert(has_room(travel));
     lanes[static_cast<std::size_t>(travel)].push_back({kind, 0});
 }
 
-std::optional<ItemKind> Junction::item_ready(Direction travel) const {
-    const std::deque<JunctionItem>& l = lane(travel);
-    if (l.empty() || l.front().elapsed < kJunctionTicks)
+std::optional<ItemKind> Crossover::item_ready(Direction travel) const {
+    const std::deque<CrossoverItem>& l = lane(travel);
+    if (l.empty() || l.front().elapsed < kCrossoverTicks)
         return std::nullopt;
     return l.front().kind;
 }
 
-void Junction::pop(Direction travel) {
-    std::deque<JunctionItem>& l = lanes[static_cast<std::size_t>(travel)];
+void Crossover::pop(Direction travel) {
+    std::deque<CrossoverItem>& l = lanes[static_cast<std::size_t>(travel)];
     assert(!l.empty());
     l.pop_front();
 }
 
-void Router::tick() {
-    if (held)
-        elapsed = std::min(elapsed + 1, kRouterTicks);
-}
-
-std::vector<ItemStack> Router::contents() const {
-    if (!held)
-        return {};
-    return {{*held, 1}};
-}
-
-void Router::insert(ItemKind kind, Direction from) {
-    assert(empty());
-    held = kind;
-    came_from = from;
-    elapsed = 0;
-}
-
-std::optional<ItemKind> Router::item_ready() const {
-    return elapsed >= kRouterTicks ? held : std::nullopt;
-}
-
-void Router::pop() {
-    assert(held);
-    held.reset();
-    elapsed = 0;
-}
-
-void Unloader::tick() {
+void Extractor::tick() {
     if (cooldown > 0)
         --cooldown;
 }
 
-void Unloader::unloaded(ItemKind kind) {
-    cooldown = kUnloaderTicks;
+void Extractor::extracted(ItemKind kind) {
+    cooldown = kExtractorTicks;
     next_kind = (static_cast<std::size_t>(kind) + 1) % static_cast<std::size_t>(kItemKindCount);
 }
 
@@ -562,20 +552,17 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
     case ItemKind::AsteroidCollector:
     case ItemKind::TractorArray:
         return std::make_unique<Collector>(kind);
-    case ItemKind::TransportBelt:
-    case ItemKind::ExpressBelt:
-        return std::make_unique<Conveyor>(kind, facing);
-    case ItemKind::BeltTunnel:
-        return std::make_unique<Tunnel>(facing);
-    case ItemKind::FilterSorter:
-    case ItemKind::ReverseSorter:
-        return std::make_unique<Sorter>(kind);
-    case ItemKind::Junction:
-        return std::make_unique<Junction>();
-    case ItemKind::Router:
-        return std::make_unique<Router>();
-    case ItemKind::Unloader:
-        return std::make_unique<Unloader>(facing);
+    case ItemKind::Tube:
+    case ItemKind::CheckValve:
+    case ItemKind::FilterTube:
+    case ItemKind::OverflowTube:
+        return std::make_unique<Tube>(kind, facing);
+    case ItemKind::VacuumLine:
+        return std::make_unique<VacuumLine>(facing);
+    case ItemKind::Crossover:
+        return std::make_unique<Crossover>();
+    case ItemKind::Extractor:
+        return std::make_unique<Extractor>(facing);
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
     case ItemKind::SolarFurnace:

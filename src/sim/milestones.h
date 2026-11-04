@@ -3,9 +3,9 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // The milestones come one at a time, in order. Items count toward the
-// current one when a belt (or building) delivers them into the bridge, not
+// current one when a tube (or building) delivers them into the bridge, not
 // when they are hand-crafted or refunded; they still go into the inventory,
-// so nothing is used up. What counts is net: an item an unloader takes out
+// so nothing is used up. What counts is net: an item an extractor takes out
 // of a bridge counts against it, so items going round from a bridge back
 // into one gain nothing. Completing one unlocks the recipes making the items
 // it lists. A recipe no milestone lists is unlocked from the start.
@@ -64,7 +64,7 @@ public:
     // Counts one item delivered to the bridge; true if that completed the
     // current milestone (and moved on to the next).
     bool on_delivered(ItemKind kind);
-    // Counts one item an unloader took out of a bridge against the current
+    // Counts one item an extractor took out of a bridge against the current
     // milestone.
     void on_unloaded(ItemKind kind);
     // Completes the current milestone at once (the debug menu); false if

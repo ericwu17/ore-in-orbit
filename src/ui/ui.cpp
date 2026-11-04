@@ -192,6 +192,10 @@ void DrawHintBar(ImVec2 min, float width) {
             std::string facing = std::string("turn (now ") + DirectionName(g_build.facing) + ")";
             Hint("R / Shift+R", facing.c_str());
         }
+        if (is_tube(*g_build.selected)) {
+            std::string color = std::string("color (now ") + tube_color_name(g_build.tube_color) + ")";
+            Hint("T", color.c_str());
+        }
         Hint("Q", "pick / build nothing");
         Hint("Shift", "settings");
     } else {
@@ -226,8 +230,8 @@ void DrawKeysWindow() {
         const char* key;
         const char* does;
     } rows[] = {
-        {"LMB / drag", "Build the selected item; belts face the way you drag"},
-        {"LMB a building", "Inspect it: a machine's recipe, a collector's target, a sorter's filter"},
+        {"LMB / drag", "Build the selected item; check valves face the way you drag"},
+        {"LMB a building", "Inspect it: a machine's recipe, a collector's target, a tube's color or filter"},
         {"RMB / drag", "Remove buildings (refunded)"},
         {"Shift+RMB", "Copy a building's settings"},
         {"Shift+LMB / drag", "Paste them onto buildings that can take them"},
@@ -236,6 +240,7 @@ void DrawKeysWindow() {
         {"1-9", "Pick the item to build (again: build nothing)"},
         {"RMB a palette icon", "Hand-craft one (Shift: 5)"},
         {"R / Shift+R", "Turn what you're building, or the blueprint"},
+        {"T", "Switch the color of the tubes you're building (amber / teal)"},
         {"Q", "Pick the building under the mouse, or build nothing"},
         {copy.c_str(), "Copy an area (drag a box)"},
         {paste.c_str(), "Pick the last copy up to paste"},
@@ -258,7 +263,7 @@ void DrawKeysWindow() {
     ImGui::Spacing();
     ImGui::PushTextWrapPos(fh * 20.0f);
     ImGui::TextColored(theme::kTextDim,
-                       "New machines, collectors and sorters start with the settings last picked for their kind. "
+                       "New machines, collectors and filter tubes start with the settings last picked for their kind. "
                        "Buildings go on the ship's hull, which its layout fixes, with its bridge and engines.");
     ImGui::PopTextWrapPos();
     ImGui::End();
@@ -355,6 +360,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
                 g_build.selected = kind;
                 if (is_rotatable(*kind))
                     g_build.facing = b->facing();
+                if (const auto* tube = dynamic_cast<const Tube*>(b))
+                    g_build.tube_color = tube->get_color();
                 if (const std::optional<BuildingSettings> settings = SettingsOf(*b))
                     RememberSettings(*settings);
             } else {
@@ -374,6 +381,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
                     bp.held = rotated_cw(*bp.held);
             }
         }
+        if (ShortcutPressed(ImGuiKey_T))
+            g_build.tube_color = g_build.tube_color == TubeColor::Amber ? TubeColor::Teal : TubeColor::Amber;
         if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
             LeaveBlueprintTool();
             bp.tool = Tool::Copy;

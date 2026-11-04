@@ -10,10 +10,10 @@ const std::vector<Milestone>& all_milestones() {
     static const std::vector<Milestone> milestones = {
         {"First light",
          {{IronPlate, 50}, {CopperPlate, 20}},
-         {FilterSorter, ReverseSorter, Router, Unloader, Steel}},
+         {FilterTube, OverflowTube, Extractor, Steel}},
         {"Heavy industry",
          {{Circuit, 100}, {Steel, 50}},
-         {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel}},
+         {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, VacuumLine}},
         {"Deep space",
          {{AdvancedCircuit, 50}, {StructuralFrame, 25}},
          {FabricatorMk2, TractorArray, SurveyScanner, IridiumPlate, Processor, ShipStarterPack,

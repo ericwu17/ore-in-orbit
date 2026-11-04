@@ -54,21 +54,21 @@ games, to start a new one or carry on with one.
 A game is a ship built on a 128x128 square grid. Every ship has a layout,
 which fixes its hull's shape and size, its 6x6 bridge and its ion thrusters
 (engines), all centered on the grid; a game starts with a Skiff, the
-smallest. Every building (asteroid collectors, transport belts, machines)
+smallest. Every building (asteroid collectors, tubes, machines)
 needs hull under it, and the hull never grows. Everything placed comes out of
 the bridge's inventory, and removing it gives it back (with anything stored
 inside it). The bridge can hand-craft the simpler items, to get started.
 
-### Belts and machines
+### Tubes and machines
 
 Each collector is aimed at one raw resource (iron ore, copper ore, silica or
 carbon; the tractor array can also gather iridium ore) and gathers it at a
-set rate into an internal buffer, stalling when it is full. As in Mindustry
-there are no inserters: buildings put their output straight onto neighboring
-belts (or into neighboring buildings that take it), and belts carry items
-into whatever they point at, the bridge included. Machines craft the recipe
-the player picks for them, and collectors gather what the player aims them
-at (click one on the grid).
+set rate into an internal buffer, stalling when it is full. There are no
+inserters: buildings put their output straight into neighboring tubes (or
+into neighboring buildings that take it), and pneumatic tubes carry items to
+whatever buildings they touch, the bridge included. Machines craft the
+recipe the player picks for them, and collectors gather what the player aims
+them at (click one on the grid).
 
 The bridge keeps item requests (click it on the grid): how many of an item
 to keep in its inventory. Any machine or collector can be set to run only
@@ -77,37 +77,63 @@ recipe's product): while the bridge has fewer than it asks for, it runs, and
 once it has them it goes on standby (dimmed on the grid), finishing the craft
 under way but starting no other; with nothing requested, it stays off. It
 still takes ingredients and hands on what it made. Only the bridge's own
-inventory counts, not cargo holds or what's on the belts. It's off unless
+inventory counts, not cargo holds or what's in the tubes. It's off unless
 set: new machines and collectors always run.
 
-The belt blocks work as in Mindustry too: filter sorters route items by kind
-(the one picked for it goes straight through, the rest turn left or right),
-and reverse sorters the other way round (the one picked turns, the rest go
-straight); junctions let two belt lines cross, each item leaving by the side
-opposite the one it came in by; routers pass each item on to their other
-three sides in turn.
+Tubes don't face a way. Three rules decide where an item goes:
 
-Unloaders are how items leave storage: an unloader faces a way, like a belt,
-and takes items out of the bridge or the cargo hold behind it into whatever
-is in front of it (a belt, a machine, a turret, another hold), one every
-1/6 of a second, as fast as a transport belt carries them. It takes only the
-item picked for it, or with none every item the storage holds, in turn,
-skipping those the front won't take. One with no bridge or hold behind it is
-outlined in amber.
+1. **Tubes link to every neighboring tube of their color and to every
+   building.** Tubes come in two colors, amber and teal (**T** switches the
+   color being built); tubes of different colors side by side don't link,
+   so two lines can run next to each other without mixing.
+2. **Items keep moving and never go back the way they came.** Where a tube
+   forks, items take the other ways in turn; an item with nowhere open to go
+   waits, and the tube backs up behind it (a tube jammed for a second is
+   outlined in amber). Only where the tubes end (no tube on but the way it
+   came, and no building that takes the item now) does an item turn round.
+3. **Buildings come first.** An item passing a building that takes it now
+   goes in, before trying the next tube; a full building is passed by.
 
-Belt tunnels work as in Factorio: they carry a line underground, under
-anything, and come in pairs. A tunnel links up by itself with the nearest one
-ahead of it facing the same way, up to 5 cells off (4 between them), so a row
-of them pairs off from the back; whichever is behind is the entrance. They run
-as fast as an express belt. An exit takes items from its sides, but not
-through its mouth. A tunnel with no exit (outlined in amber) takes items and
-holds on to them, and those on their way when an exit goes wait for the next.
+Three tube pieces each bend one rule, and are tubes themselves (colored,
+and linking like one):
+
+- **Check valve**: takes items only from behind and passes them only out of
+  its front, so items go one way (the drag turns valves to face the way it
+  goes). It's how a line starts: a valve facing away from a building takes
+  what that building puts out and never lets anything back in.
+- **Filter tube**: takes only the item picked for it, and an item that
+  matches goes into it first, as into a building (rule 3); everything else
+  passes it by. With nothing picked it takes nothing.
+- **Overflow tube**: takes items only when every other way on is blocked,
+  and buildings put their output into one only when nothing else takes it.
+
+Three more work with tubes without being tubes:
+
+- **Crossover**: two lines (of either color) cross it, each item leaving by
+  the side opposite the one it came in by.
+- **Extractor**: how items leave storage. It faces a way and takes items out
+  of the bridge or the cargo hold behind it into whatever is in front of it
+  (a tube, a machine, a turret, another hold), one every 1/6 of a second, as
+  fast as a tube carries them. It takes only the item picked for it, or with
+  none every item the storage holds, in turn, skipping those the front won't
+  take. One with no bridge or hold behind it is outlined in amber.
+- **Vacuum line** (from the "Heavy industry" milestone): a fast link over
+  anything, in pairs. A vacuum line links up by itself with the nearest one
+  ahead of it facing the same way, up to 7 cells off (6 between them), so a
+  row of them pairs off from the back; whichever is behind is the entrance.
+  Items cross at twice a tube's speed. An entrance takes items from any side
+  but its front; an exit passes them out of its front. One with no partner
+  (outlined in amber) takes items and holds on to them.
+
+A single tube can do a lot: run one past a furnace, and ore goes into the
+furnace while it has room and rides on past it when it doesn't, and the
+furnace puts its plates back into the same tube, to ride on to the bridge.
 
 ### Milestones
 
 Progress comes in milestones, shown in the right panel: deliver the items
-each one asks for to the bridge (by belt; hand-crafting doesn't count) to
-unlock the next tier of recipes. What counts is net: an item an unloader
+each one asks for to the bridge (by tube; hand-crafting doesn't count) to
+unlock the next tier of recipes. What counts is net: an item an extractor
 takes out of the bridge counts against the milestone, so sending items
 round from the bridge back into it gains nothing. Locked recipes show
 greyed out, marked with the milestone that unlocks them.
@@ -153,7 +179,7 @@ threat once surveyed: visited, or next to a ship with a survey scanner.
 
 Ships jump to a linked sector at once, when every ion thruster their layout
 has is charged (10 fuel cells each, refined from carbon and delivered by
-belt). The jump burns all their fuel.
+tube). The jump burns all their fuel.
 
 ### Combat
 
@@ -167,7 +193,7 @@ keeping the ship from jumping) until it mends. A ship whose bridge falls is
 lost, and with every ship, the game: the last save stays as it was, to try
 again from.
 
-Turrets fight back while they have ammunition, delivered by belt: the
+Turrets fight back while they have ammunition, delivered by tube: the
 autocannon fires slug magazines fast and short, the railgun (from the
 "Frontier" milestone) rail slugs slow, far and hard. Once a sector has sent
 all its waves and they're beaten, it's cleared, for good. Jumping away leaves
@@ -181,16 +207,16 @@ the enemies behind. Buildings mend slowly while no enemy is near.
   overlay, the star map, the Blueprints window), and then opens the pause
   menu, whose Main menu saves the game.
 - **Left click / drag**: build the selected item on the grid. A quick drag
-  leaves no gaps, and belts drawn by dragging face the way the drag goes,
-  turning at corners. Belt tunnels go down one per click, showing what they
-  would link to.
+  leaves no gaps, and check valves drawn by dragging face the way the drag
+  goes, turning at corners. Vacuum lines go down one per click, showing what
+  they would link to.
 - **Left click a building**: inspect it (in a window that keeps where you
-  move it and how you size it); pick a machine's recipe, a collector's target or a sorter's or
-  unloader's item, and whether a machine or collector runs only while the
+  move it and how you size it); pick a machine's recipe, a collector's target, a filter tube's or
+  extractor's item, a tube piece's color, and whether a machine or collector runs only while the
   bridge requests it. Inspecting the bridge sets whether its ship is a
   provider, and lists its item requests, to change, remove or add to, with
-  what's on its way in cargo pods. New machines, collectors, sorters and
-  unloaders start with the settings last picked for their kind (but always run, not
+  what's on its way in cargo pods. New machines, collectors, filter tubes and
+  extractors start with the settings last picked for their kind (but always run, not
   only on request).
 - **Right click / drag**: remove buildings and refund them (not the bridge
   or the engines, which are part of the ship's layout).
@@ -209,8 +235,9 @@ the enemies behind. Buildings mend slowly while no enemy is near.
   unlocked, in a fixed order (faded when there are none in the bridge), so
   the keys stay put. **R** / **Shift+R**: turn what's being built (or a
   blueprint being pasted) clockwise / back.
+- **T**: switch the color of the tubes being built (amber or teal).
 - **Q** over a building: pick it to build, facing the same way and with its
-  settings for new ones. **Q** anywhere else, or the selected item's key or
+  settings (and a tube's color) for new ones. **Q** anywhere else, or the selected item's key or
   icon again: build nothing, so left clicks only inspect.
 - **?** (the / key), or Keys under the grid: every control, in a list. The
   bar under the grid shows the keys that do something right now.
@@ -230,7 +257,7 @@ the enemies behind. Buildings mend slowly while no enemy is near.
 Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
 and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
 A copy holds the buildings in the box with their settings — machine
-recipes, collector targets, sorter and unloader filters and whether machines
+recipes, collector targets, filter tube and extractor filters, tube colors and whether machines
 and collectors run only on request — but never the
 items in them, nor the hull (the ship's layout fixes that). A building
 partly inside the box comes whole; the bridge and the engines never come. R
@@ -276,10 +303,11 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
   (square), shown in the palette, cargo, crafting panels and pickers.
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
   plus `buildings/Bridge.png`, `buildings/Hull.png` (one cell of hull) and
-  `buildings/BeltTunnelEntrance.png` (`BeltTunnel.png` is a tunnel's exit).
+  `buildings/VacuumLineEntrance.png` (`VacuumLine.png` is a vacuum line's
+  exit). Tube pieces are drawn in their color, not from their sprites.
   Its shape is the building's footprint (2:3 for the 2x3 ion thruster, 1:1
-  for a 2x2 collector), drawn facing **North**; the game turns belts to face
-  the way they point.
+  for a 2x2 collector), drawn facing **North**; the game turns what faces a
+  way (check valves, extractors, vacuum lines) to face it.
 
 `<ItemId>` is the item's enumerator in `src/sim/game_types.h`, as saves
 write it (`IronPlate`, `AsteroidCollector`). Any resolution works as long
@@ -307,11 +335,11 @@ One directory per layer under `src/`; includes name their layer
     `GridPos`, `GridSize`, `Direction`, and `ItemKind` (what the inventory
     holds) with each item's name and id (`items.cpp`).
   - `building.h/.cpp` — the `Building` class hierarchy (`Bridge`,
-    `Collector`, `Conveyor`, `Machine`, ...), the bridge's item requests
+    `Collector`, `Tube`, `Machine`, ...), the bridge's item requests
     and running only on them (`product_of`), each kind's footprint
     (`footprint_of`, e.g. 2x2 collectors), the collectors' rates and buffers
-    (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), unloaders and the
-    storage they take from, machines and which recipes they run, the
+    (`CollectorSpec`), tube pieces (`Tube`), `VacuumLine`, `Crossover`,
+    extractors and the storage they take from, machines and which recipes they run, the
     `make_building` factory and `Inventory` (the bridge's, and building
     buffers).
   - `recipes.h/.cpp` — every `Recipe` (inputs, outputs, time, the
@@ -319,8 +347,8 @@ One directory per layer under `src/`; includes name their layer
     hand-craft it); a building's cost is the recipe that makes its item.
   - `ship.h/.cpp` — `Ship`: the build grid (its layout's hull, and
     buildings stored at their top-left cell), placement / removal rules,
-    the starting ship, linking belt tunnels, and moving items between
-    neighboring buildings each tick; the yields of the sector it's in, which
+    the starting ship, linking vacuum lines, and moving items between
+    neighboring buildings each tick (the tube rules); the yields of the sector it's in, which
     its collectors gather at.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
     hull, bridge and engines, its cost, and the milestone that unlocks it.

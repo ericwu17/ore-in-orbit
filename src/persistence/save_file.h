@@ -5,7 +5,7 @@
 //
 //   {
 //     "format": "ore-in-orbit-save",
-//     "version": 9,                (kSaveVersion)
+//     "version": 10,               (kSaveVersion)
 //     "name": "Ship 1",
 //     "saved_at": 1760000000,      (Unix seconds)
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
@@ -39,7 +39,9 @@
 // is renamed with that item's display name). A new key whose absence means
 // what older saves meant (none, off) can be optional instead, read with
 // that default.
-constexpr int kSaveVersion = 9;
+// Version 10 replaced belts, sorters, junctions, routers, unloaders and belt
+// tunnels with tubes (see Tube in sim/building.h): older saves don't load.
+constexpr int kSaveVersion = 10;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

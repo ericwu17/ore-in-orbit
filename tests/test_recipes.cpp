@@ -24,7 +24,7 @@ void test_names_and_categories() {
     for (const Recipe& r : all_recipes())
         assert(std::strcmp(recipe_name(r), "?") != 0);
 
-    assert(item_category(ItemKind::TransportBelt) == ItemCategory::Placeable);
+    assert(item_category(ItemKind::Tube) == ItemCategory::Placeable);
     assert(item_category(ItemKind::IonThruster) == ItemCategory::Placeable);
     assert(item_category(ItemKind::IronOre) == ItemCategory::RawResource);
     assert(item_category(ItemKind::IridiumOre) == ItemCategory::RawResource);
@@ -150,7 +150,7 @@ void test_machines() {
     assert(refinery_m->can_run(silicon) && refinery_m->can_run(plastic) && refinery_m->can_run(iron));
     assert(!solar_m->can_run(silicon) && !solar_m->can_run(plastic) && solar_m->can_run(iron));
     assert(refinery_m->crafting_speed() == 2 && solar_m->crafting_speed() == 1);
-    assert(dynamic_cast<const Machine*>(make_building(ItemKind::Junction, Direction::North).get()) == nullptr);
+    assert(dynamic_cast<const Machine*>(make_building(ItemKind::Crossover, Direction::North).get()) == nullptr);
 
     // Every building kind can be made, the layout's engines included.
     for (int i = 0; i < kItemKindCount; ++i) {
@@ -191,10 +191,10 @@ void test_hand_crafting() {
     assert(bridge.craft_queue().empty());
 
     // Not hand-craftable, or not enough inputs: refused, nothing taken.
-    const Recipe& tunnel = *recipe_for(ItemKind::BeltTunnel);
-    assert(!tunnel.hand_craftable);
-    assert(!bridge.can_hand_craft(tunnel));
-    assert(!bridge.queue_craft(tunnel));
+    const Recipe& vacuum = *recipe_for(ItemKind::VacuumLine);
+    assert(!vacuum.hand_craftable);
+    assert(!bridge.can_hand_craft(vacuum));
+    assert(!bridge.queue_craft(vacuum));
     const Recipe& processor = *recipe_for(ItemKind::Processor);
     assert(processor.hand_craftable && !bridge.can_hand_craft(processor));
     assert(!bridge.queue_craft(processor));

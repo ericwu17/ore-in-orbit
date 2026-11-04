@@ -115,6 +115,21 @@ void DrawCopyBox(ImDrawList* draw, const Ship& ship, GridPos a, GridPos b, ImVec
     draw->AddRect(min, max, theme::U32(theme::kAccent), 0.0f, 0, 2.0f);
 }
 
+// The arms a tube piece not yet built is drawn with: along the way it faces
+// (a check valve's), or straight across.
+std::array<bool, 4> GhostTubeLinks(ItemKind kind, Direction facing) {
+    const bool along_ns = kind != ItemKind::CheckValve || facing == Direction::North || facing == Direction::South;
+    return {along_ns, !along_ns, along_ns, !along_ns};
+}
+
+// The arms of the tube piece built at `p`: a side each that it links to.
+std::array<bool, 4> TubeLinks(const Ship& ship, GridPos p) {
+    std::array<bool, 4> links{};
+    for (int i = 0; i < 4; ++i)
+        links[static_cast<std::size_t>(i)] = ship.tube_links(p, static_cast<Direction>(i));
+    return links;
+}
+
 // A ghost of `blueprint` pasted with its top-left cell at `at`: what it would
 // add (not what is there already), each piece that can't go down outlined
 // (warning-colored when it only lacks the items), and its bounds, good or
@@ -130,7 +145,10 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
         const BlueprintBuilding& b = blueprint.buildings[e.building];
         const GridSize size = footprint_of(b.kind, b.facing);
         const ImVec2 max = FootprintMax(min, cell, size);
-        DrawBuilding(draw, min, cell, size, b.kind, b.facing, 0.45f);
+        if (is_tube(b.kind))
+            DrawTube(draw, min, cell, b.kind, b.color, b.facing, GhostTubeLinks(b.kind, b.facing), 0.45f);
+        else
+            DrawBuilding(draw, min, cell, size, b.kind, b.facing, 0.45f);
         // Its settings, where the built one shows them.
         if (b.recipe && !b.recipe->outputs.empty())
             DrawCornerItem(draw, min, max, cell, b.recipe->outputs.front().kind);
@@ -231,8 +249,8 @@ void DrawBattle(ImDrawList* draw, const Ship& ship, const Battle& battle, ImVec2
     }
 }
 
-// A belt tunnel's underground stretch, from cell `a` to cell `b`.
-void DrawTunnelLink(ImDrawList* draw, GridPos a, GridPos b, ImVec2 origin, float cell) {
+// A vacuum line's link, from cell `a` to cell `b`.
+void DrawVacuumLink(ImDrawList* draw, GridPos a, GridPos b, ImVec2 origin, float cell) {
     const auto middle = [&](GridPos p) {
         const ImVec2 min = CellMin(origin, cell, p);
         return ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f);
@@ -243,25 +261,25 @@ void DrawTunnelLink(ImDrawList* draw, GridPos a, GridPos b, ImVec2 origin, float
     draw->AddCircleFilled(middle(b), std::max(2.0f, cell * 0.1f), color);
 }
 
-// The tunnels' links, for one being placed or looked at: all of them while
-// `all`, else only the pair with `inspected` in it.
-void DrawTunnelLinks(ImDrawList* draw, const Ship& ship, const Building* inspected, bool all, ImVec2 origin,
+// The vacuum lines' links, for one being placed or looked at: all of them
+// while `all`, else only the pair with `inspected` in it.
+void DrawVacuumLinks(ImDrawList* draw, const Ship& ship, const Building* inspected, bool all, ImVec2 origin,
                      float cell) {
-    if (!all && !dynamic_cast<const Tunnel*>(inspected))
+    if (!all && !dynamic_cast<const VacuumLine*>(inspected))
         return;
     for (const GridPos p : ship.placement_order()) {
-        const auto* tunnel = dynamic_cast<const Tunnel*>(ship.building_anchored_at(p));
-        if (!tunnel || !tunnel->get_exit())
+        const auto* line = dynamic_cast<const VacuumLine*>(ship.building_anchored_at(p));
+        if (!line || !line->get_exit())
             continue;
-        if (all || tunnel == inspected || ship.building_anchored_at(*tunnel->get_exit()) == inspected)
-            DrawTunnelLink(draw, p, *tunnel->get_exit(), origin, cell);
+        if (all || line == inspected || ship.building_anchored_at(*line->get_exit()) == inspected)
+            DrawVacuumLink(draw, p, *line->get_exit(), origin, cell);
     }
 }
 
-// Whether a left drag turns `kind` to face the way it goes: belts, so a
-// line drawn round a corner carries items along it.
+// Whether a left drag turns `kind` to face the way it goes: check valves, so
+// a run of them drawn round a corner carries items along it.
 bool DragTurns(ItemKind kind) {
-    return kind == ItemKind::TransportBelt || kind == ItemKind::ExpressBelt;
+    return kind == ItemKind::CheckValve;
 }
 
 // The way from cell `a` to the neighboring cell `b`.
@@ -274,14 +292,16 @@ Direction DirectionBetween(GridPos a, GridPos b) {
 }
 
 // Gives the building just placed at `p` the settings last picked for its
-// kind, if any.
+// kind, if any, and a tube piece the color being built in.
 void ApplyLastSettings(Ship& ship, GridPos p, ItemKind kind) {
     const auto last = g_settings.last.find(static_cast<int>(kind));
     if (last != g_settings.last.end())
         ApplySettings(ship, p, last->second);
+    if (is_tube(kind))
+        ship.set_tube_color(p, g_build.tube_color);
 }
 
-// Turns the belt this drag put at `p` to face `facing` (taking it up and
+// Turns the check valve this drag put at `p` to face `facing` (taking it up and
 // putting it down again), so the one before a corner points round it.
 void RefaceDragged(Ship& ship, GridPos p, ItemKind kind, Direction facing) {
     const std::vector<GridPos>& placed = g_build.drag_placed;
@@ -296,9 +316,9 @@ void RefaceDragged(Ship& ship, GridPos p, ItemKind kind, Direction facing) {
 
 // One frame of a left press or drag that builds, the mouse over `cell`:
 // places the selected item on every cell from the last one the drag was over
-// to this one, a step at a time, so a quick drag leaves no gaps; belts turn
-// to face the way it goes. Belt tunnels go down on the press only: a row of
-// them would pair off cell by cell. A press that builds nothing inspects the
+// to this one, a step at a time, so a quick drag leaves no gaps; check
+// valves turn to face the way it goes. Vacuum lines go down on the press
+// only: a row of them would pair off cell by cell. A press that builds nothing inspects the
 // building there, or says why.
 void BuildDrag(Ship& ship, GridPos cell) {
     BuildUiState& build = g_build;
@@ -323,7 +343,7 @@ void BuildDrag(Ship& ship, GridPos cell) {
     // With nothing selected, nothing gets built: a click only inspects.
     std::optional<BuildResult> result;
     for (const GridPos p : path) {
-        if (!build.selected || (*build.selected == ItemKind::BeltTunnel && !pressed))
+        if (!build.selected || (*build.selected == ItemKind::VacuumLine && !pressed))
             break;
         const ItemKind kind = *build.selected;
         if (DragTurns(kind) && (p.x != prev.x || p.y != prev.y)) {
@@ -514,29 +534,36 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 const ImVec2 min = CellMin(origin, cell, {x, y});
                 // An engine knocked offline, dimmed till it mends.
                 const auto* thruster = dynamic_cast<const Thruster*>(b);
-                const auto* tunnel = dynamic_cast<const Tunnel*>(b);
+                const auto* line = dynamic_cast<const VacuumLine*>(b);
+                const auto* tube = dynamic_cast<const Tube*>(b);
                 // A machine or collector on standby (the bridge has what it
                 // requests), dimmed less.
                 const auto* collector = dynamic_cast<const Collector*>(b);
                 const auto* machine = dynamic_cast<const Machine*>(b);
                 const bool standby = (collector && collector->on_standby()) || (machine && machine->on_standby());
                 const float alpha = thruster && thruster->offline() ? 0.4f : standby ? 0.55f : 1.0f;
-                DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), alpha,
-                             tunnel && tunnel->is_exit());
+                if (tube)
+                    DrawTube(draw, min, cell, *b->item_kind(), tube->get_color(), b->facing(), TubeLinks(ship, {x, y}),
+                             alpha);
+                else
+                    DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), alpha,
+                                 line && line->is_exit());
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
-                // A tunnel with nowhere to send its items, an unloader with
-                // nothing to take them from.
-                const auto* unloader = dynamic_cast<const Unloader*>(b);
-                if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})))
+                // A vacuum line with nowhere to send its items, an extractor
+                // with nothing to take them from, a tube jammed (or a filter
+                // tube with no filter, which takes nothing).
+                const auto* extractor = dynamic_cast<const Extractor*>(b);
+                if ((line && !line->linked()) || (extractor && !ship.extract_source({x, y})) ||
+                    (tube && (tube->jammed() || (tube->is_filter() && !tube->get_filter()))))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
                 if (collector)
                     DrawCollectorStatus(draw, *collector, min, max, cell);
                 if (machine)
                     DrawMachineStatus(draw, *machine, min, max, cell);
-                if (const auto* sorter = dynamic_cast<const Sorter*>(b))
-                    DrawFilterIcon(draw, sorter->get_filter(), min, cell);
-                if (unloader)
-                    DrawFilterIcon(draw, unloader->get_filter(), min, cell);
+                if (tube && tube->is_filter())
+                    DrawFilterIcon(draw, tube->get_filter(), min, cell);
+                if (extractor)
+                    DrawFilterIcon(draw, extractor->get_filter(), min, cell);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
                 if (b == InspectedBuilding(ship)) {
                     DrawCornerBrackets(draw, min, max, theme::U32(theme::kAccent), cell);
@@ -546,21 +573,21 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                                         turret->get_spec().range * cell, theme::U32(theme::kAccent, 0.6f), 0, 1.5f);
                 }
             }
-    // Items on belts, junctions and routers, over every building (they
+    // Items in tubes, vacuum lines and crossovers, over every building (they
     // cross onto the next cell).
     for (int y = lo.y; y <= hi.y; ++y)
         for (int x = lo.x; x <= hi.x; ++x) {
             const Building* b = ship.building_anchored_at({x, y});
             const ImVec2 min = CellMin(origin, cell, {x, y});
-            if (const auto* belt = dynamic_cast<const Conveyor*>(b))
-                DrawBeltItems(draw, *belt, min, cell);
-            else if (const auto* junction = dynamic_cast<const Junction*>(b))
-                DrawJunctionItems(draw, *junction, min, cell);
-            else if (const auto* router = dynamic_cast<const Router*>(b))
-                DrawRouterItem(draw, *router, min, cell);
+            if (const auto* tube = dynamic_cast<const Tube*>(b))
+                DrawTubeItems(draw, *tube, min, cell);
+            else if (const auto* line = dynamic_cast<const VacuumLine*>(b))
+                DrawVacuumItems(draw, *line, min, cell);
+            else if (const auto* crossover = dynamic_cast<const Crossover*>(b))
+                DrawCrossoverItems(draw, *crossover, min, cell);
         }
 
-    DrawTunnelLinks(draw, ship, InspectedBuilding(ship), g_build.selected == ItemKind::BeltTunnel, origin, cell);
+    DrawVacuumLinks(draw, ship, InspectedBuilding(ship), g_build.selected == ItemKind::VacuumLine, origin, cell);
 
     DrawBattle(draw, ship, battle, origin, cell, now);
 
@@ -591,16 +618,16 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
             const ImVec2 max = FootprintMax(min, cell, size);
             const BuildResult r = ship.can_place(*selected, *hover_cell, g_build.facing);
             draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
-            // A tunnel: its other end, or how far off that can go.
-            TunnelPreview tunnel;
-            if (*selected == ItemKind::BeltTunnel && r == BuildResult::Ok) {
-                tunnel = ship.tunnel_preview(*hover_cell, g_build.facing);
-                if (tunnel.partner) {
-                    DrawTunnelLink(draw, *hover_cell, *tunnel.partner, origin, cell);
+            // A vacuum line: its other end, or how far off that can go.
+            VacuumPreview vacuum;
+            if (*selected == ItemKind::VacuumLine && r == BuildResult::Ok) {
+                vacuum = ship.vacuum_preview(*hover_cell, g_build.facing);
+                if (vacuum.partner) {
+                    DrawVacuumLink(draw, *hover_cell, *vacuum.partner, origin, cell);
                 } else {
                     GridPos a = neighbor(*hover_cell, g_build.facing);
                     GridPos b = a;
-                    for (int i = 1; i < kTunnelRange; ++i)
+                    for (int i = 1; i < kVacuumRange; ++i)
                         b = neighbor(b, g_build.facing);
                     const GridPos top_left{std::min(a.x, b.x), std::min(a.y, b.y)};
                     const GridPos bottom_right{std::max(a.x, b.x) + 1, std::max(a.y, b.y) + 1};
@@ -608,8 +635,11 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                                         theme::U32(theme::kAccent, 0.15f));
                 }
             }
-            if (r == BuildResult::Ok)
-                DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f, tunnel.is_exit);
+            if (r == BuildResult::Ok && is_tube(*selected))
+                DrawTube(draw, min, cell, *selected, g_build.tube_color, g_build.facing,
+                         GhostTubeLinks(*selected, g_build.facing), 0.45f);
+            else if (r == BuildResult::Ok)
+                DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f, vacuum.is_exit);
             draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
             draw->PopClipRect();
         }

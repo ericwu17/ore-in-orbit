@@ -168,11 +168,11 @@ void test_collector_on_request() {
     ship.get_bridge().set_request(ItemKind::IronOre, have + 2);
     run(interval * 2);
     assert(c->stored() == 3 && !c->on_standby());
-    // A belt carries its catch into the bridge, until it has what it asked
+    // A tube carries its catch into the bridge, until it has what it asked
     // for; then it stops, its buffer emptied.
-    const GridPos belt{kOnHull.x - 1, kOnHull.y};
-    ship.inventory().add(ItemKind::TransportBelt, 1);
-    assert(ship.place(ItemKind::TransportBelt, belt, Direction::North) == BuildResult::Ok);
+    const GridPos tube{kOnHull.x - 1, kOnHull.y};
+    ship.inventory().add(ItemKind::Tube, 1);
+    assert(ship.place(ItemKind::Tube, tube, Direction::North) == BuildResult::Ok);
     ship.inventory().add(ItemKind::IronOre, 2);
     run(interval * 10);
     assert(c->on_standby() && c->stored() == 0);

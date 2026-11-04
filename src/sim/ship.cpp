@@ -9,10 +9,11 @@
 namespace {
 
 // What the bridge inventory starts with (design: just enough for a first
-// line: collectors feeding furnaces, belts back to the bridge, and a few
+// line: collectors feeding furnaces, tubes back to the bridge, and a few
 // plates to hand-craft the first gears and circuits; the rest is built).
 constexpr ItemStack kStartInventory[] = {
-    {ItemKind::TransportBelt, 60},
+    {ItemKind::Tube, 60},
+    {ItemKind::CheckValve, 4},
     {ItemKind::CargoHold, 1},
     {ItemKind::AsteroidCollector, 2},
     {ItemKind::SolarFurnace, 2},
@@ -120,54 +121,53 @@ void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
             assert(!cell);
             cell = p;
         }
-    const bool tunnel = dynamic_cast<const Tunnel*>(building.get()) != nullptr;
+    const bool vacuum = dynamic_cast<const VacuumLine*>(building.get()) != nullptr;
     at(buildings, p) = std::move(building);
     placed.push_back(p);
-    if (tunnel)
-        link_tunnels();
+    if (vacuum)
+        link_vacuum_lines();
 }
 
-std::optional<GridPos> Ship::tunnel_along(GridPos p, Direction way, Direction facing) const {
-    for (int i = 0; i < kTunnelRange; ++i) {
+std::optional<GridPos> Ship::vacuum_along(GridPos p, Direction way, Direction facing) const {
+    for (int i = 0; i < kVacuumRange; ++i) {
         p = neighbor(p, way);
-        const auto* tunnel = dynamic_cast<const Tunnel*>(building_at(p));
-        if (tunnel && tunnel->facing() == facing)
+        const auto* line = dynamic_cast<const VacuumLine*>(building_at(p));
+        if (line && line->facing() == facing)
             return p;
     }
     return std::nullopt;
 }
 
-void Ship::link_tunnels() {
-    std::vector<GridPos> tunnels;
+void Ship::link_vacuum_lines() {
+    std::vector<GridPos> lines;
     for (const GridPos p : placed)
-        if (auto* tunnel = dynamic_cast<Tunnel*>(at(buildings, p).get())) {
-            tunnel->unlink();
-            tunnels.push_back(p);
+        if (auto* line = dynamic_cast<VacuumLine*>(at(buildings, p).get())) {
+            line->unlink();
+            lines.push_back(p);
         }
     // Rearmost first: how far along its own direction each one stands.
     const auto along = [&](GridPos p) {
         const GridPos step = neighbor({0, 0}, at(buildings, p)->facing());
         return p.x * step.x + p.y * step.y;
     };
-    std::sort(tunnels.begin(), tunnels.end(), [&](GridPos a, GridPos b) { return along(a) < along(b); });
-    for (const GridPos p : tunnels) {
-        auto& entrance = dynamic_cast<Tunnel&>(*at(buildings, p));
+    std::sort(lines.begin(), lines.end(), [&](GridPos a, GridPos b) { return along(a) < along(b); });
+    for (const GridPos p : lines) {
+        auto& entrance = dynamic_cast<VacuumLine&>(*at(buildings, p));
         if (entrance.is_exit())
             continue;
-        if (const std::optional<GridPos> ahead = tunnel_along(p, entrance.facing(), entrance.facing())) {
+        if (const std::optional<GridPos> ahead = vacuum_along(p, entrance.facing(), entrance.facing())) {
             const int cells = std::abs(ahead->x - p.x) + std::abs(ahead->y - p.y);
             entrance.link_exit(*ahead, cells);
-            dynamic_cast<Tunnel&>(*at(buildings, *ahead)).link_entrance(p, cells);
+            dynamic_cast<VacuumLine&>(*at(buildings, *ahead)).link_entrance(p, cells);
         }
     }
 }
 
-TunnelPreview Ship::tunnel_preview(GridPos p, Direction facing) const {
-    const Direction back = rotated_cw(rotated_cw(facing));
-    if (const std::optional<GridPos> behind = tunnel_along(p, back, facing))
-        if (!dynamic_cast<const Tunnel&>(*building_at(*behind)).is_exit())
+VacuumPreview Ship::vacuum_preview(GridPos p, Direction facing) const {
+    if (const std::optional<GridPos> behind = vacuum_along(p, opposite(facing), facing))
+        if (!dynamic_cast<const VacuumLine&>(*building_at(*behind)).is_exit())
             return {behind, true};
-    return {tunnel_along(p, facing, facing), false};
+    return {vacuum_along(p, facing, facing), false};
 }
 
 void Ship::update_yield(Collector& collector) const {
@@ -275,8 +275,8 @@ std::unique_ptr<Building> Ship::take_building(GridPos a) {
         for (int x = a.x; x < a.x + size.w; ++x)
             at(anchor, {x, y}).reset();
     placed.erase(std::find(placed.begin(), placed.end(), a));
-    if (dynamic_cast<const Tunnel*>(building.get()))
-        link_tunnels();
+    if (dynamic_cast<const VacuumLine*>(building.get()))
+        link_vacuum_lines();
     return building;
 }
 
@@ -309,56 +309,152 @@ void Ship::repair_all(int percent) {
 }
 
 bool Ship::insert_item(GridPos to, GridPos from, ItemKind kind) {
-    return insert_item(to, from, building_at(from), kind);
-}
-
-bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKind kind) {
     Building* target = building_at_mut(to);
     if (!target)
         return false;
-    if (auto* sorter = dynamic_cast<Sorter*>(target))
-        return sort_item(to, from, source, *sorter, kind);
-    if (auto* junction = dynamic_cast<Junction*>(target)) {
+    if (auto* tube = dynamic_cast<Tube*>(target))
+        return insert_into_tube(to, from, *tube, kind);
+    if (auto* crossover = dynamic_cast<Crossover*>(target)) {
         const Direction travel = direction_to(from, to);
-        if (!junction->has_room(travel) || !building_at(neighbor(to, travel)))
+        if (!crossover->has_room(travel) || !building_at(neighbor(to, travel)))
             return false;  // full that way, or nothing to cross to
-        junction->insert(kind, travel);
+        crossover->insert(kind, travel);
         return true;
     }
-    if (auto* router = dynamic_cast<Router*>(target)) {
-        if (!router->empty())
+    if (auto* line = dynamic_cast<VacuumLine*>(target)) {
+        // An exit is fed by its entrance alone, and nothing goes in by the
+        // front.
+        if (line->is_exit() || from == neighbor(to, line->facing()) || !line->has_room())
             return false;
-        router->insert(kind, direction_to(to, from));
+        line->insert(kind);
         return true;
     }
-    auto* belt = dynamic_cast<Conveyor*>(target);
-    if (!belt) {
-        if (!target->accepts(kind))
-            return false;
-        target->receive(kind);
-        return true;
-    }
-    const Direction facing = belt->facing();
-    if (from == neighbor(to, facing))
-        return false;  // the cell it feeds
-    if (source && building_at(neighbor(to, facing)) == source)
-        return false;  // back where it came from, through a sorter
-    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
-    const auto* tunnel = dynamic_cast<const Tunnel*>(belt);
-    const bool exit = tunnel && tunnel->is_exit();
-    if (exit && from == back)
-        return false;  // the tunnel's mouth
-    int pos = 0;
-    if (from != back) {
-        // From the side: halfway along, unless nothing feeds it from behind.
-        const auto* behind = dynamic_cast<const Conveyor*>(building_at(back));
-        if (exit || (behind && behind->facing() == facing))
-            pos = kBeltLength / 2;
-    }
-    if (!belt->has_room_at(pos))
+    if (!target->accepts(kind))
         return false;
-    belt->insert(kind, pos);
+    target->receive(kind);
     return true;
+}
+
+bool Ship::tube_links(GridPos p, Direction side) const {
+    const auto* tube = dynamic_cast<const Tube*>(building_at(p));
+    if (!tube)
+        return false;
+    if (tube->is_valve() && side != tube->facing() && side != opposite(tube->facing()))
+        return false;
+    const GridPos q = neighbor(p, side);
+    const Building* b = building_at(q);
+    if (!b)
+        return false;
+    // The way from the neighbor back to this tube.
+    const Direction back = opposite(side);
+    if (const auto* other = dynamic_cast<const Tube*>(b)) {
+        if (other->get_color() != tube->get_color())
+            return false;
+        return !other->is_valve() || back == other->facing() || back == opposite(other->facing());
+    }
+    if (const auto* extractor = dynamic_cast<const Extractor*>(b))
+        return back == extractor->facing();
+    if (const auto* line = dynamic_cast<const VacuumLine*>(b))
+        return line->is_exit() ? back == line->facing() : back != line->facing();
+    return true;
+}
+
+Ship::TubeExit Ship::tube_exit(GridPos p, const Tube& tube, Direction side, ItemKind kind) const {
+    if (!tube_links(p, side) || (tube.is_valve() && side != tube.facing()))
+        return TubeExit::None;
+    const GridPos q = neighbor(p, side);
+    const Building* b = building_at(q);
+    if (const auto* other = dynamic_cast<const Tube*>(b)) {
+        if (other->is_valve() && neighbor(q, opposite(other->facing())) != p)
+            return TubeExit::None;  // a valve takes items only from behind
+        if (other->is_filter())
+            return other->admits(kind) ? TubeExit::Building : TubeExit::None;
+        return other->is_overflow() ? TubeExit::Overflow : TubeExit::Tube;
+    }
+    if (dynamic_cast<const Crossover*>(b) || dynamic_cast<const VacuumLine*>(b))
+        return TubeExit::Tube;
+    if (dynamic_cast<const Extractor*>(b))
+        return TubeExit::None;  // it only gives
+    return TubeExit::Building;
+}
+
+bool Ship::takes_now(GridPos p, ItemKind kind) const {
+    const Building* b = building_at(p);
+    if (const auto* tube = dynamic_cast<const Tube*>(b))
+        return tube->admits(kind) && tube->has_room();
+    return b && b->accepts(kind);
+}
+
+bool Ship::tube_leads_on(GridPos p, const Tube& tube, Direction from, ItemKind kind) const {
+    for (int i = 0; i < 4; ++i) {
+        const auto d = static_cast<Direction>(i);
+        if (d == from)
+            continue;
+        const TubeExit exit = tube_exit(p, tube, d, kind);
+        // A filter tube counts among the buildings for rule 3, but it's tube.
+        if (exit == TubeExit::Tube || exit == TubeExit::Overflow ||
+            (exit == TubeExit::Building && dynamic_cast<const Tube*>(building_at(neighbor(p, d)))))
+            return true;
+    }
+    return false;
+}
+
+Direction Ship::plan_tube_exit(GridPos p, Tube& tube, Direction from, ItemKind kind) {
+    // The sides in turn, from the one whose turn it is.
+    const auto side = [&](int k) { return static_cast<Direction>((tube.next_out + k) % 4); };
+    for (int k = 0; k < 4; ++k) {
+        const Direction d = side(k);
+        if (d != from && tube_exit(p, tube, d, kind) == TubeExit::Building && takes_now(neighbor(p, d), kind))
+            return d;
+    }
+    for (const TubeExit want : {TubeExit::Tube, TubeExit::Overflow})
+        for (int k = 0; k < 4; ++k) {
+            const Direction d = side(k);
+            if (d != from && tube_exit(p, tube, d, kind) == want) {
+                tube.next_out = (static_cast<int>(d) + 1) % 4;
+                return d;
+            }
+        }
+    return tube_leads_on(p, tube, from, kind) ? opposite(from) : from;
+}
+
+bool Ship::insert_into_tube(GridPos to, GridPos from, Tube& tube, ItemKind kind) {
+    const Direction side = direction_to(to, from);
+    if (!tube_links(to, side) || (tube.is_valve() && side != opposite(tube.facing())))
+        return false;
+    if (!tube.admits(kind) || !tube.has_room())
+        return false;
+    tube.insert(kind, side, plan_tube_exit(to, tube, side, kind));
+    return true;
+}
+
+void Ship::move_tube_item(GridPos p, Tube& tube) {
+    const TubeItem* front = tube.item_at_front();
+    if (!front) {
+        tube.waited = 0;
+        return;
+    }
+    const TubeItem item = *front;
+    for (const TubeExit want : {TubeExit::Building, TubeExit::Tube, TubeExit::Overflow}) {
+        // The side it was headed for first, then the others clockwise.
+        Direction d = item.to;
+        for (int k = 0; k < 4; ++k, d = rotated_cw(d)) {
+            if (d == item.from || tube_exit(p, tube, d, item.kind) != want)
+                continue;
+            if (insert_item(neighbor(p, d), p, item.kind)) {
+                tube.pop_front();
+                tube.waited = 0;
+                return;
+            }
+        }
+    }
+    // Where the tubes end, it turns round.
+    if (!tube_leads_on(p, tube, item.from, item.kind) && insert_item(neighbor(p, item.from), p, item.kind)) {
+        tube.pop_front();
+        tube.waited = 0;
+        return;
+    }
+    ++tube.waited;
 }
 
 bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
@@ -369,50 +465,30 @@ bool Ship::set_recipe(GridPos p, const Recipe* recipe) {
     return true;
 }
 
-bool Ship::sort_item(GridPos at, GridPos from, const Building* source, Sorter& sorter, ItemKind kind) {
-    // Sorter to sorter to anything is as far as an item goes in one step
-    // (Mindustry's rule): a third would let a ring of them pass it round
-    // forever.
-    const bool from_sorter = dynamic_cast<const Sorter*>(building_at(from)) != nullptr;
-    auto pass = [&](Direction out) {
-        const GridPos to = neighbor(at, out);
-        if (from_sorter && dynamic_cast<const Sorter*>(building_at(to)))
-            return false;
-        return insert_item(to, at, source, kind);
-    };
-    const Direction d = direction_to(from, at);
-    if (sorter.passes_straight(kind))
-        return pass(d);
-    const Direction right = rotated_cw(d);
-    const Direction left = rotated_ccw(d);
-    const bool first_right = sorter.next_right;
-    if (pass(first_right ? right : left)) {
-        sorter.next_right = !first_right;
-        return true;
-    }
-    if (pass(first_right ? left : right)) {
-        sorter.next_right = first_right;
-        return true;
-    }
-    return false;
-}
-
 bool Ship::set_filter(GridPos p, std::optional<ItemKind> item) {
     Building* b = building_at_mut(p);
-    if (auto* sorter = dynamic_cast<Sorter*>(b))
-        sorter->set_filter(item);
-    else if (auto* unloader = dynamic_cast<Unloader*>(b))
-        unloader->set_filter(item);
+    if (auto* tube = dynamic_cast<Tube*>(b); tube && tube->is_filter())
+        tube->set_filter(item);
+    else if (auto* extractor = dynamic_cast<Extractor*>(b))
+        extractor->set_filter(item);
     else
         return false;
     return true;
 }
 
-const Building* Ship::unload_source(GridPos p) const {
-    const auto* unloader = dynamic_cast<const Unloader*>(building_at(p));
-    if (!unloader)
+bool Ship::set_tube_color(GridPos p, TubeColor color) {
+    auto* tube = dynamic_cast<Tube*>(building_at_mut(p));
+    if (!tube)
+        return false;
+    tube->set_color(color);
+    return true;
+}
+
+const Building* Ship::extract_source(GridPos p) const {
+    const auto* extractor = dynamic_cast<const Extractor*>(building_at(p));
+    if (!extractor)
         return nullptr;
-    const Building* source = building_at(neighbor(p, rotated_cw(rotated_cw(unloader->facing()))));
+    const Building* source = building_at(neighbor(p, opposite(extractor->facing())));
     return source && source->storage() ? source : nullptr;
 }
 
@@ -436,26 +512,26 @@ bool Ship::set_only_when_requested(GridPos p, bool on) {
     return true;
 }
 
-void Ship::pass_on(GridPos p, Building& b) {
-    if (auto* junction = dynamic_cast<Junction*>(&b)) {
-        for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
-            if (const std::optional<ItemKind> item = junction->item_ready(travel))
-                if (insert_item(neighbor(p, travel), p, *item))
-                    junction->pop(travel);
-    } else if (auto* router = dynamic_cast<Router*>(&b)) {
-        const std::optional<ItemKind> item = router->item_ready();
-        if (!item)
-            return;
-        // Clockwise from the side whose turn it is, skipping the way back.
-        Direction out = router->next_out;
-        for (int k = 0; k < 4; ++k, out = rotated_cw(out)) {
-            if (out == router->get_came_from())
-                continue;
-            if (insert_item(neighbor(p, out), p, *item)) {
-                router->pop();
-                router->next_out = rotated_cw(out);
-                return;
-            }
+void Ship::pass_on(GridPos p, Crossover& crossover) {
+    for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
+        if (const std::optional<ItemKind> item = crossover.item_ready(travel))
+            if (insert_item(neighbor(p, travel), p, *item))
+                crossover.pop(travel);
+}
+
+void Ship::move_vacuum_item(GridPos p, VacuumLine& line) {
+    const std::optional<ItemKind> item = line.item_at_front();
+    if (!item)
+        return;
+    if (line.is_exit()) {
+        if (insert_item(neighbor(p, line.facing()), p, *item))
+            line.pop_front();
+    } else if (const std::optional<GridPos> exit = line.get_exit()) {
+        // Straight to its exit; with none, it holds on to it.
+        auto& out = dynamic_cast<VacuumLine&>(*at(buildings, *exit));
+        if (out.has_room()) {
+            out.insert(*item);
+            line.pop_front();
         }
     }
 }
@@ -481,39 +557,47 @@ void Ship::push_output(GridPos p, Building& b) {
     for (int y = size.h - 1; y >= 0; --y)
         sides.push_back({{p.x - 1, p.y + y}, {p.x, p.y + y}});
 
+    const auto overflow = [&](GridPos q) {
+        const auto* tube = dynamic_cast<const Tube*>(building_at(q));
+        return tube && tube->is_overflow();
+    };
     const std::vector<ItemStack> held = out->stacks();
-    for (std::size_t k = 0; k < sides.size(); ++k) {
-        const std::size_t i = (b.next_output_side + k) % sides.size();
-        for (const ItemStack& s : held)
-            if (insert_item(sides[i].to, sides[i].from, s.kind)) {
-                out->take(s.kind);
-                b.next_output_side = i + 1;
-                return;
-            }
-    }
+    // Overflow tubes only once nothing else takes it.
+    for (const bool to_overflow : {false, true})
+        for (std::size_t k = 0; k < sides.size(); ++k) {
+            const std::size_t i = (b.next_output_side + k) % sides.size();
+            if (overflow(sides[i].to) != to_overflow)
+                continue;
+            for (const ItemStack& s : held)
+                if (insert_item(sides[i].to, sides[i].from, s.kind)) {
+                    out->take(s.kind);
+                    b.next_output_side = i + 1;
+                    return;
+                }
+        }
 }
 
-void Ship::unload(GridPos p, Unloader& unloader) {
-    if (!unloader.ready() || !unload_source(p))
+void Ship::extract(GridPos p, Extractor& extractor) {
+    if (!extractor.ready() || !extract_source(p))
         return;
-    Building& source = *building_at_mut(neighbor(p, rotated_cw(rotated_cw(unloader.facing()))));
+    Building& source = *building_at_mut(neighbor(p, opposite(extractor.facing())));
     const Inventory& stored = *source.storage();
-    const GridPos front = neighbor(p, unloader.facing());
+    const GridPos front = neighbor(p, extractor.facing());
     const auto take = [&](ItemKind kind) {
         if (stored.count(kind) <= 0 || !insert_item(front, p, kind))
             return false;
         source.unload(kind);
-        unloader.unloaded(kind);
+        extractor.extracted(kind);
         return true;
     };
-    if (const std::optional<ItemKind> filter = unloader.get_filter()) {
+    if (const std::optional<ItemKind> filter = extractor.get_filter()) {
         take(*filter);
         return;
     }
     // Every kind in turn, from the one after the last taken.
     constexpr auto kinds = static_cast<std::size_t>(kItemKindCount);
     for (std::size_t k = 0; k < kinds; ++k)
-        if (take(static_cast<ItemKind>((unloader.next_kind + k) % kinds)))
+        if (take(static_cast<ItemKind>((extractor.next_kind + k) % kinds)))
             return;
 }
 
@@ -532,31 +616,18 @@ void Ship::tick() {
     for (const GridPos p : placed)
         at(buildings, p)->tick();
     for (const GridPos p : placed)
-        pass_on(p, *at(buildings, p));
-    for (const GridPos p : placed) {
-        auto* belt = dynamic_cast<Conveyor*>(at(buildings, p).get());
-        if (!belt)
-            continue;
-        const std::optional<ItemKind> item = belt->item_at_front();
-        if (!item)
-            continue;
-        if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt); tunnel && !tunnel->is_exit()) {
-            // Straight to its exit; with none, it holds on to it.
-            if (const std::optional<GridPos> exit = tunnel->get_exit()) {
-                auto& out = dynamic_cast<Tunnel&>(*at(buildings, *exit));
-                if (out.has_room_at(0)) {
-                    out.insert(*item, 0);
-                    belt->pop_front();
-                }
-            }
-        } else if (insert_item(neighbor(p, belt->facing()), p, *item)) {
-            belt->pop_front();
-        }
-    }
+        if (auto* crossover = dynamic_cast<Crossover*>(at(buildings, p).get()))
+            pass_on(p, *crossover);
+    for (const GridPos p : placed)
+        if (auto* line = dynamic_cast<VacuumLine*>(at(buildings, p).get()))
+            move_vacuum_item(p, *line);
+    for (const GridPos p : placed)
+        if (auto* tube = dynamic_cast<Tube*>(at(buildings, p).get()))
+            move_tube_item(p, *tube);
     for (const GridPos p : placed) {
         Building& b = *at(buildings, p);
         push_output(p, b);
-        if (auto* unloader = dynamic_cast<Unloader*>(&b))
-            unload(p, *unloader);
+        if (auto* extractor = dynamic_cast<Extractor*>(&b))
+            extract(p, *extractor);
     }
 }

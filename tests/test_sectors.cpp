@@ -124,24 +124,26 @@ void test_scanner() {
         assert(map.at(n).surveyed && !map.at(n).visited);
 }
 
-// Thrusters take fuel cells from belts until charged.
+// Thrusters take fuel cells from tubes until charged.
 void test_charging() {
     World world;
     Ship& ship = world.flagship();
-    ship.inventory().add(ItemKind::TransportBelt, 1);
-    const GridPos belt{kThrusterA.x, kThrusterA.y - 1};
-    assert(ship.place(ItemKind::TransportBelt, belt, Direction::South) == BuildResult::Ok);
+    // A tube onto the thruster, fed from a check valve above it.
+    const GridPos tube{kThrusterA.x, kThrusterA.y - 1};
+    const GridPos valve{tube.x, tube.y - 1};
+    assert(ship.place(ItemKind::Tube, tube, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CheckValve, valve, Direction::South) == BuildResult::Ok);
     const auto* thruster = dynamic_cast<const Thruster*>(ship.building_at(kThrusterA));
     assert(thruster && thruster->get_fuel() == 0 && !thruster->charged());
-    assert(!ship.insert_item(kThrusterA, belt, ItemKind::Carbon));
+    assert(!ship.insert_item(kThrusterA, tube, ItemKind::Carbon));
 
     for (int i = 0; i < kThrusterCharge + 3; ++i) {
-        ship.insert_item(belt, {belt.x, belt.y - 1}, ItemKind::FuelCell);
+        assert(ship.insert_item(tube, valve, ItemKind::FuelCell));
         run(world, kTicksPerSecond);
     }
     assert(thruster->charged() && thruster->get_fuel() == kThrusterCharge);
-    // The rest wait on the belt.
-    assert(!dynamic_cast<const Conveyor*>(ship.building_at(belt))->get_items().empty());
+    // The rest wait in the tube.
+    assert(!dynamic_cast<const Tube*>(ship.building_at(tube))->get_items().empty());
     // Part of the layout: it stays, fuel and all.
     assert(ship.remove_building(kThrusterA) == BuildResult::NotRemovable);
     assert(thruster->get_fuel() == kThrusterCharge);

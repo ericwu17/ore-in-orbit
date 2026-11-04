@@ -30,6 +30,7 @@
 
 #include "imgui.h"
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <optional>
@@ -76,6 +77,7 @@ constexpr const char* kCtrlName = "Ctrl";
 struct BuildUiState {
     std::optional<ItemKind> selected;     // nullopt: nothing, clicks only inspect
     Direction facing = Direction::North;  // for rotatable buildings
+    TubeColor tube_color = TubeColor::Amber;  // for tube pieces (T switches it)
     std::string message;                  // why the last click did nothing
     ImVec4 message_color = theme::kBad;
     double message_time = -1.0e9;         // ImGui::GetTime() when it was set
@@ -86,7 +88,8 @@ struct BuildUiState {
     // The grid cell under the mouse last frame (Q picks what's there).
     std::optional<GridPos> hover_cell;
     // The current left drag: the last cell it went over, and the cells it
-    // built on, which a belt drawn round a corner turns to face the new way.
+    // built on, which a check valve drawn round a corner turns to face the
+    // new way.
     std::optional<GridPos> drag_last;
     std::vector<GridPos> drag_placed;
     bool show_keys = false;  // the keys overlay (?)
@@ -96,15 +99,16 @@ extern BuildUiState g_build;
 // How long a message (SetMessage) shows.
 constexpr double kMessageSeconds = 3.0;
 
-// A machine's recipe, a collector's target or a sorter's or unloader's
-// filter, and whether a machine or collector runs only on the bridge's
-// request: what a building of that kind is set to do.
+// A machine's recipe, a collector's target, a filter tube's or extractor's
+// filter, a tube piece's color, and whether a machine or collector runs only
+// on the bridge's request: what a building of that kind is set to do.
 struct BuildingSettings {
-    ItemKind kind = ItemKind::TransportBelt;  // the building they came from
+    ItemKind kind = ItemKind::Tube;  // the building they came from
     const Recipe* recipe = nullptr;
     std::optional<ItemKind> target;
     std::optional<ItemKind> filter;
-    bool has_filter = false;  // a sorter's or unloader's (whose filter may be none)
+    bool has_filter = false;  // a filter tube's or extractor's (whose filter may be none)
+    std::optional<TubeColor> color;  // a tube piece's
     bool only_when_requested = false;  // a machine's or collector's
 };
 
@@ -204,7 +208,7 @@ void SetMessage(std::string message, ImVec4 color = theme::kBad);
 void SetBuildMessage(BuildResult result);
 
 // What the building `b` is set to do, if it has settings (a machine, a
-// collector or a sorter).
+// collector, a tube piece or an extractor).
 std::optional<BuildingSettings> SettingsOf(const Building& b);
 // Remembers `s` as what new buildings of its kind start with.
 void RememberSettings(const BuildingSettings& s);
@@ -239,10 +243,18 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 
 // Draws one building over its footprint, whose top-left cell is at `min`
 // (cells of side `cell`): its sprite, or a stand-in when it has none. `kind`
-// is nullopt for the bridge. `alpha` fades the placement ghost. A belt tunnel
-// looks like its entrance unless `tunnel_exit`.
+// is nullopt for the bridge. `alpha` fades the placement ghost. A vacuum line
+// looks like its entrance unless `vacuum_exit`.
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit = false);
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool vacuum_exit = false);
+// A tube piece of kind `kind` in the cell whose top-left corner is `min`:
+// a hub in its color with an arm out of each side in `links` (North, East,
+// South, West), and its mark: a check valve's arrow, an overflow tube's bar
+// (a filter tube's filter is drawn over it with DrawFilterIcon).
+void DrawTube(ImDrawList* draw, ImVec2 min, float cell, ItemKind kind, TubeColor color, Direction facing,
+              const std::array<bool, 4>& links, float alpha = 1.0f);
+// The color tube pieces of `color` are drawn in.
+ImVec4 TubeColorValue(TubeColor color);
 
 // A thin gauge along the bottom of a building's footprint (`min`..`max`),
 // filled to `fraction`; warning-colored when full.
@@ -252,9 +264,12 @@ void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float
 // raw resources as round lumps, everything made from them as squares.
 void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 
-// The items riding a belt whose cell's top-left corner is `min`: position 0
-// is its back edge, kBeltLength its front edge.
-void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell);
+// The items in a tube whose cell's top-left corner is `min`: each from the
+// side it came in by, through the middle, to the side it is headed for.
+void DrawTubeItems(ImDrawList* draw, const Tube& tube, ImVec2 min, float cell);
+// The items in a vacuum line whose cell's top-left corner is `min`, on the
+// open side of its mouth.
+void DrawVacuumItems(ImDrawList* draw, const VacuumLine& line, ImVec2 min, float cell);
 // One item in the top-right corner of a building's footprint: the setting
 // the building is working to. Skipped when too far out to read.
 void DrawCornerItem(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ItemKind kind);
@@ -264,12 +279,11 @@ void DrawMachineStatus(ImDrawList* draw, const Machine& machine, ImVec2 min, ImV
 // A collector's target (in the top-right corner) and how full its buffer is
 // (a gauge along the bottom).
 void DrawCollectorStatus(ImDrawList* draw, const Collector& collector, ImVec2 min, ImVec2 max, float cell);
-// The items crossing a junction whose cell's top-left corner is `min`, each
+// The items crossing a crossover whose cell's top-left corner is `min`, each
 // as far across as it has got.
-void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell);
-// The item a router holds, in the middle of its tile.
-void DrawRouterItem(ImDrawList* draw, const Router& router, ImVec2 min, float cell);
-// A sorter's or unloader's filter item (if any), in the middle of its tile.
+void DrawCrossoverItems(ImDrawList* draw, const Crossover& crossover, ImVec2 min, float cell);
+// A filter tube's or extractor's filter item (if any), in the middle of its
+// tile.
 void DrawFilterIcon(ImDrawList* draw, std::optional<ItemKind> filter, ImVec2 min, float cell);
 
 // What an icon in a panel shows: an item, a building as built, or
@@ -282,7 +296,7 @@ struct Icon {
         Bridge,
     };
     Type type = Type::None;
-    ItemKind item = ItemKind::TransportBelt;
+    ItemKind item = ItemKind::Tube;
 };
 
 Icon ItemIcon(ItemKind kind);
@@ -409,8 +423,8 @@ void DrawCraftPanel(World& world, FleetShip& current, float width);
 // was last resized to (at first, in the middle of the screen): a heading with its picture, name and health,
 // then what it's doing and, in a second column, what can be set: for a
 // machine, the recipe picker; for a collector, what it gathers (for both,
-// whether they run only on request); for a sorter or an unloader, the filter
-// picker; for the bridge, whether its ship is a provider and its item
+// whether they run only on request); for a tube piece, its color; for a
+// filter tube or an extractor, the filter picker; for the bridge, whether its ship is a provider and its item
 // requests.
 void DrawInspectorWindow(Fleet& fleet, FleetShip& shown);
 // What a building is and what it's doing: for the grid's hover tooltip

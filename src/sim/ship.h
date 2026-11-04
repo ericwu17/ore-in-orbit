@@ -13,12 +13,12 @@
 // it covers records that top-left cell in `anchor`, and `placed` lists the
 // positions of all of them, oldest first.
 //
-// Item flow (Ship::tick): belts carry items to whatever they point at, and
-// buildings hand their output to the neighbors that will take it, belts
-// included (see insert_item). Filter and reverse sorters pass each item
-// straight on to a neighbor in the same step; junctions and routers hold
-// items a moment, then pass them on. A belt tunnel carries items underground
-// to its other end. Unloaders take items out of the storage behind them.
+// Item flow (Ship::tick): tubes carry items from cell to cell and into the
+// buildings next to them, by the rules in building.h (see Tube), and
+// buildings hand their output to the neighbors that will take it, tubes
+// included (see insert_item). Crossovers hold items a moment as they cross,
+// then pass them on. A vacuum line carries items fast to its other end.
+// Extractors take items out of the storage behind them.
 #pragma once
 
 #include "sim/building.h"
@@ -59,9 +59,9 @@ struct PlannedChanges {
     static constexpr int cell_key(GridPos p) { return p.y * kShipGridSize + p.x; }
 };
 
-// What a belt tunnel placed somewhere would link to: the other end, if any,
+// What a vacuum line placed somewhere would link to: the other end, if any,
 // and whether the new one would be the exit.
-struct TunnelPreview {
+struct VacuumPreview {
     std::optional<GridPos> partner;
     bool is_exit = false;
 };
@@ -90,32 +90,55 @@ private:
     }();
 
     Building* building_at_mut(GridPos p);
-    // The cell of the nearest belt tunnel facing `facing`, within kTunnelRange
-    // of `p` going `way`, passing under anything else.
-    std::optional<GridPos> tunnel_along(GridPos p, Direction way, Direction facing) const;
-    // Links the belt tunnels up, from where they stand: walking each line
-    // the way it runs, a tunnel not yet anyone's exit takes the nearest one
+    // The cell of the nearest vacuum line facing `facing`, within
+    // kVacuumRange of `p` going `way`, passing over anything else.
+    std::optional<GridPos> vacuum_along(GridPos p, Direction way, Direction facing) const;
+    // Links the vacuum lines up, from where they stand: walking each line
+    // the way it runs, one not yet anyone's exit takes the nearest one
     // ahead, facing the same way and in range, as its exit (so a row of them
     // pairs off from the back). Called whenever one comes or goes.
-    void link_tunnels();
+    void link_vacuum_lines();
     // Offers one item from `b`'s output buffer to its neighbors, round
-    // robin; moves it to the first that takes it.
+    // robin, overflow tubes only once none of the others takes it; moves it
+    // to the first that takes it.
     void push_output(GridPos p, Building& b);
-    // For the unloader at `p`, once it's ready: takes one item out of the
+    // For the extractor at `p`, once it's ready: takes one item out of the
     // storage behind it into the cell in front, if that takes one (the
     // filter's kind, or the first kind in turn that it takes).
-    void unload(GridPos p, Unloader& unloader);
-    // For a junction or router at `p`: hands on the items that are ready to
-    // go (one per way across a junction; a router's one, to the next
-    // neighbor in turn that takes it).
-    void pass_on(GridPos p, Building& b);
-    // insert_item(), for an item that left `source` (the building it was
-    // output from, before any sorters): a belt that points into `source`
-    // won't take it, as it would only carry it straight back.
-    bool insert_item(GridPos to, GridPos from, const Building* source, ItemKind kind);
-    // insert_item() for the sorter at `at`: hands the item on, from `from`,
-    // to the neighbor its filter sends it to.
-    bool sort_item(GridPos at, GridPos from, const Building* source, Sorter& sorter, ItemKind kind);
+    void extract(GridPos p, Extractor& extractor);
+    // For a crossover at `p`: hands on the items that are ready to go, one
+    // per way across.
+    void pass_on(GridPos p, Crossover& crossover);
+    // For a vacuum line at `p`: an entrance's front item goes on to its exit
+    // (with none, it stays), an exit's out of its front.
+    void move_vacuum_item(GridPos p, VacuumLine& line);
+
+    // How an item in tube pieces is routed (see Tube for the rules). Which
+    // kind of way on side `side` of the tube at `p` is for an item of `kind`
+    // in it: none; a building, or a filter tube that takes `kind` (rule 3:
+    // tried first); a tube, crossover or vacuum line; or an overflow tube
+    // (tried last).
+    enum class TubeExit { None, Building, Tube, Overflow };
+    TubeExit tube_exit(GridPos p, const Tube& tube, Direction side, ItemKind kind) const;
+    // Whether the building covering `p` would take `kind` now (a filter
+    // tube: whether it lets it in and has room).
+    bool takes_now(GridPos p, ItemKind kind) const;
+    // Whether the tube at `p` leads on to more tube (a tube piece,
+    // crossover or vacuum line) for an item of `kind` that came in by side
+    // `from`; where it doesn't, the tubes end and the item turns round.
+    bool tube_leads_on(GridPos p, const Tube& tube, Direction from, ItemKind kind) const;
+    // The side an item of `kind` coming into the tube at `p` by side `from`
+    // heads for: a building that takes it now, or else the next tube way in
+    // turn (moving the tube's turn on), or else an overflow tube; back the
+    // way it came where the tubes end; straight across otherwise.
+    Direction plan_tube_exit(GridPos p, Tube& tube, Direction from, ItemKind kind);
+    // insert_item() into the tube at `to`.
+    bool insert_into_tube(GridPos to, GridPos from, Tube& tube, ItemKind kind);
+    // For the tube at `p`: its front item, once at the far side, leaves into
+    // a building that takes it, else by the side it was headed for (or the
+    // next way clockwise that is open), else into an overflow tube, else,
+    // where the tubes end, back the way it came; or it waits.
+    void move_tube_item(GridPos p, Tube& tube);
 
     // Puts a building at `p` (its top-left cell) and marks its footprint,
     // which must be free.
@@ -182,8 +205,8 @@ public:
     // can_place() as if the `planned` changes had been made first, with
     // their inventory instead of the bridge's.
     BuildResult can_place(ItemKind kind, GridPos p, Direction facing, const PlannedChanges& planned) const;
-    // What a belt tunnel facing `facing` would link to if placed at `p`.
-    TunnelPreview tunnel_preview(GridPos p, Direction facing) const;
+    // What a vacuum line facing `facing` would link to if placed at `p`.
+    VacuumPreview vacuum_preview(GridPos p, Direction facing) const;
     // Places one building, taking it from the inventory. `p` is the
     // top-left cell of its footprint. `facing` is used by rotatable
     // buildings only (and turns a non-square one's footprint).
@@ -201,30 +224,32 @@ public:
     void repair_all(int percent);
 
     // Hands one item to the building covering `to`, coming from the next
-    // cell over, `from`; false (and no change) if it won't take it. A belt
-    // takes items from behind or from the side, never from the cell it
-    // points at: from behind they start at its back edge, from the side
-    // halfway along, unless no belt feeds it from behind (a corner), which
-    // counts as behind; nor, from a sorter, if it points into the building
-    // the item came from before the sorter. A sorter takes the item only if
-    // the neighbor it sends it to takes it now; an item from one sorter
-    // never goes through a second straight into a third (nor round a ring
-    // of them). A junction takes it while its queue that way has room and
-    // something stands on the far side; a router while it's empty. A tunnel's
-    // entrance takes items as a belt does; its exit only from the side,
-    // halfway along.
+    // cell over, `from`; false (and no change) if it won't take it. A tube
+    // takes it if it links to `from` (see tube_links), lets the item in and
+    // has room, a check valve only from behind. A crossover takes it while
+    // its queue that way has room and something stands on the far side. A
+    // vacuum line's entrance takes items from any side but its front; its
+    // exit takes none (its entrance hands them over).
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
+    // Whether the tube piece at `p` links to its neighbor on side `side`:
+    // a tube piece of the same color (a check valve only by its front or
+    // back, on either end), an extractor pointing at it, a vacuum line's
+    // entrance from any side but its front or its exit by its front, or any
+    // other building. False if there is no tube piece at `p`.
+    bool tube_links(GridPos p, Direction side) const;
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
     // there, it can't run `recipe` or `recipe` isn't unlocked yet.
     bool set_recipe(GridPos p, const Recipe* recipe);
-    // Sets the filter of the sorter or unloader at `p` (nullopt: none: every
-    // item turns at a sorter, an unloader takes every kind); false if there's
+    // Sets the filter of the filter tube or extractor at `p` (nullopt: none:
+    // a filter tube takes nothing, an extractor every kind); false if there's
     // neither there.
     bool set_filter(GridPos p, std::optional<ItemKind> item);
-    // The storage (the bridge or a cargo hold) behind the unloader at `p`,
-    // which it takes items out of; null if there's none, or no unloader.
-    const Building* unload_source(GridPos p) const;
+    // Sets the color of the tube piece at `p`; false if there's none there.
+    bool set_tube_color(GridPos p, TubeColor color);
+    // The storage (the bridge or a cargo hold) behind the extractor at `p`,
+    // which it takes items out of; null if there's none, or no extractor.
+    const Building* extract_source(GridPos p) const;
     // Aims the collector at `p` at `target`; false if there's no collector
     // there or it can't gather that.
     bool set_collector_target(GridPos p, ItemKind target);
@@ -234,10 +259,10 @@ public:
 
     // One simulation step: collectors and machines set to run only on
     // request go on standby (or off it) by the bridge's requests as they
-    // stand, every building ticks (gathering, crafting, belts
-    // moving), then junctions and routers pass on what's ready, then each
-    // belt's front item goes to what it points at (a tunnel's, to its exit),
-    // then each building puts one item of output out to a neighbor, and
-    // each ready unloader takes one out of storage.
+    // stand, every building ticks (gathering, crafting, items moving
+    // through tubes), then crossovers pass on what's ready, then each vacuum
+    // line's front item goes on, then each tube's front item leaves for the
+    // next cell or a building, then each building puts one item of output
+    // out to a neighbor, and each ready extractor takes one out of storage.
     void tick();
 };

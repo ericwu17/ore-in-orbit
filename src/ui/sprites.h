@@ -10,8 +10,8 @@
 //                            with its footprint's aspect ratio
 //   buildings/Bridge.png     the bridge
 //   buildings/Hull.png       one cell of hull (the deck plating)
-//   buildings/BeltTunnelEntrance.png
-//                            a belt tunnel's entrance (BeltTunnel.png is its
+//   buildings/VacuumLineEntrance.png
+//                            a vacuum line's entrance (VacuumLine.png is its
 //                            exit)
 //
 // (<ItemId>: item_id, e.g. "IronPlate".) A sprite that is missing, can't be
@@ -49,6 +49,6 @@ const Sprite* Item(ItemKind kind);       // an item's icon
 const Sprite* Building(ItemKind kind);   // a building, built (facing North)
 const Sprite* Bridge();                  // the bridge, built
 const Sprite* Hull();                    // one cell of hull
-const Sprite* TunnelEntrance();          // a belt tunnel's entrance (facing North)
+const Sprite* VacuumEntrance();          // a vacuum line's entrance (facing North)
 
 }  // namespace ui::sprites

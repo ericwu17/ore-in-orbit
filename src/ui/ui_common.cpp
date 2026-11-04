@@ -115,11 +115,14 @@ std::optional<BuildingSettings> SettingsOf(const Building& b) {
     } else if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         s.target = collector->get_target();
         s.only_when_requested = collector->get_only_when_requested();
-    } else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
-        s.filter = sorter->get_filter();
-        s.has_filter = true;
-    } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
-        s.filter = unloader->get_filter();
+    } else if (const auto* tube = dynamic_cast<const Tube*>(&b)) {
+        s.color = tube->get_color();
+        if (tube->is_filter()) {
+            s.filter = tube->get_filter();
+            s.has_filter = true;
+        }
+    } else if (const auto* extractor = dynamic_cast<const Extractor*>(&b)) {
+        s.filter = extractor->get_filter();
         s.has_filter = true;
     } else
         return std::nullopt;
@@ -141,8 +144,16 @@ bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
         return false;
     const bool machine = dynamic_cast<const Machine*>(b) != nullptr;
     const bool collector = dynamic_cast<const Collector*>(b) != nullptr;
-    if (!machine && !collector)
-        return s.has_filter && s.filter != now->filter && ship.set_filter(p, s.filter);
+    if (!machine && !collector) {
+        // A tube piece takes another's color; a filter tube or an extractor
+        // another's filter.
+        bool changed = false;
+        if (s.color && now->color && s.color != now->color)
+            changed = ship.set_tube_color(p, *s.color);
+        if (s.has_filter && now->has_filter && s.filter != now->filter)
+            changed = ship.set_filter(p, s.filter) || changed;
+        return changed;
+    }
     bool changed = false;
     if (machine)
         changed = s.recipe && s.recipe != now->recipe && ship.set_recipe(p, s.recipe);
@@ -150,14 +161,14 @@ bool ApplySettings(Ship& ship, GridPos p, const BuildingSettings& s) {
         changed = s.target && s.target != now->target && ship.set_collector_target(p, *s.target);
     // Running only on request, from the same family only (a collector's
     // settings always have a target, a machine's never).
-    const bool same_family = machine ? !s.target && !s.has_filter : s.target.has_value();
+    const bool same_family = machine ? !s.target && !s.has_filter && !s.color : s.target.has_value();
     if (same_family && s.only_when_requested != now->only_when_requested)
         changed = ship.set_only_when_requested(p, s.only_when_requested) || changed;
     return changed;
 }
 
 bool SameSettings(const BuildingSettings& a, const BuildingSettings& b) {
-    return a.recipe == b.recipe && a.target == b.target && a.filter == b.filter &&
+    return a.recipe == b.recipe && a.target == b.target && a.filter == b.filter && a.color == b.color &&
            a.only_when_requested == b.only_when_requested;
 }
 
@@ -168,6 +179,8 @@ const char* SettingsName(const BuildingSettings& s) {
         return item_name(*s.target);
     if (s.filter)
         return item_name(*s.filter);
+    if (s.color)
+        return tube_color_name(*s.color);
     return nullptr;
 }
 

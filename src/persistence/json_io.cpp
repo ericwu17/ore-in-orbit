@@ -54,6 +54,14 @@ Direction load_direction(const Json& j) {
     throw LoadError("unknown direction \"" + id + "\"");
 }
 
+TubeColor load_tube_color(const Json& j) {
+    const std::string id = load_string(j, "a tube color");
+    for (int i = 0; i < kTubeColorCount; ++i)
+        if (id == tube_color_name(static_cast<TubeColor>(i)))
+            return static_cast<TubeColor>(i);
+    throw LoadError("unknown tube color \"" + id + "\"");
+}
+
 Json save_recipe(const Recipe* recipe) {
     return recipe ? Json(recipe_name(*recipe)) : Json(nullptr);
 }

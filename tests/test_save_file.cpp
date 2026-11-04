@@ -54,20 +54,21 @@ const Recipe& recipe_named(const char* name) {
 }
 
 // A ship with one of everything that holds state, part way through running:
-// a collector (aimed at silica) feeding belts into a cargo hold, a survey
-// scanner, a filter sorter with items queued on the belt into it, two machines
-// mid-craft, a west-facing express belt, a junction and a router holding
-// items, and the bridge hand-crafting, part way through a milestone; an
+// a collector (aimed at silica) feeding tubes, the last an overflow tube,
+// into a cargo hold, a survey scanner, a filter tube with an item it doesn't
+// take turning round in the tube before it, two machines mid-craft, a teal
+// tube and check valve with an item in the tube, a crossover holding items,
+// and the bridge hand-crafting, part way through a milestone; an
 // engine (ion thruster) part charged, an autocannon with ammunition
 // and a damaged cargo hold, as a wave of enemies comes in; and a second
 // ship, with cargo on its way to it.
 World busy_world() {
     World world;
-    world.flagship().inventory().add({{ItemKind::TransportBelt, 10},
-                                      {ItemKind::ExpressBelt, 1},
-                                      {ItemKind::FilterSorter, 1},
-                                      {ItemKind::Junction, 1},
-                                      {ItemKind::Router, 1},
+    world.flagship().inventory().add({{ItemKind::Tube, 10},
+                                      {ItemKind::CheckValve, 2},
+                                      {ItemKind::FilterTube, 1},
+                                      {ItemKind::OverflowTube, 1},
+                                      {ItemKind::Crossover, 1},
                                       {ItemKind::SurveyScanner, 1},
                                       {ItemKind::Autocannon, 1},
                                       {ItemKind::Refinery, 1}});
@@ -81,8 +82,9 @@ World busy_world() {
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
     assert(ship.set_collector_target({x0, c - 6}, ItemKind::Silica));
-    for (int x = x0 + 2; x <= x0 + 4; ++x)
-        assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
+    for (int x = x0 + 2; x <= x0 + 3; ++x)
+        assert(ship.place(ItemKind::Tube, {x, c - 6}, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::OverflowTube, {x0 + 4, c - 6}, Direction::North) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
     assert(ship.place(ItemKind::SurveyScanner, {x0 + 8, c - 6}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
@@ -91,8 +93,9 @@ World busy_world() {
     for (int i = 0; i < 3; ++i)
         assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::SlugMagazine));
 
-    assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CheckValve, {x0 + 1, c - 2}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Tube, {x0 + 2, c - 2}, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::FilterTube, {x0 + 3, c - 2}) == BuildResult::Ok);
     assert(ship.set_filter({x0 + 3, c - 2}, ItemKind::IronOre));
     assert(ship.insert_item({x0 + 2, c - 2}, {x0 + 1, c - 2}, ItemKind::Silica));
 
@@ -102,18 +105,20 @@ World busy_world() {
     assert(ship.place(ItemKind::Refinery, {x0 + 5, c + 2}) == BuildResult::Ok);
     assert(ship.set_recipe({x0 + 5, c + 2}, &recipe_named("Silicon")));
 
-    assert(ship.place(ItemKind::ExpressBelt, {x0 + 3, c + 4}, Direction::West) == BuildResult::Ok);
-    assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 4, c + 4}, ItemKind::Glass));
+    assert(ship.place(ItemKind::Tube, {x0 + 3, c + 4}, Direction::North) == BuildResult::Ok);
+    assert(ship.set_tube_color({x0 + 3, c + 4}, TubeColor::Teal));
+    assert(ship.place(ItemKind::CheckValve, {x0 + 3, c + 5}, Direction::North) == BuildResult::Ok);
+    assert(ship.set_tube_color({x0 + 3, c + 5}, TubeColor::Teal));
+    assert(ship.insert_item({x0 + 3, c + 4}, {x0 + 3, c + 5}, ItemKind::Glass));
 
-    // A junction into a router, which has nowhere to pass its item on: both
-    // keep what they hold.
-    assert(ship.place(ItemKind::Junction, {x0 + 6, c + 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Router, {x0 + 7, c + 6}) == BuildResult::Ok);
-    assert(ship.insert_item({x0 + 7, c + 6}, {x0 + 8, c + 6}, ItemKind::Gear));
+    // A crossover with nothing past it any more: it keeps what it holds.
+    assert(ship.place(ItemKind::Crossover, {x0 + 6, c + 6}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Tube, {x0 + 7, c + 6}, Direction::North) == BuildResult::Ok);
     for (int i = 0; i < 2; ++i)
         assert(ship.insert_item({x0 + 6, c + 6}, {x0 + 5, c + 6}, ItemKind::Steel));
+    assert(ship.remove_building({x0 + 7, c + 6}) == BuildResult::Ok);
 
-    // Long enough for the first catch to ride the belts into the cargo hold.
+    // Long enough for the first catch to ride the tubes into the cargo hold.
     run(world, 250);
     // Fed only now, so both machines are mid-craft when the game is saved.
     for (int i = 0; i < 2; ++i)
@@ -132,7 +137,7 @@ World busy_world() {
     int launched = 0;
     assert(fleet.launch(fleet.flagship().id, starter_layout(), &launched) == FleetResult::Ok);
     assert(fleet.rename(launched, "Tender"));
-    assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::TransportBelt, 5}}, world.get_tick()) ==
+    assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::Tube, 5}}, world.get_tick()) ==
            FleetResult::Ok);
     // A wave on its way in, and a building already hurt.
     assert(world.send_wave(fleet.flagship().id));
@@ -184,16 +189,18 @@ void test_round_trip() {
     const Ship& copy = loaded->world.flagship();
     assert(copy.get_layout() == &starter_layout());
     assert(copy.hull_count() == ship.hull_count());
-    assert(copy.get_bridge().get_inventory().count(ItemKind::TransportBelt) ==
-           ship.inventory().count(ItemKind::TransportBelt));
-    const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
-    assert(sorter && sorter->get_filter() == ItemKind::IronOre);
-    const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
-    assert(belt && belt->facing() == Direction::West && belt->get_items().size() == 1);
-    const auto* junction = dynamic_cast<const Junction*>(copy.building_at({x0 + 6, c + 6}));
-    assert(junction && junction->lane(Direction::East).size() == 2);
-    const auto* router = dynamic_cast<const Router*>(copy.building_at({x0 + 7, c + 6}));
-    assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
+    assert(copy.get_bridge().get_inventory().count(ItemKind::Tube) == ship.inventory().count(ItemKind::Tube));
+    const auto* filter = dynamic_cast<const Tube*>(copy.building_at({x0 + 3, c - 2}));
+    assert(filter && filter->is_filter() && filter->get_filter() == ItemKind::IronOre);
+    const auto* silica = dynamic_cast<const Tube*>(copy.building_at({x0 + 2, c - 2}));
+    assert(silica && silica->get_items().size() == 1 && silica->get_items()[0].kind == ItemKind::Silica);
+    assert(dynamic_cast<const Tube&>(*copy.building_at({x0 + 4, c - 6})).is_overflow());
+    const auto* teal = dynamic_cast<const Tube*>(copy.building_at({x0 + 3, c + 4}));
+    assert(teal && teal->get_color() == TubeColor::Teal && teal->get_items().size() == 1);
+    const auto* valve = dynamic_cast<const Tube*>(copy.building_at({x0 + 3, c + 5}));
+    assert(valve && valve->is_valve() && valve->facing() == Direction::North);
+    const auto* crossover = dynamic_cast<const Crossover*>(copy.building_at({x0 + 6, c + 6}));
+    assert(crossover && crossover->lane(Direction::East).size() == 2);
     const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({kEngine.x + 1, kEngine.y + 2}));
     assert(thruster && thruster->get_fuel() == 3);
     const auto* turret = dynamic_cast<const Turret*>(copy.building_at({x0 + 3, c + 1}));
@@ -462,36 +469,45 @@ void test_refused() {
         buildings(j).push_back(Json::parse(building));
         return j.dump();
     };
-    assert(loads(with_building(
-        R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-            "items": [{"item": "IronOre", "pos": 30}]})")));
-    refused(with_building(R"({"kind": "TransportBelt", "x": 64, "y": 64, "facing": "East", "output_side": 0,
-                              "items": []})"),
-            "overlapping buildings");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "Up", "output_side": 0,
-                              "items": []})"),
-            "an unknown direction");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "items": [{"item": "IronOre", "pos": 30}, {"item": "IronOre", "pos": 20}]})"),
-            "belt items too close");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "items": [{"item": "IronOre", "pos": 61}]})"),
-            "a belt item off the belt");
+    // A tube, with `fields` changed.
+    const Json tube = Json::parse(R"({"kind": "Tube", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+        "color": "Amber", "next_out": 0, "items": [{"item": "IronOre", "pos": 30, "from": "West", "to": "East"}]})");
+    auto with_tube = [&](const Json& fields) {
+        Json t = tube;
+        t.update(fields);
+        return with_building(t.dump().c_str());
+    };
+    assert(loads(with_tube(Json::object())));
+    assert(loads(with_tube({{"kind", "FilterTube"}, {"filter", nullptr}})));
+    // Turning round: from and to the same side.
+    assert(loads(with_tube(Json::parse(R"({"items": [{"item": "IronOre", "pos": 30, "from": "West", "to": "West"}]})"))));
+    refused(with_tube({{"x", 64}}), "overlapping buildings");
+    refused(with_tube({{"facing", "Up"}}), "an unknown direction");
+    refused(with_tube({{"color", "Mauve"}}), "an unknown tube color");
+    refused(with_tube({{"next_out", 4}}), "a tube's turn past its last side");
+    refused(with_tube({{"kind", "FilterTube"}}), "a filter tube with no filter saved");
+    refused(with_tube(Json::parse(R"({"items": [{"item": "IronOre", "pos": 30, "from": "West", "to": "East"},
+                                                {"item": "IronOre", "pos": 20, "from": "West", "to": "East"}]})")),
+            "tube items too close");
+    refused(with_tube(Json::parse(R"({"items": [{"item": "IronOre", "pos": 61, "from": "West", "to": "East"}]})")),
+            "a tube item off the tube");
+    refused(with_tube(Json::parse(R"({"items": [{"item": "IronOre", "pos": 30, "from": "Up", "to": "East"}]})")),
+            "a tube item from an unknown side");
+    refused(with_building(R"({"kind": "VacuumLine", "x": 70, "y": 64, "facing": "East", "output_side": 0,
+                              "items": [{"item": "Gear", "pos": 9999}]})"),
+            "a vacuum line item past its range");
     refused(with_building(R"({"kind": "SolarFurnace", "x": 83, "y": 64, "facing": "North", "output_side": 0})"),
             "a building partly off hull");
-    refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+    refused(with_building(R"({"kind": "Crossover", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "lanes": {"North": [], "East": [{"item": "Gear", "elapsed": 9999}],
                                         "South": [], "West": []}})"),
-            "an item past the end of a junction");
-    refused(with_building(R"({"kind": "Junction", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+            "an item past the end of a crossover");
+    refused(with_building(R"({"kind": "Crossover", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "lanes": {"North": [], "East": [], "South": []}})"),
-            "a junction missing a way across");
-    refused(with_building(R"({"kind": "Router", "x": 70, "y": 64, "facing": "North", "output_side": 0,
-                              "held": "Gear", "came_from": "Up", "elapsed": 0, "next_out": "North"})"),
-            "a router item from an unknown side");
-    refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
+            "a crossover missing a way across");
+    refused(with_building(R"({"kind": "Extractor", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
-            "an unloader waiting longer than it ever does");
+            "an extractor waiting longer than it ever does");
 }
 
 // Cargo in flight names ships by id, and lands after the save's tick, by
@@ -548,22 +564,22 @@ void test_machine_refused() {
     refused_after(armed, "a turret cooling down too long", [&](Json& j) { turret(j)["cooldown"] = 1000; });
 }
 
-// A tunnel saved with an item partway under comes back linked, and the item
-// carries on, however far past a belt's length it had got.
-void test_tunnel_round_trip() {
+// A vacuum line saved with an item partway along comes back linked, and the
+// item carries on, however far past a tube's length it had got.
+void test_vacuum_round_trip() {
     World world;
     Ship& ship = world.flagship();
-    ship.inventory().add(ItemKind::BeltTunnel, 2);
+    ship.inventory().add(ItemKind::VacuumLine, 2);
     const GridPos entrance{x0, c + 8};
     const GridPos exit{x0 + 4, c + 8};
     const GridPos hold{x0 + 5, c + 8};
-    assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::BeltTunnel, exit, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::VacuumLine, entrance, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::VacuumLine, exit, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
     assert(ship.insert_item(entrance, {x0 - 1, c + 8}, ItemKind::Gear));
     run(world, 40);
-    const auto* tunnel = dynamic_cast<const Tunnel*>(ship.building_at(entrance));
-    assert(tunnel->get_items().front().pos > 2 * kBeltLength);
+    const auto* line = dynamic_cast<const VacuumLine*>(ship.building_at(entrance));
+    assert(line->get_items().front().pos > 2 * kTubeLength);
 
     const std::string text = save_text(world);
     std::string error;
@@ -571,32 +587,32 @@ void test_tunnel_round_trip() {
     assert(loaded && error.empty());
     assert(save_text(loaded->world) == text);
     const Ship& copy = loaded->world.flagship();
-    const auto* in = dynamic_cast<const Tunnel*>(copy.building_at(entrance));
+    const auto* in = dynamic_cast<const VacuumLine*>(copy.building_at(entrance));
     assert(in && in->get_exit() == exit && in->get_items().size() == 1);
     run(loaded->world, 100);
     assert(dynamic_cast<const CargoHold&>(*copy.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
 }
 
-// Unloaders keep their filter and where they are in their wait and their
-// turn through the kinds, so a loaded game unloads just as the original
+// Extractors keep their filter and where they are in their wait and their
+// turn through the kinds, so a loaded game extracts just as the original
 // does; and the milestone's count may be below 0.
-void test_unloader_round_trip() {
+void test_extractor_round_trip() {
     World world;
     Ship& ship = world.flagship();
-    ship.inventory().add({{ItemKind::Unloader, 2}, {ItemKind::CargoHold, 1}});
+    ship.inventory().add({{ItemKind::Extractor, 2}, {ItemKind::CargoHold, 1}});
     const GridPos from{x0, c + 8};
     const GridPos filtered{x0 + 2, c + 8};
     const GridPos unfiltered{x0 + 2, c + 9};
     const GridPos to{x0 + 3, c + 8};
     assert(ship.place(ItemKind::CargoHold, from) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Unloader, filtered, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Unloader, unfiltered, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Extractor, filtered, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Extractor, unfiltered, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, to) == BuildResult::Ok);
     assert(ship.set_filter(filtered, ItemKind::Gear));
     for (const ItemKind kind : {ItemKind::Gear, ItemKind::Steel, ItemKind::Glass})
         for (int i = 0; i < 10; ++i)
             assert(ship.insert_item(from, {x0 - 1, c + 8}, kind));
-    run(world, kUnloaderTicks + 3);
+    run(world, kExtractorTicks + 3);
     ship.get_bridge().get_progress().on_unloaded(ItemKind::IronPlate);
 
     const std::string text = save_text(world);
@@ -605,9 +621,9 @@ void test_unloader_round_trip() {
     assert(loaded && error.empty());
     assert(save_text(loaded->world) == text);
     const Ship& copy = loaded->world.flagship();
-    const auto* u = dynamic_cast<const Unloader*>(copy.building_at(filtered));
-    assert(u && u->facing() == Direction::East && u->get_filter() == ItemKind::Gear);
-    assert(!dynamic_cast<const Unloader&>(*copy.building_at(unfiltered)).get_filter());
+    const auto* e = dynamic_cast<const Extractor*>(copy.building_at(filtered));
+    assert(e && e->facing() == Direction::East && e->get_filter() == ItemKind::Gear);
+    assert(!dynamic_cast<const Extractor&>(*copy.building_at(unfiltered)).get_filter());
     assert(loaded->world.get_fleet().get_progress().delivered_count(ItemKind::IronPlate) == -1);
     run(world, 40);
     run(loaded->world, 40);
@@ -727,8 +743,9 @@ void test_skips_unknown() {
             b["requests"] = Json::array({{{"item", "SolarArray"}, {"count", 2}}, {{"item", "Gear"}, {"count", 5}}});
             b["queue"].push_back({{"recipe", "Solar panel"}, {"elapsed", 10}});
         }
-    at(x0 + 3, c - 2)["filter"] = "BatteryBank";                   // the sorter
-    at(x0 + 3, c + 4)["items"].push_back({{"item", "SolarPanel"}, {"pos", 0}});  // the express belt
+    at(x0 + 3, c - 2)["filter"] = "BatteryBank";  // the filter tube
+    at(x0 + 3, c + 4)["items"].push_back(            // the teal tube
+        {{"item", "SolarPanel"}, {"pos", 0}, {"from", "South"}, {"to", "North"}});
     at(x0 + 5, c - 6)["stored"]["SolarArray"] = 4;                 // the cargo hold
     Json& furnace = at(x0, c);                                     // mid-craft
     furnace["recipe"] = "Solar panel";
@@ -747,10 +764,10 @@ void test_skips_unknown() {
     assert(bridge.craft_queue().size() == 2);
     assert(bridge.get_inventory().total() == ship.inventory().total());
     assert(bridge.get_requests().size() == 1 && bridge.get_requests()[0].kind == ItemKind::Gear);
-    const auto* sorter = dynamic_cast<const Sorter*>(copy.building_at({x0 + 3, c - 2}));
-    assert(sorter && !sorter->get_filter());
-    const auto* belt = dynamic_cast<const Conveyor*>(copy.building_at({x0 + 3, c + 4}));
-    assert(belt && belt->get_items().size() == 1 && belt->get_items()[0].kind == ItemKind::Glass);
+    const auto* filter = dynamic_cast<const Tube*>(copy.building_at({x0 + 3, c - 2}));
+    assert(filter && !filter->get_filter());
+    const auto* teal = dynamic_cast<const Tube*>(copy.building_at({x0 + 3, c + 4}));
+    assert(teal && teal->get_items().size() == 1 && teal->get_items()[0].kind == ItemKind::Glass);
     const auto& hold = dynamic_cast<const CargoHold&>(*copy.building_at({x0 + 5, c - 6}));
     assert(hold.get_stored().total() ==
            dynamic_cast<const CargoHold&>(*ship.building_at({x0 + 5, c - 6})).get_stored().total());
@@ -772,8 +789,8 @@ void test_skips_unknown() {
 int main() {
     test_names();
     test_round_trip();
-    test_tunnel_round_trip();
-    test_unloader_round_trip();
+    test_vacuum_round_trip();
+    test_extractor_round_trip();
     test_request_round_trip();
     test_before_requests();
     test_provider_round_trip();

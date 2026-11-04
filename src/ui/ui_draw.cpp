@@ -94,7 +94,7 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 }
 
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit) {
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool vacuum_exit) {
     const float inset = cell * 0.12f;
     const ImVec2 max = FootprintMax(min, cell, size);
     const ImVec2 a(min.x + inset, min.y + inset);
@@ -110,21 +110,13 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
         if (ts.x < (b.x - a.x) * 0.9f && ts.y < (b.y - a.y) * 0.9f)
             draw->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), glyph, letter);
     };
-    // A belt-like strip with an arrow on every cell of the footprint.
-    auto conveyor = [&](ImVec4 color) {
-        draw->AddRectFilled(a, b, theme::U32(color, alpha), rounding * 0.5f);
-        for (int y = 0; y < size.h; ++y)
-            for (int x = 0; x < size.w; ++x) {
-                const ImVec2 cc(min.x + (static_cast<float>(x) + 0.5f) * cell,
-                                min.y + (static_cast<float>(y) + 0.5f) * cell);
-                DrawArrow(draw, cc, d, cell * 0.28f, glyph);
-            }
-    };
 
     const sprites::Sprite* sprite = kind ? sprites::Building(*kind) : sprites::Bridge();
-    if (kind == ItemKind::BeltTunnel && !tunnel_exit)
-        sprite = sprites::TunnelEntrance();
-    if (sprite) {
+    if (kind == ItemKind::VacuumLine && !vacuum_exit)
+        sprite = sprites::VacuumEntrance();
+    // Tube pieces are always drawn, not pictured: how they look depends on
+    // their color and what they link to (see DrawTube).
+    if (sprite && !(kind && is_tube(*kind))) {
         DrawSprite(draw, *sprite, min, max, kind && is_rotatable(*kind) ? facing : Direction::North, alpha);
         return;
     }
@@ -133,46 +125,34 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
         return;
     }
     switch (*kind) {
-    case ItemKind::TransportBelt:
-        conveyor(theme::kTileBelt);
+    case ItemKind::Tube:
+    case ItemKind::CheckValve:
+    case ItemKind::FilterTube:
+    case ItemKind::OverflowTube: {
+        // Its arms along the way it faces (a valve's), or across.
+        const bool along_ns = facing == Direction::North || facing == Direction::South;
+        DrawTube(draw, min, cell, *kind, TubeColor::Amber, facing, {along_ns, !along_ns, along_ns, !along_ns}, alpha);
         break;
-    case ItemKind::ExpressBelt:
-        conveyor(theme::kTileExpressBelt);
-        break;
-    case ItemKind::BeltTunnel: {
-        conveyor(theme::kTileBelt);
-        // The tunnel mouth: a bar across the back of an exit, the front of
-        // an entrance.
-        const float along = cell * (tunnel_exit ? -0.3f : 0.3f);
+    }
+    case ItemKind::VacuumLine: {
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileVacuum, alpha), rounding * 0.5f);
+        DrawArrow(draw, c, d, cell * 0.28f, glyph);
+        // The mouth: a bar across the back of an exit, the front of an
+        // entrance.
+        const float along = cell * (vacuum_exit ? -0.3f : 0.3f);
         const ImVec2 mouth(c.x + d.x * along, c.y + d.y * along);
         const ImVec2 p(-d.y * cell * 0.38f, d.x * cell * 0.38f);
         draw->AddLine(ImVec2(mouth.x - p.x, mouth.y - p.y), ImVec2(mouth.x + p.x, mouth.y + p.y),
-                      theme::U32(theme::kTileTunnelMouth, alpha), cell * 0.12f);
+                      theme::U32(theme::kTileVacuumMouth, alpha), cell * 0.12f);
         break;
     }
-    case ItemKind::FilterSorter:
-    case ItemKind::ReverseSorter:
-        // No arrow: it doesn't face a way. Its filter is drawn over it (see
-        // DrawFilterIcon).
-        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
-        draw->AddRect(a, b, theme::U32(*kind == ItemKind::ReverseSorter ? theme::kAccent : theme::kWarn, alpha),
-                      rounding * 0.5f, 0, std::max(1.0f, cell * 0.08f));
-        break;
-    case ItemKind::Junction:
+    case ItemKind::Crossover:
         // A cross: the two ways over it.
-        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding * 0.5f);
+        draw->AddRectFilled(a, b, theme::U32(theme::kTileVacuum, alpha), rounding * 0.5f);
         draw->AddLine(ImVec2(c.x, a.y), ImVec2(c.x, b.y), glyph, std::max(1.0f, cell * 0.1f));
         draw->AddLine(ImVec2(a.x, c.y), ImVec2(b.x, c.y), glyph, std::max(1.0f, cell * 0.1f));
         break;
-    case ItemKind::Router:
-        // An arrow out of every side.
-        draw->AddRectFilled(a, b, theme::U32(theme::kTileBelt, alpha), rounding);
-        for (const Direction dir : {Direction::North, Direction::East, Direction::South, Direction::West}) {
-            const ImVec2 v = DirectionVector(dir);
-            DrawArrow(draw, ImVec2(c.x + v.x * cell * 0.25f, c.y + v.y * cell * 0.25f), v, cell * 0.12f, glyph);
-        }
-        break;
-    case ItemKind::Unloader:
+    case ItemKind::Extractor:
         // A storage-colored tile with an arrow out the way it faces; its
         // filter is drawn over it (see DrawFilterIcon).
         draw->AddRectFilled(a, b, theme::U32(theme::kTileStorage, alpha), rounding);
@@ -180,6 +160,53 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
         break;
     default:
         letter_tile(TileColor(*kind), TileLabel(*kind));
+        break;
+    }
+}
+
+ImVec4 TubeColorValue(TubeColor color) {
+    return color == TubeColor::Teal ? theme::kTileTubeTeal : theme::kTileTubeAmber;
+}
+
+void DrawTube(ImDrawList* draw, ImVec2 min, float cell, ItemKind kind, TubeColor color, Direction facing,
+              const std::array<bool, 4>& links, float alpha) {
+    const ImVec2 c(min.x + cell * 0.5f, min.y + cell * 0.5f);
+    const float half = cell * 0.2f;  // half the tube's width
+    const ImU32 fill = theme::U32(TubeColorValue(color), alpha);
+    const ImU32 outline = theme::U32(theme::kBevelDark, alpha);
+    const ImU32 core = theme::U32(theme::kTileTubeCore, alpha);
+    // The hub, then an arm out to each linked side.
+    const ImVec2 hub_a(c.x - half, c.y - half);
+    const ImVec2 hub_b(c.x + half, c.y + half);
+    draw->AddRectFilled(hub_a, hub_b, fill);
+    for (int i = 0; i < 4; ++i) {
+        if (!links[static_cast<std::size_t>(i)])
+            continue;
+        const ImVec2 v = DirectionVector(static_cast<Direction>(i));
+        const ImVec2 edge(c.x + v.x * cell * 0.5f, c.y + v.y * cell * 0.5f);
+        const ImVec2 p(-v.y * half, v.x * half);
+        const ImVec2 a(std::min(c.x - p.x, edge.x + p.x), std::min(c.y - p.y, edge.y + p.y));
+        const ImVec2 b(std::max(c.x - p.x, edge.x + p.x), std::max(c.y - p.y, edge.y + p.y));
+        draw->AddRectFilled(a, b, fill);
+        // The bore down the middle of the arm.
+        draw->AddLine(c, edge, core, std::max(1.0f, cell * 0.08f));
+    }
+    draw->AddRect(hub_a, hub_b, outline, 0.0f, 0, std::max(1.0f, cell * 0.03f));
+    const ImU32 glyph = theme::U32(theme::kTileGlyph, alpha);
+    switch (kind) {
+    case ItemKind::CheckValve:
+        DrawArrow(draw, c, DirectionVector(facing), half * 0.9f, glyph);
+        break;
+    case ItemKind::FilterTube:
+        draw->AddRect(hub_a, hub_b, theme::U32(theme::kWarn, alpha), 0.0f, 0, std::max(1.0f, cell * 0.06f));
+        break;
+    case ItemKind::OverflowTube:
+        // A bar across: it takes only what spills over.
+        draw->AddLine(ImVec2(c.x - half * 0.7f, c.y), ImVec2(c.x + half * 0.7f, c.y), glyph,
+                      std::max(1.0f, cell * 0.08f));
+        draw->AddRect(hub_a, hub_b, theme::U32(theme::kBad, alpha), 0.0f, 0, std::max(1.0f, cell * 0.06f));
+        break;
+    default:
         break;
     }
 }
@@ -240,16 +267,27 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
     }
 }
 
-void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell) {
-    const ImVec2 d = DirectionVector(belt.facing());
+void DrawTubeItems(ImDrawList* draw, const Tube& tube, ImVec2 min, float cell) {
+    const ImVec2 c(min.x + cell * 0.5f, min.y + cell * 0.5f);
+    for (const TubeItem& item : tube.get_items()) {
+        // The first half of the way in from its side to the middle, the
+        // second out to the side it's headed for.
+        const float t = static_cast<float>(item.pos) / static_cast<float>(kTubeLength);
+        const bool in = t < 0.5f;
+        const ImVec2 v = DirectionVector(in ? item.from : item.to);
+        const float k = cell * (in ? 0.5f - t : t - 0.5f);
+        DrawItem(draw, ImVec2(c.x + v.x * k, c.y + v.y * k), std::max(1.5f, cell * 0.16f), item.kind);
+    }
+}
+
+void DrawVacuumItems(ImDrawList* draw, const VacuumLine& line, ImVec2 min, float cell) {
+    const ImVec2 d = DirectionVector(line.facing());
     const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
-    // A tunnel's items show only on the open side of its mouth.
-    const auto* tunnel = dynamic_cast<const Tunnel*>(&belt);
-    constexpr int kMouth = kBeltLength / 5;  // from the edge, as DrawBuilding draws it
-    for (const BeltItem& item : belt.get_items()) {
-        if (tunnel && (tunnel->is_exit() ? item.pos < kMouth : item.pos > kBeltLength - kMouth))
+    constexpr int kMouth = kTubeLength / 5;  // from the edge, as DrawBuilding draws it
+    for (const VacuumItem& item : line.get_items()) {
+        if (line.is_exit() ? item.pos < kMouth : item.pos > kTubeLength - kMouth)
             continue;
-        const float t = cell * static_cast<float>(item.pos) / static_cast<float>(kBeltLength);
+        const float t = cell * static_cast<float>(item.pos) / static_cast<float>(kTubeLength);
         DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
     }
 }
@@ -276,20 +314,15 @@ void DrawCollectorStatus(ImDrawList* draw, const Collector& collector, ImVec2 mi
                     static_cast<float>(collector.stored()) / static_cast<float>(collector.capacity()));
 }
 
-void DrawJunctionItems(ImDrawList* draw, const Junction& junction, ImVec2 min, float cell) {
+void DrawCrossoverItems(ImDrawList* draw, const Crossover& crossover, ImVec2 min, float cell) {
     for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West}) {
         const ImVec2 d = DirectionVector(travel);
         const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
-        for (const JunctionItem& item : junction.lane(travel)) {
-            const float t = cell * static_cast<float>(item.elapsed) / static_cast<float>(kJunctionTicks);
+        for (const CrossoverItem& item : crossover.lane(travel)) {
+            const float t = cell * static_cast<float>(item.elapsed) / static_cast<float>(kCrossoverTicks);
             DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
         }
     }
-}
-
-void DrawRouterItem(ImDrawList* draw, const Router& router, ImVec2 min, float cell) {
-    if (const std::optional<ItemKind> held = router.get_held())
-        DrawItem(draw, ImVec2(min.x + cell * 0.5f, min.y + cell * 0.5f), std::max(1.5f, cell * 0.16f), *held);
 }
 
 void DrawFilterIcon(ImDrawList* draw, std::optional<ItemKind> filter, ImVec2 min, float cell) {

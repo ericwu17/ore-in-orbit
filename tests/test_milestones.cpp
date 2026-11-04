@@ -1,6 +1,6 @@
 // test_milestones.cpp — headless tests for the milestones: deliveries to the
 // bridge count toward the current one (hand-crafts and refunds don't), net
-// of what unloaders take out, completing one moves on and unlocks its
+// of what extractors take out, completing one moves on and unlocks its
 // recipes, locked recipes can't be hand-crafted or picked for a machine, and
 // every milestone can be reached with what the ones before it unlock.
 #include "sim/building.h"
@@ -37,7 +37,7 @@ void test_table() {
         }
     }
     // The first line needs nothing unlocked.
-    for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector,
+    for (const ItemKind kind : {ItemKind::Tube, ItemKind::CheckValve, ItemKind::AsteroidCollector,
                                 ItemKind::SolarFurnace, ItemKind::FabricatorMk1, ItemKind::IronPlate,
                                 ItemKind::CopperPlate, ItemKind::Gear, ItemKind::Circuit})
         assert(!milestone_unlocking(kind));
@@ -141,7 +141,7 @@ void test_progress() {
         assert(progress.unlocked(static_cast<ItemKind>(i)));
 }
 
-// What unloaders take out of a bridge counts against the milestone, below 0
+// What extractors take out of a bridge counts against the milestone, below 0
 // if need be; a kind it doesn't ask for isn't counted either way.
 void test_unloaded() {
     Progress progress;
@@ -156,20 +156,19 @@ void test_unloaded() {
     assert(progress.delivered_count(a.kind) == a.count - 1);
 }
 
-// Items going round from the bridge, through an unloader and belts, back
+// Items going round from the bridge, through an extractor and tubes, back
 // into it gain nothing: the count only dips while they're on their way.
 void test_unload_loop() {
     World world;
     Ship& ship = world.flagship();
     const Progress& progress = ship.get_bridge().get_progress();
-    ship.inventory().add(ItemKind::Unloader, 1);
-    const GridPos unloader{kBesideBridge.x, kBesideBridge.y + 1};
-    assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
-    assert(ship.set_filter(unloader, ItemKind::IronPlate));
-    assert(ship.place(ItemKind::TransportBelt, {unloader.x + 1, unloader.y}, Direction::North) == BuildResult::Ok);
-    assert(ship.place(ItemKind::TransportBelt, {unloader.x + 1, kBesideBridge.y}, Direction::West) ==
-           BuildResult::Ok);
-    assert(ship.place(ItemKind::TransportBelt, kBesideBridge, Direction::West) == BuildResult::Ok);
+    ship.inventory().add(ItemKind::Extractor, 1);
+    const GridPos extractor{kBesideBridge.x, kBesideBridge.y + 1};
+    assert(ship.place(ItemKind::Extractor, extractor, Direction::East) == BuildResult::Ok);
+    assert(ship.set_filter(extractor, ItemKind::IronPlate));
+    assert(ship.place(ItemKind::Tube, {extractor.x + 1, extractor.y}, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Tube, {extractor.x + 1, kBesideBridge.y}, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Tube, kBesideBridge, Direction::North) == BuildResult::Ok);
 
     const int plates = ship.inventory().count(ItemKind::IronPlate);
     int lowest = 0;
@@ -180,7 +179,7 @@ void test_unload_loop() {
     }
     assert(lowest < 0);  // it did go round
 
-    assert(ship.remove_building(unloader) == BuildResult::Ok);
+    assert(ship.remove_building(extractor) == BuildResult::Ok);
     for (Tick t = 0; t < 5 * kTicksPerSecond; ++t)
         world.advance_tick();
     assert(progress.delivered_count(ItemKind::IronPlate) == 0);

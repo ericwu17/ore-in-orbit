@@ -12,11 +12,11 @@ readme's "Sprites" section):
                              facing North
     buildings/Bridge.png     the 6x6 bridge
     buildings/Hull.png       one cell of hull
-    buildings/BeltTunnelEntrance.png   a belt tunnel's entrance
+    buildings/VacuumLineEntrance.png   a vacuum line's entrance
 
 Without --force, files that already exist are left alone, so real art is
 never overwritten. The look follows the stand-ins the game draws for a
-sprite it doesn't have (src/ui/ui_draw.cpp: lettered tiles, arrows on belts,
+sprite it doesn't have (src/ui/ui_draw.cpp: lettered tiles, tube hubs,
 round lumps and square plates) in its industrial style and colors
 (src/ui/ui_theme.h): steel plating, bevelled machine housings, rivets and
 hazard stripes.
@@ -48,8 +48,9 @@ WARN = (242, 193, 46)            # kWarn
 PLUM = (160, 108, 150)           # kPlum
 STEEL_HOVER = (112, 145, 178)    # kSteelHover
 HULL = (90, 97, 107)             # kTileHull: steel deck plating
-BELT = (64, 70, 79)              # kTileBelt
-EXPRESS_BELT = (150, 112, 40)    # kTileExpressBelt
+VACUUM = (64, 70, 79)            # kTileVacuum: vacuum lines, crossovers
+TUBE = (176, 120, 34)            # kTileTubeAmber
+TUBE_CORE = (34, 38, 44)         # kTileTubeCore
 STORAGE = (112, 98, 72)          # kTileStorage
 COLLECTOR = (150, 92, 58)        # kTileCollector: oxidized copper
 MACHINE = (70, 92, 116)          # kTileMachine
@@ -66,17 +67,16 @@ ITEM_CHEMICAL = GOOD
 ITEM_COMPONENT = STEEL_HOVER
 
 # Buildings: id -> (width, height in cells, look, color, label).
-# Looks: hull, belt, tunnel, tunnel_entrance, sorter, reverse_sorter, junction, router, unloader,
-# tile, turret, bridge.
+# Looks: hull, tube, valve, filter_tube, overflow_tube, vacuum, vacuum_entrance, crossover,
+# extractor, tile, turret, bridge.
 BUILDINGS = {
-    "TransportBelt":     (1, 1, "belt", BELT, ""),
-    "ExpressBelt":       (1, 1, "belt", EXPRESS_BELT, ""),
-    "BeltTunnel":        (1, 1, "tunnel", BELT, ""),
-    "FilterSorter":      (1, 1, "sorter", BELT, ""),
-    "ReverseSorter":     (1, 1, "reverse_sorter", BELT, ""),
-    "Junction":          (1, 1, "junction", BELT, ""),
-    "Router":            (1, 1, "router", BELT, ""),
-    "Unloader":          (1, 1, "unloader", STORAGE, ""),
+    "Tube":              (1, 1, "tube", TUBE, ""),
+    "CheckValve":        (1, 1, "valve", TUBE, ""),
+    "FilterTube":        (1, 1, "filter_tube", TUBE, ""),
+    "OverflowTube":      (1, 1, "overflow_tube", TUBE, ""),
+    "Crossover":         (1, 1, "crossover", VACUUM, ""),
+    "Extractor":         (1, 1, "extractor", STORAGE, ""),
+    "VacuumLine":        (1, 1, "vacuum", VACUUM, ""),
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
     "AsteroidCollector": (2, 2, "tile", COLLECTOR, "A"),
     "TractorArray":      (3, 3, "tile", COLLECTOR, "TA"),
@@ -219,43 +219,42 @@ def building_image(w, h, look, color, label):
         seam = s * 0.14
         d.rectangle((seam, seam, W - seam, H - seam), outline=darker(color, 0.8), width=max(1, edge // 2))
         rivets(d, (0, 0, W, H), s * 0.05, s * 0.08, color)
-    elif look in ("belt", "tunnel", "tunnel_entrance", "sorter", "reverse_sorter"):
-        # A dark rubber belt between steel rails.
-        d.rectangle(box, fill=darker(BELT, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
+    elif look in ("tube", "valve", "filter_tube", "overflow_tube"):
+        # A tube running North-South through a square hub (the game draws
+        # tubes itself, with arms toward what they link to; this is the
+        # icon).
+        half = s * 0.2
+        cx, cy = W / 2, H / 2
+        d.rectangle((cx - half, 0, cx + half, H), fill=color)
+        d.line((cx, 0, cx, H), fill=TUBE_CORE, width=int(s * 0.08))
+        hub = (cx - half * 1.3, cy - half * 1.3, cx + half * 1.3, cy + half * 1.3)
+        d.rectangle(hub, fill=color, outline=BEVEL_DARK, width=max(1, edge // 2))
+        if look == "valve":
+            arrow_up(d, cx, cy, half * 1.1, GLYPH)
+        elif look == "filter_tube":
+            d.rectangle(hub, outline=WARN, width=int(s * 0.06))
+        elif look == "overflow_tube":
+            d.rectangle(hub, outline=BAD, width=int(s * 0.06))
+            d.line((cx - half * 0.8, cy, cx + half * 0.8, cy), fill=GLYPH, width=int(s * 0.08))
+    elif look in ("vacuum", "vacuum_entrance"):
+        # A dark channel between steel rails, an arrow along it, and the
+        # mouth: a hazard-striped bar across the back (south) edge, where an
+        # exit's items come out, or the front (north) one, where an
+        # entrance's go in.
+        d.rectangle(box, fill=darker(VACUUM, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
         rail = s * 0.09
         for x0 in (box[0], box[2] - rail):
-            d.rectangle((x0, box[1], x0 + rail, box[3]), fill=lighter(BELT, 0.15))
-        if look == "sorter":
-            d.rectangle(box, outline=WARN, width=int(s * 0.08))
-        elif look == "reverse_sorter":
-            d.rectangle(box, outline=BAD, width=int(s * 0.08))
-        else:
-            # An arrow on every cell: light on a plain belt, amber on an
-            # express one.
-            arrow = ACCENT if color == EXPRESS_BELT else GLYPH
-            for cy in range(h):
-                for cx in range(w):
-                    arrow_up(d, (cx + 0.5) * s, (cy + 0.5) * s, s * 0.26, arrow)
-        if look in ("tunnel", "tunnel_entrance"):
-            # The tunnel mouth: a hazard-striped bar across the back (south)
-            # edge, where an exit's items come up, or the front (north) one,
-            # where an entrance's go down.
-            y = H / 2 + s * (0.3 if look == "tunnel" else -0.3)
-            hazard(img, (W / 2 - s * 0.38, y - s * 0.07, W / 2 + s * 0.38, y + s * 0.07), ACCENT, s * 0.06)
-    elif look == "junction":
+            d.rectangle((x0, box[1], x0 + rail, box[3]), fill=lighter(VACUUM, 0.15))
+        arrow_up(d, W / 2, H / 2, s * 0.26, GLYPH)
+        y = H / 2 + s * (0.3 if look == "vacuum" else -0.3)
+        hazard(img, (W / 2 - s * 0.38, y - s * 0.07, W / 2 + s * 0.38, y + s * 0.07), ACCENT, s * 0.06)
+    elif look == "crossover":
         # A cross: the two ways over it.
-        d.rectangle(box, fill=darker(BELT, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
+        d.rectangle(box, fill=darker(VACUUM, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
         bar = s * 0.07
         d.rectangle((W / 2 - bar, box[1] + edge, W / 2 + bar, box[3] - edge), fill=GLYPH)
         d.rectangle((box[0] + edge, H / 2 - bar, box[2] - edge, H / 2 + bar), fill=GLYPH)
-    elif look == "router":
-        # An arrow out of every side.
-        bevel(d, box, color, edge)
-        for i in range(4):
-            arrow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            arrow_up(ImageDraw.Draw(arrow), W / 2, H / 2 - s * 0.25, s * 0.13, GLYPH)
-            img.alpha_composite(arrow.rotate(-90 * i))
-    elif look == "unloader":
+    elif look == "extractor":
         # A storage plate with a hazard-striped intake along its back
         # (south) edge, and an arrow out the front.
         bevel(d, box, color, edge)
@@ -338,7 +337,7 @@ def main():
         write(f"items/{item_id}.png", lambda item_id=item_id: placeable_icon(item_id))
     write("buildings/Bridge.png", lambda: building_image(*BRIDGE))
     write("buildings/Hull.png", lambda: building_image(*HULL_TILE))
-    write("buildings/BeltTunnelEntrance.png", lambda: building_image(1, 1, "tunnel_entrance", BELT, ""))
+    write("buildings/VacuumLineEntrance.png", lambda: building_image(1, 1, "vacuum_entrance", VACUUM, ""))
     for item_id, spec in ITEMS.items():
         write(f"items/{item_id}.png", lambda spec=spec: item_image(*spec))
 

@@ -60,9 +60,11 @@ constexpr ImVec4 kGridMajor          = Rgb(58, 65, 75);    // every kGridMajorEv
 constexpr ImVec4 kTileHull           = Rgb(90, 97, 107);   // steel deck plating
 constexpr ImVec4 kTileBridge         = kAccentActive;
 constexpr ImVec4 kTileCollector      = Rgb(150, 92, 58);   // oxidized copper
-constexpr ImVec4 kTileBelt           = Rgb(64, 70, 79);
-constexpr ImVec4 kTileExpressBelt    = Rgb(150, 112, 40);
-constexpr ImVec4 kTileTunnelMouth    = kBevelDark;
+constexpr ImVec4 kTileTubeAmber      = Rgb(176, 120, 34);  // tube pieces, by color
+constexpr ImVec4 kTileTubeTeal       = Rgb(46, 132, 142);
+constexpr ImVec4 kTileTubeCore       = Rgb(34, 38, 44);    // the bore down a tube's middle
+constexpr ImVec4 kTileVacuum         = Rgb(64, 70, 79);    // vacuum lines, crossovers
+constexpr ImVec4 kTileVacuumMouth    = kBevelDark;
 constexpr ImVec4 kTileStorage        = Rgb(112, 98, 72);   // cargo holds
 constexpr ImVec4 kTileMachine        = Rgb(70, 92, 116);   // blue-grey
 constexpr ImVec4 kTileSystem         = Rgb(150, 62, 48);   // oxide red
@@ -70,7 +72,7 @@ constexpr ImVec4 kTileTurret         = Rgb(48, 52, 58);    // gunmetal
 constexpr ImVec4 kTileGlyph          = Rgb(236, 238, 241); // letters and arrows on tiles
 constexpr int kGridMajorEvery = 8;
 
-// Items on belts, by material family.
+// Items in tubes, by material family.
 constexpr ImVec4 kItemIron      = Rgb(150, 160, 174);
 constexpr ImVec4 kItemCopper    = Rgb(212, 124, 62);
 constexpr ImVec4 kItemSilica    = Rgb(228, 204, 150);

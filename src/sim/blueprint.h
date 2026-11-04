@@ -4,8 +4,8 @@
 //
 // A blueprint holds what a player sets up, never what is going on: each
 // building's kind, place, facing and settings (a machine's recipe, a
-// collector's target, a sorter's or unloader's filter, whether a machine or
-// collector runs only on the bridge's request), but no items,
+// collector's target, a filter tube's or extractor's filter, a tube piece's
+// color, whether a machine or collector runs only on the bridge's request), but no items,
 // buffers or progress, which pasting would otherwise conjure up. The
 // layout's own parts (the bridge and engines) are never in one, nor is hull:
 // the ship's is fixed, and pasting needs hull under every building.
@@ -27,12 +27,13 @@
 #include <vector>
 
 struct BlueprintBuilding {
-    ItemKind kind = ItemKind::TransportBelt;
+    ItemKind kind = ItemKind::Tube;
     GridPos offset;                         // its top-left cell, from the blueprint's
     Direction facing = Direction::North;    // North for those that don't turn
     const Recipe* recipe = nullptr;         // machines
     std::optional<ItemKind> target;         // collectors
-    std::optional<ItemKind> filter;         // sorters, unloaders
+    std::optional<ItemKind> filter;         // filter tubes, extractors
+    TubeColor color = TubeColor::Amber;     // tube pieces
     bool only_when_requested = false;       // collectors, machines
 
     bool operator==(const BlueprintBuilding&) const = default;
@@ -59,7 +60,7 @@ Blueprint rotated_cw(const Blueprint& blueprint);
 // there.
 struct PasteEntry {
     GridPos at;
-    ItemKind kind = ItemKind::TransportBelt;
+    ItemKind kind = ItemKind::Tube;
     std::size_t building = 0;               // its index in the blueprint
     Direction facing = Direction::North;
     bool satisfied = false;                 // already there: nothing to do
@@ -76,7 +77,7 @@ struct PastePlan {
 // What pasting `blueprint` with its top-left cell at `origin` would do.
 PastePlan plan_paste(const Ship& ship, const Blueprint& blueprint, GridPos origin);
 // Why a paste can't happen, for the player ("Something is already built
-// there (3 in the way); missing 2 Transport belt"); "Ok" if it can.
+// there (3 in the way); missing 2 Tube"); "Ok" if it can.
 std::string describe(const PastePlan& plan);
 
 struct PasteResult {

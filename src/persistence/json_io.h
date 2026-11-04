@@ -45,7 +45,7 @@ std::int64_t load_int(const Json& j, std::int64_t lo, std::int64_t hi);
 // Items and recipes come and go between versions of the game, and saves and
 // blueprints name them without being of an older format. Loading leaves out
 // any it doesn't recognize, and whatever names one (a building, an item on a
-// belt, a craft), as if they had never been, instead of refusing the file.
+// tube, a craft), as if they had never been, instead of refusing the file.
 
 // An item, or null for none.
 Json save_optional_item(std::optional<ItemKind> kind);
@@ -53,6 +53,9 @@ Json save_optional_item(std::optional<ItemKind> kind);
 std::optional<ItemKind> load_item(const Json& j);
 
 Direction load_direction(const Json& j);
+
+// A tube piece's color, by tube_color_name.
+TubeColor load_tube_color(const Json& j);
 
 // A recipe by name, or null for none (or one the game doesn't know).
 Json save_recipe(const Recipe* recipe);

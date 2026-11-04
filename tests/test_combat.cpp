@@ -97,21 +97,25 @@ void test_enemy_attacks() {
     Sector sector = calm();
     Rng rng{1};
     Tick now = 0;
-    const GridPos belt{80, 66};
-    assert(ship.place(ItemKind::TransportBelt, belt, Direction::West) == BuildResult::Ok);
-    assert(ship.insert_item(belt, {81, 66}, ItemKind::Gear));
-    const int belts = ship.inventory().count(ItemKind::TransportBelt);
+    // A tube holding a gear, put in from a check valve then taken away.
+    const GridPos tube{80, 66};
+    const GridPos valve{79, 66};
+    assert(ship.place(ItemKind::Tube, tube, Direction::North) == BuildResult::Ok);
+    assert(ship.place(ItemKind::CheckValve, valve, Direction::East) == BuildResult::Ok);
+    assert(ship.insert_item(tube, valve, ItemKind::Gear));
+    assert(ship.remove_building(valve) == BuildResult::Ok);
+    const int tubes = ship.inventory().count(ItemKind::Tube);
     const int gears = ship.inventory().count(ItemKind::Gear);
 
     Battle battle;
     battle.enemies.push_back(drone_at(100.0f, 66.5f));
     // It closes in: 20 cells at its speed, then within range.
     fight(ship, battle, sector, rng, now, kTicksPerSecond);
-    assert(battle.enemies[0].x < 100.0f && battle.enemies[0].target == belt);
-    for (Tick t = 0; t < 30 * kTicksPerSecond && ship.building_at(belt); ++t)
+    assert(battle.enemies[0].x < 100.0f && battle.enemies[0].target == tube);
+    for (Tick t = 0; t < 30 * kTicksPerSecond && ship.building_at(tube); ++t)
         fight(ship, battle, sector, rng, now, 1);
-    assert(!ship.building_at(belt));
-    assert(ship.inventory().count(ItemKind::TransportBelt) == belts);
+    assert(!ship.building_at(tube));
+    assert(ship.inventory().count(ItemKind::Tube) == tubes);
     assert(ship.inventory().count(ItemKind::Gear) == gears);
 
     // Next: the nearest of what's left, the layout's own parts (the bridge

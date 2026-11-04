@@ -4,14 +4,13 @@
 
 const char* item_name(ItemKind kind) {
     switch (kind) {
-    case ItemKind::TransportBelt:     return "Transport belt";
-    case ItemKind::ExpressBelt:       return "Express belt";
-    case ItemKind::BeltTunnel:        return "Belt tunnel";
-    case ItemKind::FilterSorter:      return "Filter sorter";
-    case ItemKind::ReverseSorter:     return "Reverse sorter";
-    case ItemKind::Junction:          return "Junction";
-    case ItemKind::Router:            return "Router";
-    case ItemKind::Unloader:          return "Unloader";
+    case ItemKind::Tube:              return "Tube";
+    case ItemKind::CheckValve:        return "Check valve";
+    case ItemKind::FilterTube:        return "Filter tube";
+    case ItemKind::OverflowTube:      return "Overflow tube";
+    case ItemKind::Crossover:         return "Crossover";
+    case ItemKind::Extractor:         return "Extractor";
+    case ItemKind::VacuumLine:        return "Vacuum line";
     case ItemKind::CargoHold:         return "Cargo hold";
     case ItemKind::AsteroidCollector: return "Asteroid collector";
     case ItemKind::TractorArray:      return "Tractor array";
@@ -54,14 +53,13 @@ const char* item_name(ItemKind kind) {
 // No default case, so a new ItemKind without an id is a -Wswitch error.
 const char* item_id(ItemKind kind) {
     switch (kind) {
-    case ItemKind::TransportBelt:     return "TransportBelt";
-    case ItemKind::ExpressBelt:       return "ExpressBelt";
-    case ItemKind::BeltTunnel:        return "BeltTunnel";
-    case ItemKind::FilterSorter:      return "FilterSorter";
-    case ItemKind::ReverseSorter:     return "ReverseSorter";
-    case ItemKind::Junction:          return "Junction";
-    case ItemKind::Router:            return "Router";
-    case ItemKind::Unloader:          return "Unloader";
+    case ItemKind::Tube:              return "Tube";
+    case ItemKind::CheckValve:        return "CheckValve";
+    case ItemKind::FilterTube:        return "FilterTube";
+    case ItemKind::OverflowTube:      return "OverflowTube";
+    case ItemKind::Crossover:         return "Crossover";
+    case ItemKind::Extractor:         return "Extractor";
+    case ItemKind::VacuumLine:        return "VacuumLine";
     case ItemKind::CargoHold:         return "CargoHold";
     case ItemKind::AsteroidCollector: return "AsteroidCollector";
     case ItemKind::TractorArray:      return "TractorArray";

@@ -62,9 +62,9 @@ void test_new_game() {
         assert(dynamic_cast<const Thruster*>(engine) != nullptr);
         assert(engine->item_kind() == ItemKind::IonThruster);
     }
-    // Enough for a first line (collectors into furnaces, belts back to the
+    // Enough for a first line (collectors into furnaces, tubes back to the
     // bridge), and only hand-craftable buildings: the rest is built.
-    for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
+    for (const ItemKind kind : {ItemKind::Tube, ItemKind::CheckValve, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
                                 ItemKind::FabricatorMk1})
         assert(ship.inventory().count(kind) > 0);
     for (const ItemStack& s : ship.inventory().stacks())
@@ -88,32 +88,32 @@ void test_every_layout() {
 
 void test_needs_hull() {
     Ship ship = stocked_ship();
-    const int junctions = ship.inventory().count(ItemKind::Junction);
-    assert(ship.place(ItemKind::Junction, kOffHull) == BuildResult::NoHull);
-    assert(ship.inventory().count(ItemKind::Junction) == junctions);
-    assert(ship.place(ItemKind::Junction, kHullEdge) == BuildResult::Ok);
-    assert(ship.building_at(kHullEdge)->item_kind() == ItemKind::Junction);
-    assert(ship.inventory().count(ItemKind::Junction) == junctions - 1);
+    const int crossovers = ship.inventory().count(ItemKind::Crossover);
+    assert(ship.place(ItemKind::Crossover, kOffHull) == BuildResult::NoHull);
+    assert(ship.inventory().count(ItemKind::Crossover) == crossovers);
+    assert(ship.place(ItemKind::Crossover, kHullEdge) == BuildResult::Ok);
+    assert(ship.building_at(kHullEdge)->item_kind() == ItemKind::Crossover);
+    assert(ship.inventory().count(ItemKind::Crossover) == crossovers - 1);
 }
 
 void test_rejections() {
     Ship ship = stocked_ship();
-    assert(ship.place(ItemKind::TransportBelt, kCenter) == BuildResult::Occupied);
-    assert(ship.place(ItemKind::TransportBelt, kOnHull) == BuildResult::Ok);
-    assert(ship.place(ItemKind::Junction, kOnHull) == BuildResult::Occupied);
-    assert(ship.place(ItemKind::Junction, {-1, 0}) == BuildResult::OutOfBounds);
-    assert(ship.place(ItemKind::Junction, {0, kShipGridSize}) == BuildResult::OutOfBounds);
+    assert(ship.place(ItemKind::Tube, kCenter) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::Tube, kOnHull) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Crossover, kOnHull) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::Crossover, {-1, 0}) == BuildResult::OutOfBounds);
+    assert(ship.place(ItemKind::Crossover, {0, kShipGridSize}) == BuildResult::OutOfBounds);
     assert(ship.remove_building({kShipGridSize, 0}) == BuildResult::OutOfBounds);
 }
 
 void test_empty_inventory() {
     Ship ship = stocked_ship();
-    while (ship.inventory().take(ItemKind::TransportBelt)) {
+    while (ship.inventory().take(ItemKind::Tube)) {
     }
-    assert(ship.can_place(ItemKind::TransportBelt, kOnHull) == BuildResult::NoneInInventory);
-    assert(ship.place(ItemKind::TransportBelt, kOnHull) == BuildResult::NoneInInventory);
+    assert(ship.can_place(ItemKind::Tube, kOnHull) == BuildResult::NoneInInventory);
+    assert(ship.place(ItemKind::Tube, kOnHull) == BuildResult::NoneInInventory);
     assert(ship.building_at(kOnHull) == nullptr);
-    assert(ship.inventory().count(ItemKind::TransportBelt) == 0);
+    assert(ship.inventory().count(ItemKind::Tube) == 0);
 }
 
 void test_remove_refunds() {
@@ -155,12 +155,14 @@ void test_engine_offline() {
     assert(thruster.accepts(ItemKind::FuelCell));
 }
 
-void test_belt_direction() {
+void test_valve_direction() {
     Ship ship = stocked_ship();
-    assert(ship.place(ItemKind::TransportBelt, kOnHull, Direction::West) == BuildResult::Ok);
-    const Building* belt = ship.building_at(kOnHull);
-    assert(belt->rotatable());
-    assert(belt->facing() == Direction::West);
+    assert(ship.place(ItemKind::CheckValve, kOnHull, Direction::West) == BuildResult::Ok);
+    const Building* valve = ship.building_at(kOnHull);
+    assert(valve->rotatable());
+    assert(valve->facing() == Direction::West);
+    // A plain tube doesn't turn.
+    assert(!make_building(ItemKind::Tube, Direction::North)->rotatable());
 
     Direction d = Direction::North;
     assert((d = rotated_cw(d)) == Direction::East);
@@ -172,7 +174,7 @@ void test_belt_direction() {
 void test_footprints() {
     Ship ship = stocked_ship();
     assert(footprint_of(ItemKind::AsteroidCollector) == (GridSize{2, 2}));
-    assert(footprint_of(ItemKind::Junction) == (GridSize{1, 1}));
+    assert(footprint_of(ItemKind::Crossover) == (GridSize{1, 1}));
 
     // On the hull's last column, a collector would stick out past it.
     assert(ship.place(ItemKind::AsteroidCollector, kHullEdge) == BuildResult::NoHull);
@@ -194,7 +196,7 @@ void test_footprints() {
     assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == collector);
     assert(ship.building_at({kOnHull.x + 1, kOnHull.y + 1}) == collector);
     assert(ship.building_at({kOnHull.x, kOnHull.y - 1}) == nullptr);
-    assert(ship.place(ItemKind::Junction, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Occupied);
+    assert(ship.place(ItemKind::Crossover, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Occupied);
 
     // Removing from any covered cell removes the whole thing, once.
     assert(ship.remove_building({kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
@@ -205,7 +207,7 @@ void test_footprints() {
             assert(ship.building_at({kOnHull.x + x, kOnHull.y + y}) == nullptr);
             assert(ship.has_hull({kOnHull.x + x, kOnHull.y + y}));
         }
-    assert(ship.place(ItemKind::Junction, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Crossover, {kOnHull.x + 1, kOnHull.y + 1}) == BuildResult::Ok);
 }
 
 void test_hierarchy() {
@@ -215,9 +217,9 @@ void test_hierarchy() {
         assert(b->item_kind() == kind);
         assert(b->footprint() == footprint_of(kind));
     }
-    const auto junction = make_building(ItemKind::Junction, Direction::East);
-    assert(dynamic_cast<const Collector*>(junction.get()) == nullptr);
-    assert(!junction->rotatable());
+    const auto crossover = make_building(ItemKind::Crossover, Direction::East);
+    assert(dynamic_cast<const Collector*>(crossover.get()) == nullptr);
+    assert(!crossover->rotatable());
 }
 
 void test_rotated_footprint() {
@@ -235,7 +237,7 @@ void test_rotated_footprint() {
     // Not rotatable: facing doesn't matter.
     assert(footprint_of(ItemKind::IonThruster, Direction::East) == (GridSize{2, 3}));
 
-    assert(ship.place(ItemKind::BeltTunnel, kOnHull, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::VacuumLine, kOnHull, Direction::East) == BuildResult::Ok);
     assert(ship.building_at({kOnHull.x, kOnHull.y + 1}) == nullptr);
     assert(ship.building_at(kOnHull)->footprint() == (GridSize{1, 1}));
 }
@@ -251,7 +253,7 @@ int main() {
     test_remove_refunds();
     test_layout_parts_stay();
     test_engine_offline();
-    test_belt_direction();
+    test_valve_direction();
     test_footprints();
     test_hierarchy();
     test_rotated_footprint();

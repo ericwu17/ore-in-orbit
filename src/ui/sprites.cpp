@@ -38,7 +38,7 @@ struct Atlas {
     std::array<std::optional<Sprite>, kItemKindCount> buildings;
     std::optional<Sprite> bridge;
     std::optional<Sprite> hull;
-    std::optional<Sprite> tunnel_entrance;
+    std::optional<Sprite> vacuum_entrance;
 };
 Atlas g_atlas;
 
@@ -141,7 +141,7 @@ void Load() {
     }
     Decode(decoded, g_atlas.bridge, "buildings/Bridge.png", {kBridgeSize, kBridgeSize});
     Decode(decoded, g_atlas.hull, "buildings/Hull.png", {1, 1});
-    Decode(decoded, g_atlas.tunnel_entrance, "buildings/BeltTunnelEntrance.png", {1, 1});
+    Decode(decoded, g_atlas.vacuum_entrance, "buildings/VacuumLineEntrance.png", {1, 1});
     if (decoded.empty())
         return;
 
@@ -192,8 +192,8 @@ const Sprite* Hull() {
     return g_atlas.hull ? &*g_atlas.hull : nullptr;
 }
 
-const Sprite* TunnelEntrance() {
-    return g_atlas.tunnel_entrance ? &*g_atlas.tunnel_entrance : nullptr;
+const Sprite* VacuumEntrance() {
+    return g_atlas.vacuum_entrance ? &*g_atlas.vacuum_entrance : nullptr;
 }
 
 }  // namespace ui::sprites

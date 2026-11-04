@@ -67,22 +67,25 @@ const Recipe* const kFurnaceRecipe = machine_recipe(ItemKind::SolarFurnace, true
 // A 6x4 patch east of the bridge, laid out (. bare hull):
 //
 //   A A v R R R      A  asteroid collector (aimed at silica), 2x2
-//   A A v R R R      v  belts facing south (one carrying an item)
-//   . F F R R R      F  solar furnace (with a recipe, running only on
+//   A A t R R R      v  check valve facing south, teal
+//   . F F R R R      t  teal tube (carrying an item)
+//   S F F . . .      F  solar furnace (with a recipe, running only on
 //                       request), 2x2
-//   S F F . . .      R  refinery, 3x3
-//                    S  filter sorter (filtering iron ore)
+//                    R  refinery, 3x3
+//                    S  filter tube (filtering iron ore)
 void build_patch(Ship& ship) {
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c}) == BuildResult::Ok);
     assert(ship.set_collector_target({x0, c}, ItemKind::Silica));
-    assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c}, Direction::South) == BuildResult::Ok);
-    assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c + 1}, Direction::South) == BuildResult::Ok);
-    assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::IronOre));
+    assert(ship.place(ItemKind::CheckValve, {x0 + 2, c}, Direction::South) == BuildResult::Ok);
+    assert(ship.set_tube_color({x0 + 2, c}, TubeColor::Teal));
+    assert(ship.place(ItemKind::Tube, {x0 + 2, c + 1}) == BuildResult::Ok);
+    assert(ship.set_tube_color({x0 + 2, c + 1}, TubeColor::Teal));
+    assert(ship.insert_item({x0 + 2, c + 1}, {x0 + 2, c}, ItemKind::IronOre));
     assert(ship.place(ItemKind::SolarFurnace, {x0 + 1, c + 2}) == BuildResult::Ok);
     assert(ship.set_recipe({x0 + 1, c + 2}, kFurnaceRecipe));
     assert(ship.set_only_when_requested({x0 + 1, c + 2}, true));
     assert(ship.place(ItemKind::Refinery, {x0 + 3, c}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::FilterSorter, {x0, c + 3}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::FilterTube, {x0, c + 3}) == BuildResult::Ok);
     assert(ship.set_filter({x0, c + 3}, ItemKind::IronOre));
 }
 
@@ -102,17 +105,20 @@ void test_copy() {
     assert(bp && bp->name.empty());
     assert(bp->size == (GridSize{6, 4}));
     assert(bp->buildings.size() == 6);
-    assert(bp->buildings[0].kind == ItemKind::AsteroidCollector && bp->buildings[5].kind == ItemKind::FilterSorter);
+    assert(bp->buildings[0].kind == ItemKind::AsteroidCollector && bp->buildings[5].kind == ItemKind::FilterTube);
     const BlueprintBuilding* collector = find(*bp, ItemKind::AsteroidCollector);
     assert(collector->offset == (GridPos{0, 0}) && collector->target == ItemKind::Silica && !collector->recipe);
     assert(!collector->only_when_requested);
-    const BlueprintBuilding* belt = find(*bp, ItemKind::TransportBelt);
-    assert(belt->offset == (GridPos{2, 0}) && belt->facing == Direction::South);
+    const BlueprintBuilding* valve = find(*bp, ItemKind::CheckValve);
+    assert(valve->offset == (GridPos{2, 0}) && valve->facing == Direction::South && valve->color == TubeColor::Teal);
+    const BlueprintBuilding* tube = find(*bp, ItemKind::Tube);
+    assert(tube->offset == (GridPos{2, 1}) && tube->color == TubeColor::Teal);
     assert(find(*bp, ItemKind::SolarFurnace)->recipe == kFurnaceRecipe);
     assert(find(*bp, ItemKind::SolarFurnace)->only_when_requested);
     assert(find(*bp, ItemKind::Refinery)->offset == (GridPos{3, 0}) && !find(*bp, ItemKind::Refinery)->recipe);
-    const BlueprintBuilding* sorter = find(*bp, ItemKind::FilterSorter);
-    assert(sorter->offset == (GridPos{0, 3}) && sorter->filter == ItemKind::IronOre);
+    const BlueprintBuilding* filter = find(*bp, ItemKind::FilterTube);
+    assert(filter->offset == (GridPos{0, 3}) && filter->filter == ItemKind::IronOre);
+    assert(filter->color == TubeColor::Amber);
 
     // A box over one cell of the collector takes the whole collector.
     const std::optional<Blueprint> part = copy_region(ship, {x0 + 1, c + 1}, {x0 + 1, c + 1});
@@ -146,18 +152,20 @@ void test_paste() {
     PasteResult result = paste(ship, bp, at);
     assert(result.pasted && result.plan.ok() && result.settings_skipped == 0);
     for (const ItemKind kind : {ItemKind::AsteroidCollector, ItemKind::SolarFurnace, ItemKind::Refinery,
-                                ItemKind::FilterSorter})
+                                ItemKind::CheckValve, ItemKind::Tube, ItemKind::FilterTube})
         assert(ship.inventory().count(kind) == before.count(kind) - 1);
-    assert(ship.inventory().count(ItemKind::TransportBelt) == before.count(ItemKind::TransportBelt) - 2);
     assert(ship.building_anchored_at({at.x + 3, at.y})->item_kind() == ItemKind::Refinery);
     const auto* collector = dynamic_cast<const Collector*>(ship.building_anchored_at(at));
     assert(collector && collector->get_target() == ItemKind::Silica && collector->stored() == 0);
-    const auto* belt = dynamic_cast<const Conveyor*>(ship.building_anchored_at({at.x + 2, at.y}));
-    assert(belt && belt->facing() == Direction::South && belt->get_items().empty());
+    const auto* valve = dynamic_cast<const Tube*>(ship.building_anchored_at({at.x + 2, at.y}));
+    assert(valve && valve->is_valve() && valve->facing() == Direction::South);
+    assert(valve->get_color() == TubeColor::Teal);
+    const auto* tube = dynamic_cast<const Tube*>(ship.building_anchored_at({at.x + 2, at.y + 1}));
+    assert(tube && tube->get_color() == TubeColor::Teal && tube->get_items().empty());
     const auto* furnace = dynamic_cast<const Machine*>(ship.building_anchored_at({at.x + 1, at.y + 2}));
     assert(furnace && furnace->get_recipe() == kFurnaceRecipe);
-    const auto* sorter = dynamic_cast<const Sorter*>(ship.building_anchored_at({at.x, at.y + 3}));
-    assert(sorter && sorter->get_filter() == ItemKind::IronOre);
+    const auto* filter = dynamic_cast<const Tube*>(ship.building_anchored_at({at.x, at.y + 3}));
+    assert(filter && filter->is_filter() && filter->get_filter() == ItemKind::IronOre);
 
     // Again on top of itself: all of it is already there, and costs nothing.
     const Inventory after = ship.inventory();
@@ -187,7 +195,7 @@ void test_paste() {
     result = paste(poor, bp, {x0, c});
     assert(!result.pasted && result.plan.blocked == 0);
     const std::string why = describe(result.plan);
-    assert(why.find("Missing ") == 0 && why.find("2 Transport belt") != std::string::npos &&
+    assert(why.find("Missing ") == 0 && why.find("1 Check valve") != std::string::npos &&
            why.find("1 Refinery") != std::string::npos);
     assert(!poor.building_at({x0, c}));
 }
@@ -228,15 +236,16 @@ void test_rotate() {
     build_patch(ship);
     const Blueprint bp = *copy_region(ship, {x0, c}, {x0 + 5, c + 3});
 
-    // A quarter turn: (x, y) to (h - 1 - y, x), footprints and belts turned.
+    // A quarter turn: (x, y) to (h - 1 - y, x), footprints and facings turned.
     const Blueprint turned = rotated_cw(bp);
     assert(turned.size == (GridSize{4, 6}));
-    const BlueprintBuilding* belt = find(turned, ItemKind::TransportBelt);
-    assert(belt->offset == (GridPos{3, 2}) && belt->facing == Direction::West);
+    const BlueprintBuilding* valve = find(turned, ItemKind::CheckValve);
+    assert(valve->offset == (GridPos{3, 2}) && valve->facing == Direction::West);
+    assert(find(turned, ItemKind::Tube)->offset == (GridPos{2, 2}));
     assert(find(turned, ItemKind::AsteroidCollector)->offset == (GridPos{2, 0}));
     assert(find(turned, ItemKind::Refinery)->offset == (GridPos{1, 3}));
-    assert(find(turned, ItemKind::FilterSorter)->offset == (GridPos{0, 0}));
-    assert(find(turned, ItemKind::FilterSorter)->facing == Direction::North);
+    assert(find(turned, ItemKind::FilterTube)->offset == (GridPos{0, 0}));
+    assert(find(turned, ItemKind::FilterTube)->facing == Direction::North);
 
     // Four turns: back where it started.
     assert(rotated_cw(rotated_cw(rotated_cw(turned))) == bp);
@@ -244,15 +253,15 @@ void test_rotate() {
     // A turned copy pastes cleanly (its pieces still fit together).
     const PasteResult result = paste(ship, turned, {x0 + 10, c});
     assert(result.pasted);
-    const auto* pasted_belt = dynamic_cast<const Conveyor*>(ship.building_anchored_at({x0 + 13, c + 2}));
-    assert(pasted_belt && pasted_belt->facing() == Direction::West);
+    const auto* pasted_valve = dynamic_cast<const Tube*>(ship.building_anchored_at({x0 + 13, c + 2}));
+    assert(pasted_valve && pasted_valve->is_valve() && pasted_valve->facing() == Direction::West);
 }
 
-// A tunnel pair copied and turned links up the same way, and carries items.
-void test_tunnels() {
+// A vacuum line copied and turned links up the same way, and carries items.
+void test_vacuum_lines() {
     Ship ship = stocked_ship();
-    assert(ship.place(ItemKind::BeltTunnel, {x0, c}, Direction::East) == BuildResult::Ok);
-    assert(ship.place(ItemKind::BeltTunnel, {x0 + 3, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::VacuumLine, {x0, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::VacuumLine, {x0 + 3, c}, Direction::East) == BuildResult::Ok);
     const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0 + 3, c});
     assert(copy);
 
@@ -260,7 +269,7 @@ void test_tunnels() {
     const GridPos entrance{x0, c + 2};
     const GridPos exit{x0, c + 5};
     assert(paste(ship, turned, entrance).pasted);
-    const auto* in = dynamic_cast<const Tunnel*>(ship.building_at(entrance));
+    const auto* in = dynamic_cast<const VacuumLine*>(ship.building_at(entrance));
     assert(in && in->facing() == Direction::South && in->get_exit() == exit);
 
     const GridPos hold{x0, c + 6};
@@ -271,19 +280,19 @@ void test_tunnels() {
     assert(dynamic_cast<const CargoHold&>(*ship.building_at(hold)).get_stored().count(ItemKind::Gear) == 1);
 }
 
-// An unloader's facing and filter come with a copy, and turn with it;
+// An extractor's facing and filter come with a copy, and turn with it;
 // through a string too.
-void test_unloaders() {
+void test_extractors() {
     Ship ship = stocked_ship();
-    assert(ship.place(ItemKind::Unloader, {x0, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Extractor, {x0, c}, Direction::East) == BuildResult::Ok);
     assert(ship.set_filter({x0, c}, ItemKind::Gear));
     const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0, c});
     assert(copy && copy->buildings.size() == 1 && copy->buildings[0].filter == ItemKind::Gear);
 
     const GridPos at{x0, c + 3};
     assert(paste(ship, rotated_cw(*copy), at).pasted);
-    const auto* unloader = dynamic_cast<const Unloader*>(ship.building_at(at));
-    assert(unloader && unloader->facing() == Direction::South && unloader->get_filter() == ItemKind::Gear);
+    const auto* extractor = dynamic_cast<const Extractor*>(ship.building_at(at));
+    assert(extractor && extractor->facing() == Direction::South && extractor->get_filter() == ItemKind::Gear);
 
     std::string error;
     assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
@@ -307,20 +316,34 @@ void test_strings() {
     Blueprint tiny;
     tiny.name = "Tiny";
     tiny.size = {2, 1};
-    BlueprintBuilding belt;
-    belt.facing = Direction::East;
-    tiny.buildings.push_back(belt);
+    BlueprintBuilding valve;
+    valve.kind = ItemKind::CheckValve;
+    valve.facing = Direction::East;
+    tiny.buildings.push_back(valve);
+    BlueprintBuilding tube;
+    tube.offset = {1, 0};
+    tube.color = TubeColor::Teal;
+    tiny.buildings.push_back(tube);
     const std::string text = blueprint_to_string(tiny);
     assert(text == R"({"format":"ore-in-orbit-blueprint","version":2,"name":"Tiny","width":2,"height":1,)"
-                   R"("buildings":[{"kind":"TransportBelt","x":0,"y":0,"facing":"East"}]})");
+                   R"("buildings":[{"kind":"CheckValve","x":0,"y":0,"facing":"East","color":"Amber"},)"
+                   R"({"kind":"Tube","x":1,"y":0,"facing":"North","color":"Teal"}]})");
     std::string error;
     assert(blueprint_from_string("  \n" + text + "\n", error) == tiny);
 
+    // A tube piece with no color is amber.
+    Blueprint amber = tiny;
+    amber.buildings[1].color = TubeColor::Amber;
+    const std::string colorless = changed(text, [](Json& j) { j["buildings"][1].erase("color"); });
+    assert(blueprint_from_string(colorless, error) == amber);
+
     // Version 1 had hull rows (from when the player laid hull): it still
-    // reads, without them.
+    // reads, without them. Belts, since replaced by tubes, are left out.
     const std::string v1 =
         R"({"format":"ore-in-orbit-blueprint","version":1,"name":"Tiny","width":2,"height":1,"hull":["HR"],)"
-        R"("buildings":[{"kind":"TransportBelt","x":0,"y":0,"facing":"East"}]})";
+        R"("buildings":[{"kind":"CheckValve","x":0,"y":0,"facing":"East","color":"Amber"},)"
+        R"({"kind":"Tube","x":1,"y":0,"facing":"North","color":"Teal"},)"
+        R"({"kind":"TransportBelt","x":1,"y":0,"facing":"East"}]})";
     assert(blueprint_from_string(v1, error) == tiny);
 
     // Everything survives the round trip, settings included.
@@ -336,7 +359,7 @@ void test_strings() {
     // out, and unknown filters and recipes unset.
     const std::string with_power = changed(full, [](Json& j) {
         for (Json& b : j["buildings"]) {
-            if (b["kind"] == "FilterSorter")
+            if (b["kind"] == "FilterTube")
                 b["filter"] = "BatteryBank";
             if (b["kind"] == "SolarFurnace")
                 b["recipe"] = "Solar array";
@@ -345,7 +368,7 @@ void test_strings() {
     });
     const std::optional<Blueprint> forgot = blueprint_from_string(with_power, error);
     assert(forgot && forgot->buildings.size() == bp.buildings.size());
-    assert(!find(*forgot, ItemKind::FilterSorter)->filter);
+    assert(!find(*forgot, ItemKind::FilterTube)->filter);
     assert(!find(*forgot, ItemKind::SolarFurnace)->recipe);
 
     // Damaged or foreign strings are refused, with a reason.
@@ -368,7 +391,7 @@ void test_strings() {
     refused(changed(full, [](Json& j) { j["buildings"][1]["target"] = "IronOre"; }));
     refused(changed(full, [](Json& j) { j["buildings"][1]["filter"] = "IronOre"; }));
     refused(changed(full, [](Json& j) { j["buildings"][1]["recipe"] = "Gear"; }));
-    refused(changed(full, [](Json& j) { j["buildings"][1]["only_when_requested"] = true; }));  // a belt
+    refused(changed(full, [](Json& j) { j["buildings"][1]["only_when_requested"] = true; }));  // a valve
     refused(changed(full, [](Json& j) {
         for (Json& b : j["buildings"])
             if (b["kind"] == "SolarFurnace")
@@ -379,14 +402,16 @@ void test_strings() {
             if (b["kind"] == "SolarFurnace")
                 b["recipe"] = "Gear";  // an assembly recipe, in a furnace
     }));
-    // A sorter's filter may be cleared.
+    refused(changed(full, [](Json& j) { j["buildings"][1]["color"] = "Mauve"; }));
+    refused(changed(full, [](Json& j) { j["buildings"][0]["color"] = "Teal"; }));  // not a tube piece
+    // A filter tube's filter may be cleared.
     const std::string cleared = changed(full, [](Json& j) {
         for (Json& b : j["buildings"])
-            if (b["kind"] == "FilterSorter")
+            if (b["kind"] == "FilterTube")
                 b["filter"] = nullptr;
     });
     const std::optional<Blueprint> unfiltered = blueprint_from_string(cleared, error);
-    assert(unfiltered && !find(*unfiltered, ItemKind::FilterSorter)->filter);
+    assert(unfiltered && !find(*unfiltered, ItemKind::FilterTube)->filter);
 }
 
 void test_library(const fs::path& dir) {
@@ -397,7 +422,7 @@ void test_library(const fs::path& dir) {
     a.size = {1, 1};
     a.buildings.push_back({});
     Blueprint b = a;
-    b.name = "Belts";
+    b.name = "Pipes";
 
     const std::optional<fs::path> first = add_blueprint(dir, a, error);
     const std::optional<fs::path> second = add_blueprint(dir, b, error);
@@ -444,8 +469,8 @@ int main() {
     test_paste();
     test_paste_settings();
     test_rotate();
-    test_tunnels();
-    test_unloaders();
+    test_vacuum_lines();
+    test_extractors();
     test_strings();
     const fs::path dir = fs::temp_directory_path() / "ore-in-orbit-test-blueprints";
     fs::remove_all(dir);

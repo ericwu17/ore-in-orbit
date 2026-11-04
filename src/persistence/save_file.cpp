@@ -132,33 +132,39 @@ struct SaveAccess {
             // Running only on request, only when it does.
             if (c->only_when_requested)
                 j["only_when_requested"] = true;
-        } else if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
+        } else if (const auto* tube = dynamic_cast<const Tube*>(&b)) {
+            j["color"] = tube_color_name(tube->color);
+            if (tube->is_filter())
+                j["filter"] = save_optional_item(tube->filter);
+            j["next_out"] = tube->next_out;
+            // Front first: the item, how far across, and the sides it came
+            // in by and is headed for.
             Json items = Json::array();
-            for (const BeltItem& item : belt->get_items())
+            for (const TubeItem& item : tube->items)
+                items.push_back({{"item", item_id(item.kind)},
+                                 {"pos", item.pos},
+                                 {"from", direction_id(item.from)},
+                                 {"to", direction_id(item.to)}});
+            j["items"] = std::move(items);
+        } else if (const auto* line = dynamic_cast<const VacuumLine*>(&b)) {
+            Json items = Json::array();
+            for (const VacuumItem& item : line->items)
                 items.push_back({{"item", item_id(item.kind)}, {"pos", item.pos}});
             j["items"] = std::move(items);
-        } else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
-            j["filter"] = save_optional_item(sorter->get_filter());
-            j["next_right"] = sorter->next_right;
-        } else if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
+        } else if (const auto* crossover = dynamic_cast<const Crossover*>(&b)) {
             // The items crossing each way, front first.
             Json lanes = Json::object();
             for (int d = 0; d < 4; ++d) {
                 Json lane = Json::array();
-                for (const JunctionItem& item : junction->lanes[static_cast<std::size_t>(d)])
+                for (const CrossoverItem& item : crossover->lanes[static_cast<std::size_t>(d)])
                     lane.push_back({{"item", item_id(item.kind)}, {"elapsed", item.elapsed}});
                 lanes[direction_id(static_cast<Direction>(d))] = std::move(lane);
             }
             j["lanes"] = std::move(lanes);
-        } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
-            j["filter"] = save_optional_item(unloader->filter);
-            j["cooldown"] = unloader->cooldown;
-            j["next_kind"] = unloader->next_kind;
-        } else if (const auto* router = dynamic_cast<const Router*>(&b)) {
-            j["held"] = save_optional_item(router->held);
-            j["came_from"] = direction_id(router->came_from);
-            j["elapsed"] = router->elapsed;
-            j["next_out"] = direction_id(router->next_out);
+        } else if (const auto* extractor = dynamic_cast<const Extractor*>(&b)) {
+            j["filter"] = save_optional_item(extractor->filter);
+            j["cooldown"] = extractor->cooldown;
+            j["next_kind"] = extractor->next_kind;
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
@@ -272,44 +278,55 @@ struct SaveAccess {
             }
             c->caught = load_inventory(j.at("caught"));
             c->only_when_requested = load_on_request(j);
-        } else if (auto* belt = dynamic_cast<Conveyor*>(&b)) {
-            for (const Json& item : load_array(j.at("items"), "belt items")) {
+        } else if (auto* tube = dynamic_cast<Tube*>(&b)) {
+            tube->color = load_tube_color(j.at("color"));
+            if (tube->is_filter())
+                tube->filter = load_item(j.at("filter"));
+            tube->next_out = static_cast<int>(load_int(j.at("next_out"), 0, 3));
+            int behind = kTubeLength + kTubeSpacing;  // the item ahead's pos
+            for (const Json& item : load_array(j.at("items"), "tube items")) {
                 const std::optional<ItemKind> kind = load_item(item.at("item"));
+                const int pos = static_cast<int>(load_int(item.at("pos"), 0, kTubeLength));
+                const Direction from = load_direction(item.at("from"));
+                const Direction to = load_direction(item.at("to"));
                 if (!kind)
                     continue;  // gone, leaving a gap
-                // A tunnel's items may be on their way underground.
-                const int furthest = dynamic_cast<const Tunnel*>(belt) ? kBeltLength * kTunnelRange : kBeltLength;
-                const int pos = static_cast<int>(load_int(item.at("pos"), 0, furthest));
-                if (!belt->has_room_at(pos))
-                    throw LoadError("belt items too close together");
-                belt->insert(*kind, pos);
+                if (pos > behind - kTubeSpacing)
+                    throw LoadError("tube items out of order or too close together");
+                tube->items.push_back({*kind, pos, from, to});
+                behind = pos;
             }
-        } else if (auto* sorter = dynamic_cast<Sorter*>(&b)) {
-            sorter->set_filter(load_item(j.at("filter")));
-            sorter->next_right = j.at("next_right").get<bool>();
-        } else if (auto* junction = dynamic_cast<Junction*>(&b)) {
+        } else if (auto* line = dynamic_cast<VacuumLine*>(&b)) {
+            int behind = kTubeLength * kVacuumRange + kTubeSpacing;
+            for (const Json& item : load_array(j.at("items"), "vacuum line items")) {
+                const std::optional<ItemKind> kind = load_item(item.at("item"));
+                // An entrance's items may be on their way to its exit.
+                const int pos = static_cast<int>(load_int(item.at("pos"), 0, kTubeLength * kVacuumRange));
+                if (!kind)
+                    continue;  // gone, leaving a gap
+                if (pos > behind - kTubeSpacing)
+                    throw LoadError("vacuum line items out of order or too close together");
+                line->items.push_back({*kind, pos});
+                behind = pos;
+            }
+        } else if (auto* crossover = dynamic_cast<Crossover*>(&b)) {
             const Json& lanes = j.at("lanes");
             for (int d = 0; d < 4; ++d) {
-                const Json& lane = load_array(lanes.at(direction_id(static_cast<Direction>(d))), "junction items");
-                if (lane.size() > kJunctionCapacity)
-                    throw LoadError("too many items in a junction");
+                const Json& lane = load_array(lanes.at(direction_id(static_cast<Direction>(d))), "crossover items");
+                if (lane.size() > kCrossoverCapacity)
+                    throw LoadError("too many items in a crossover");
                 for (const Json& item : lane)
                     if (const std::optional<ItemKind> kind = load_item(item.at("item")))
-                        junction->lanes[static_cast<std::size_t>(d)].push_back(
-                            {*kind, load_tick(item.at("elapsed"), kJunctionTicks)});
+                        crossover->lanes[static_cast<std::size_t>(d)].push_back(
+                            {*kind, load_tick(item.at("elapsed"), kCrossoverTicks)});
             }
-        } else if (auto* unloader = dynamic_cast<Unloader*>(&b)) {
-            unloader->filter = load_item(j.at("filter"));
-            unloader->cooldown = load_tick(j.at("cooldown"), kUnloaderTicks);
+        } else if (auto* extractor = dynamic_cast<Extractor*>(&b)) {
+            extractor->filter = load_item(j.at("filter"));
+            extractor->cooldown = load_tick(j.at("cooldown"), kExtractorTicks);
             // Only where it starts looking next: a save from when there were
             // other items may point past the end, which wraps round.
-            unloader->next_kind = static_cast<std::size_t>(load_int(j.at("next_kind"), 0, INT32_MAX)) %
-                                  static_cast<std::size_t>(kItemKindCount);
-        } else if (auto* router = dynamic_cast<Router*>(&b)) {
-            router->held = load_item(j.at("held"));
-            router->came_from = load_direction(j.at("came_from"));
-            router->elapsed = load_tick(j.at("elapsed"), kRouterTicks);
-            router->next_out = load_direction(j.at("next_out"));
+            extractor->next_kind = static_cast<std::size_t>(load_int(j.at("next_kind"), 0, INT32_MAX)) %
+                                   static_cast<std::size_t>(kItemKindCount);
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* thruster = dynamic_cast<Thruster*>(&b)) {

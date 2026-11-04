@@ -65,10 +65,12 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
             copy.target = collector->get_target();
             copy.only_when_requested = collector->get_only_when_requested();
         }
-        if (const auto* sorter = dynamic_cast<const Sorter*>(t.building))
-            copy.filter = sorter->get_filter();
-        if (const auto* unloader = dynamic_cast<const Unloader*>(t.building))
-            copy.filter = unloader->get_filter();
+        if (const auto* tube = dynamic_cast<const Tube*>(t.building)) {
+            copy.color = tube->get_color();
+            copy.filter = tube->get_filter();
+        }
+        if (const auto* extractor = dynamic_cast<const Extractor*>(t.building))
+            copy.filter = extractor->get_filter();
         blueprint.buildings.push_back(copy);
     }
     return blueprint;
@@ -123,6 +125,9 @@ PastePlan plan_paste(const Ship& ship, const Blueprint& blueprint, GridPos origi
         entry.facing = b.facing;
         const Building* there = ship.building_anchored_at(entry.at);
         entry.satisfied = there && there->item_kind() == b.kind && there->facing() == b.facing;
+        // A tube of the other color would link to other tubes: not the same.
+        if (const auto* tube = dynamic_cast<const Tube*>(there); entry.satisfied && tube)
+            entry.satisfied = tube->get_color() == b.color;
         if (!entry.satisfied) {
             entry.result = ship.can_place(b.kind, entry.at, b.facing, planned);
             if (entry.result == BuildResult::Ok) {
@@ -175,6 +180,8 @@ PasteResult paste(Ship& ship, const Blueprint& blueprint, GridPos origin) {
             ship.set_collector_target(entry.at, *b.target);
         if (b.filter)
             ship.set_filter(entry.at, *b.filter);
+        if (is_tube(b.kind))
+            ship.set_tube_color(entry.at, b.color);
         if (b.only_when_requested)
             ship.set_only_when_requested(entry.at, true);
     }

@@ -42,6 +42,8 @@ Json save_blueprint(const Blueprint& blueprint) {
             j["target"] = item_id(*b.target);
         if (b.filter)
             j["filter"] = item_id(*b.filter);
+        if (is_tube(b.kind))
+            j["color"] = tube_color_name(b.color);
         if (b.only_when_requested)
             j["only_when_requested"] = true;
         buildings.push_back(std::move(j));
@@ -103,9 +105,15 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
             throw LoadError(std::string(item_id(kind)) + " can't gather " + item_id(*b.target));
     }
     if (const auto filter = j.find("filter"); filter != j.end()) {
-        if (!dynamic_cast<const Sorter*>(building.get()) && !dynamic_cast<const Unloader*>(building.get()))
+        if (kind != ItemKind::FilterTube && kind != ItemKind::Extractor)
             throw LoadError(std::string(item_id(kind)) + " has no filter");
         b.filter = load_item(*filter);
+    }
+    // Amber, unless it says otherwise.
+    if (const auto color = j.find("color"); color != j.end()) {
+        if (!is_tube(kind))
+            throw LoadError(std::string(item_id(kind)) + " has no color");
+        b.color = load_tube_color(*color);
     }
     if (const auto on = j.find("only_when_requested"); on != j.end()) {
         if (!dynamic_cast<const Collector*>(building.get()) && !dynamic_cast<const Machine*>(building.get()))

@@ -28,7 +28,7 @@ struct GridSize {
     bool operator==(const GridSize&) const = default;
 };
 
-// Which way an oriented building (a transport belt) points.
+// Which way an oriented building (a check valve, an extractor) points.
 enum class Direction {
     North,
     East,
@@ -44,6 +44,11 @@ constexpr Direction rotated_cw(Direction d) {
 // The next direction counterclockwise (North -> West -> South -> East).
 constexpr Direction rotated_ccw(Direction d) {
     return static_cast<Direction>((static_cast<int>(d) + 3) % 4);
+}
+
+// The direction the other way (North <-> South, East <-> West).
+constexpr Direction opposite(Direction d) {
+    return static_cast<Direction>((static_cast<int>(d) + 2) % 4);
 }
 
 // The cell next to `p` in direction `d`.
@@ -68,21 +73,20 @@ constexpr Direction direction_to(GridPos from, GridPos to) {
     return Direction::West;
 }
 
-// Everything the bridge inventory (or a belt) can hold. The building kinds
+// Everything the bridge inventory (or a tube) can hold. The building kinds
 // come first, one entry per building (the bridge itself is not one: it comes
 // with the ship's layout, as do its ion thrusters, which have a kind but are
 // never items: see is_layout_part). After them come the raw resources the
 // collectors gather, and what is made from those.
 enum class ItemKind {
-    // Placeable: logistics.
-    TransportBelt,
-    ExpressBelt,
-    BeltTunnel,
-    FilterSorter,
-    ReverseSorter,
-    Junction,
-    Router,
-    Unloader,
+    // Placeable: logistics (pneumatic tubes, and storage).
+    Tube,
+    CheckValve,
+    FilterTube,
+    OverflowTube,
+    Crossover,
+    Extractor,
+    VacuumLine,
     CargoHold,
     // Placeable: collectors.
     AsteroidCollector,
@@ -155,8 +159,19 @@ constexpr bool is_placeable(ItemKind kind) {
     return is_building(kind) && !is_layout_part(kind);
 }
 
-// The player-facing name of an item ("Transport belt", "Iron plate", ...).
+// Tube pieces come in two colors, and one links only to tube pieces of its own color
+// (see Tube in building.h),
+// so two lines can run side by side without merging.
+enum class TubeColor {
+    Amber,
+    Teal,
+};
+constexpr int kTubeColorCount = 2;
+// "Amber", "Teal": what the player sees, and what saves and blueprints write.
+const char* tube_color_name(TubeColor color);  // building.cpp
+
+// The player-facing name of an item ("Tube", "Iron plate", ...).
 const char* item_name(ItemKind kind);
-// An item's stable id: its enumerator's name ("TransportBelt", "IronPlate", ...).
+// An item's stable id: its enumerator's name ("Tube", "IronPlate", ...).
 // Saves write items by it, and sprite files are named after it.
 const char* item_id(ItemKind kind);

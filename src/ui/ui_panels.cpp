@@ -124,16 +124,23 @@ void DrawBuildPalette(Ship& ship, float width) {
             ImGui::SameLine();
             ImGui::TextColored(theme::kTextDim, "facing %s", DirectionName(g_build.facing));
         }
+        if (is_tube(*g_build.selected)) {
+            ImGui::TextColored(TubeColorValue(g_build.tube_color), "%s", tube_color_name(g_build.tube_color));
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kTextDim, "(T switches)");
+        }
+        // What new ones are set to (their color, above, aside).
         const auto last = g_settings.last.find(static_cast<int>(*g_build.selected));
-        if (last != g_settings.last.end())
-            if (const char* name = SettingsName(last->second)) {
+        if (last != g_settings.last.end()) {
+            const BuildingSettings& s = last->second;
+            if (s.recipe || s.target || s.filter) {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(theme::kTextDim, "New ones:");
                 ImGui::SameLine();
-                const BuildingSettings& s = last->second;
                 const Icon setting = s.recipe ? RecipeIcon(*s.recipe) : ItemIcon(s.target ? *s.target : *s.filter);
-                AmountLine(setting, name, theme::kText, false);
+                AmountLine(setting, SettingsName(s), theme::kText, false);
             }
+        }
     } else {
         ImGui::TextColored(theme::kTextDim, "Nothing selected: clicks inspect");
     }
@@ -312,64 +319,76 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : collector->items().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
-    if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
-        ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
-                           static_cast<double>(belt->speed() * static_cast<int>(kTicksPerSecond)) / kBeltLength);
-        if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt)) {
-            const int cells = tunnel->get_distance();
-            if (tunnel->is_exit())
-                ImGui::TextColored(theme::kTextDim, "Exit: items come up from the entrance %d cell%s back", cells,
-                                   cells == 1 ? "" : "s");
-            else if (tunnel->linked())
-                ImGui::TextColored(theme::kTextDim, "Entrance: items go under to the exit %d cell%s ahead", cells,
-                                   cells == 1 ? "" : "s");
+    if (const auto* tube = dynamic_cast<const Tube*>(&b)) {
+        ImGui::TextColored(TubeColorValue(tube->get_color()), "%s", tube_color_name(tube->get_color()));
+        ImGui::SameLine();
+        ImGui::TextColored(theme::kTextDim, "links only to %s tubes",
+                           tube->get_color() == TubeColor::Amber ? "amber" : "teal");
+        if (tube->is_valve())
+            ImGui::TextColored(theme::kTextDim, "Items go one way: in at the back, out at the front");
+        if (tube->is_overflow())
+            ImGui::TextColored(theme::kTextDim, "Items come in only when every other way on is blocked");
+        if (tube->is_filter()) {
+            const std::optional<ItemKind> filter = tube->get_filter();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Filter:");
+            ImGui::SameLine();
+            AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText,
+                       false);
+            if (filter)
+                ImGui::TextColored(theme::kTextDim, "Lets in only %s, which goes in first, as into a building",
+                                   item_name(*filter));
             else
-                ImGui::TextColored(theme::kWarnText,
-                                   "No exit: place a belt tunnel facing the same way, up to %d cells ahead",
-                                   kTunnelRange);
+                ImGui::TextColored(theme::kWarnText, "No filter: it lets nothing in");
         }
+        if (tube->jammed())
+            ImGui::TextColored(theme::kWarnText, "Jammed: the item in front has nowhere to go");
         Inventory carried;
-        for (const BeltItem& item : belt->get_items())
+        for (const TubeItem& item : tube->get_items())
             carried.add(item.kind);
         for (const ItemStack& s : carried.stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
-    if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
-        const std::optional<ItemKind> filter = unloader->get_filter();
+    if (const auto* line = dynamic_cast<const VacuumLine*>(&b)) {
+        ImGui::TextColored(theme::kTextDim, "%.0f cells / s",
+                           static_cast<double>(kVacuumSpeed * static_cast<int>(kTicksPerSecond)) / kTubeLength);
+        const int cells = line->get_distance();
+        if (line->is_exit())
+            ImGui::TextColored(theme::kTextDim, "Exit: items come from the entrance %d cell%s back", cells,
+                               cells == 1 ? "" : "s");
+        else if (line->linked())
+            ImGui::TextColored(theme::kTextDim, "Entrance: items go over to the exit %d cell%s ahead", cells,
+                               cells == 1 ? "" : "s");
+        else
+            ImGui::TextColored(theme::kWarnText,
+                               "No exit: place a vacuum line facing the same way, up to %d cells ahead",
+                               kVacuumRange);
+        Inventory carried;
+        for (const VacuumItem& item : line->get_items())
+            carried.add(item.kind);
+        for (const ItemStack& s : carried.stacks())
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
+    }
+    if (const auto* extractor = dynamic_cast<const Extractor*>(&b)) {
+        const std::optional<ItemKind> filter = extractor->get_filter();
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Filter:");
         ImGui::SameLine();
         AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
         ImGui::TextColored(theme::kTextDim,
-                           "Takes %s out of the bridge or cargo hold behind it, onto what's in front: "
+                           "Takes %s out of the bridge or cargo hold behind it, into what's in front: "
                            "up to %d a second",
                            filter ? item_name(*filter) : "every item, in turn,",
-                           static_cast<int>(kTicksPerSecond / kUnloaderTicks));
+                           static_cast<int>(kTicksPerSecond / kExtractorTicks));
     }
-    if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
-        const std::optional<ItemKind> filter = sorter->get_filter();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Filter:");
-        ImGui::SameLine();
-        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
-        if (sorter->inverted())
-            ImGui::TextColored(theme::kTextDim, "Matching items turn left or right; others go straight through");
-        else
-            ImGui::TextColored(theme::kTextDim, "Matching items go straight through; others turn left or right");
-    }
-    if (const auto* junction = dynamic_cast<const Junction*>(&b)) {
+    if (const auto* crossover = dynamic_cast<const Crossover*>(&b)) {
         ImGui::TextColored(theme::kTextDim, "Items cross straight over, out the opposite side");
         Inventory crossing;
         for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})
-            for (const JunctionItem& item : junction->lane(travel))
+            for (const CrossoverItem& item : crossover->lane(travel))
                 crossing.add(item.kind);
         for (const ItemStack& s : crossing.stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
-    }
-    if (const auto* router = dynamic_cast<const Router*>(&b)) {
-        ImGui::TextColored(theme::kTextDim, "Passes items to its other three sides in turn");
-        if (const std::optional<ItemKind> held = router->get_held())
-            AmountLine(ItemIcon(*held), item_name(*held), theme::kText, in_tooltip);
     }
     if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
         const std::string fuel = Fraction(thruster->get_fuel(), kThrusterCharge) + " fuel cells";
@@ -380,7 +399,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         else
             ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
                                thruster->charged() ? "Charged: ready to jump (see the map, M)"
-                                                   : "Belt fuel cells into it to charge it");
+                                                   : "Send fuel cells into it by tube to charge it");
         ImGui::TextColored(theme::kTextDim, "Part of the ship's layout: it can't be removed");
     }
     if (kind == ItemKind::SurveyScanner)
@@ -393,7 +412,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         const std::string held = Fraction(turret->get_ammo(), kTurretAmmoCapacity);
         AmountLine(ItemIcon(spec.ammo), held, turret->get_ammo() > 0 ? theme::kText : theme::kBad, in_tooltip);
         if (turret->shots_left() == 0)
-            ImGui::TextColored(theme::kBad, "Out of ammunition: belt %s into it", item_name(spec.ammo));
+            ImGui::TextColored(theme::kBad, "Out of ammunition: send %s into it by tube", item_name(spec.ammo));
         else
             ImGui::TextColored(theme::kTextDim, "%d shots left", turret->shots_left());
     }
@@ -408,7 +427,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         (producer_machine && producer_machine->on_standby()))
         ImGui::TextColored(theme::kTextDim, "On standby: the bridge has what it requests");
     if (!kind)
-        ImGui::TextColored(theme::kTextDim, "Belts deliver into its inventory");
+        ImGui::TextColored(theme::kTextDim, "Tubes deliver into its inventory");
     if (in_tooltip && b.rotatable())
         ImGui::TextColored(theme::kTextDim, "Facing %s", DirectionName(b.facing()));
 }
@@ -495,12 +514,13 @@ void DrawOnRequest(Ship& ship, const Building& b) {
 }
 
 // Whether the inspector window has a settings column for `b`: the bridge
-// (its requests), a machine, a collector, or anything with a filter.
+// (its requests), a machine, a collector, a tube piece, or anything with a
+// filter.
 bool HasSettings(const Building& b) {
     if (dynamic_cast<const Bridge*>(&b) || dynamic_cast<const Machine*>(&b) || dynamic_cast<const Collector*>(&b))
         return true;
     const std::optional<BuildingSettings> settings = SettingsOf(b);
-    return settings && settings->has_filter;
+    return settings && (settings->has_filter || settings->color);
 }
 
 // The bridge's provider setting, in its inspector: whether this ship sends
@@ -521,7 +541,8 @@ void DrawProvider(Fleet& fleet, const FleetShip& shown) {
 // The inspector window's settings column (HasSettings): for the bridge,
 // whether its ship is a provider and its item requests; for a machine, the
 // recipe picker; for a collector, what it gathers (for both, whether they run
-// only on request); for a sorter or an unloader, the filter picker.
+// only on request); for a tube piece, its color; for a filter tube or an
+// extractor, the filter picker.
 void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
     Ship& ship = shown.ship;
     if (dynamic_cast<const Bridge*>(&b)) {
@@ -592,6 +613,21 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
         ImGui::Spacing();
     }
     DrawOnRequest(ship, b);
+    if (const auto* tube = dynamic_cast<const Tube*>(&b)) {
+        ImGui::TextColored(theme::kTextDim, "Color");
+        for (int i = 0; i < kTubeColorCount; ++i) {
+            const auto color = static_cast<TubeColor>(i);
+            if (i > 0)
+                ImGui::SameLine();
+            // Picking one also makes it the color new tubes are built in.
+            if (theme::SegmentedButton(tube_color_name(color), tube->get_color() == color) &&
+                ship.set_tube_color(*g_build.inspected, color)) {
+                g_build.tube_color = color;
+                remember();
+            }
+        }
+        ImGui::Spacing();
+    }
     if (const std::optional<BuildingSettings> settings = SettingsOf(b); settings && settings->has_filter) {
         const std::optional<ItemKind> current = settings->filter;
         ImGui::TextColored(theme::kTextDim, "Filter");
@@ -611,8 +647,8 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
             ImGui::EndCombo();
         }
     }
-    if (dynamic_cast<const Unloader*>(&b) && !ship.unload_source(*g_build.inspected))
-        ImGui::TextColored(theme::kWarnText, "Nothing to unload: put the bridge or a cargo hold behind it");
+    if (dynamic_cast<const Extractor*>(&b) && !ship.extract_source(*g_build.inspected))
+        ImGui::TextColored(theme::kWarnText, "Nothing to take from: put the bridge or a cargo hold behind it");
 }
 
 // The top of the inspector window: a sunk strip with an amber stripe down
