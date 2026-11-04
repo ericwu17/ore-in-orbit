@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <utility>
 
 const char* describe(FleetResult result) {
@@ -243,11 +244,32 @@ int pods_to_spare(int spare, const std::vector<Shipment>& shipments, int from, i
     return fits(n) ? n : 0;
 }
 
+// How many more items provider `from` has the pods to carry to requester
+// `to`, when `carriers` of its pods aren't promised as cargo: what's left
+// once its other shipments have their pods, less what's already going to
+// `to`.
+int room_to_carry(int carriers, const std::vector<Shipment>& shipments, int from, int to) {
+    int planned = 0;
+    for (const Shipment& s : shipments) {
+        if (s.from != from)
+            continue;
+        if (s.to == to)
+            planned = total_of(s.items);
+        else
+            carriers -= pods_needed(total_of(s.items));
+    }
+    // Wide, for a provider with a great many pods.
+    const long long room = static_cast<long long>(std::max(carriers, 0)) * kPodCapacity - planned;
+    return static_cast<int>(std::clamp<long long>(room, 0, std::numeric_limits<int>::max()));
+}
+
 }  // namespace
 
 void Fleet::dispatch(Tick now) {
     out_of_pods.clear();
     std::vector<Shipment> shipments;
+    // Provider-to-requester pairs with cargo held back for want of pods.
+    std::vector<std::pair<int, int>> held;
     // What each provider has promised this dispatch, by ship index.
     std::vector<Inventory> promised(ships.size());
     for (std::size_t r = 0; r < ships.size(); ++r) {
@@ -257,6 +279,7 @@ void Fleet::dispatch(Tick now) {
             int shortfall = request.count - bridge.get_inventory().count(request.kind) -
                             in_flight_to(requester.id, request.kind);
             std::vector<std::size_t> givers;  // the shipments it went into
+            std::vector<int> pod_bound;  // providers with more than their pods carry
             while (shortfall > 0) {
                 // The provider in the same sector with the most to spare;
                 // ties go to the oldest.
@@ -266,9 +289,20 @@ void Fleet::dispatch(Tick now) {
                     const FleetShip& provider = *ships[p];
                     if (p == r || !provider.provides || provider.sector != requester.sector)
                         continue;
-                    int spare = surplus(provider, request.kind, promised[p]);
-                    if (request.kind == ItemKind::CargoPod)
+                    const int had = surplus(provider, request.kind, promised[p]);
+                    int spare = had;
+                    // Only what its pods can carry, so a provider without
+                    // pods leaves the request to one with them.
+                    if (request.kind == ItemKind::CargoPod) {
                         spare = pods_to_spare(spare, shipments, provider.id, requester.id);
+                    } else {
+                        const int carriers = provider.ship.inventory().count(ItemKind::CargoPod) -
+                                             promised[p].count(ItemKind::CargoPod);
+                        spare = std::min(spare, room_to_carry(carriers, shipments, provider.id, requester.id));
+                        if (spare < std::min(had, shortfall) &&
+                            std::find(pod_bound.begin(), pod_bound.end(), provider.id) == pod_bound.end())
+                            pod_bound.push_back(provider.id);
+                    }
                     if (spare > best_spare) {
                         best = p;
                         best_spare = spare;
@@ -289,9 +323,19 @@ void Fleet::dispatch(Tick now) {
                 it->items.push_back({request.kind, n});
                 givers.push_back(static_cast<std::size_t>(it - shipments.begin()));
             }
-            if (shortfall > 0)
+            if (shortfall > 0) {
                 for (const std::size_t g : givers)
                     shipments[g].completes = false;
+                // Left short for want of pods: those providers say so, and
+                // what they hold back for want of them waits as a part-filled
+                // pod would, to go as soon as they have one.
+                for (const int id : pod_bound) {
+                    if (!short_of_pods(id))
+                        out_of_pods.push_back(id);
+                    if (std::find(held.begin(), held.end(), std::pair{id, requester.id}) == held.end())
+                        held.push_back({id, requester.id});
+                }
+            }
         }
     }
 
@@ -304,22 +348,41 @@ void Fleet::dispatch(Tick now) {
         const int total = total_of(s.items);
         // Whole pods go at once; a part-filled one only if it finishes the
         // job or has waited long enough.
-        int n = (s.completes || waited) ? total : total / kPodCapacity * kPodCapacity;
-        if (n < total)
-            still_partial.push_back({pair, waiting != partial_since.end() ? waiting->second : now});
+        const int n = (s.completes || waited) ? total : total / kPodCapacity * kPodCapacity;
         // Short of pods for all of it, whether or not it all goes now.
         if (can_send(s.from, s.to, s.items) != FleetResult::Ok && !short_of_pods(s.from))
             out_of_pods.push_back(s.from);
-        // As much as the provider's pods carry: a pod's worth fewer at a
-        // time, or one fewer when the cargo is pods (each one sent is one
-        // fewer to carry it in).
-        const bool carries_pods = std::any_of(s.items.begin(), s.items.end(),
-                                              [](const ItemStack& i) { return i.kind == ItemKind::CargoPod; });
-        for (int m = n; m > 0; m = carries_pods ? m - 1 : (pods_needed(m) - 1) * kPodCapacity)
-            if (send(s.from, s.to, first_items(s.items, m), now) == FleetResult::Ok) {
-                transfers.back().automatic = true;
-                break;
-            }
+        // As much of it as the provider's pods carry: the more items, the
+        // more pods it takes, so the most that fits is found by halving.
+        int lo = 0;
+        int hi = n;
+        while (lo < hi) {
+            const int mid = lo + (hi - lo + 1) / 2;
+            if (can_send(s.from, s.to, first_items(s.items, mid)) == FleetResult::Ok)
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        if (lo > 0) {
+            const FleetResult sent = send(s.from, s.to, first_items(s.items, lo), now);
+            assert(sent == FleetResult::Ok);
+            (void)sent;
+            transfers.back().automatic = true;
+        }
+        // What didn't go waits on, from when it started waiting.
+        if (lo < total)
+            still_partial.push_back({pair, waiting != partial_since.end() ? waiting->second : now});
+    }
+    for (const std::pair<int, int>& pair : held) {
+        const bool listed = std::any_of(still_partial.begin(), still_partial.end(),
+                                        [&](const auto& w) { return w.first == pair; });
+        const bool shipped = std::any_of(shipments.begin(), shipments.end(),
+                                         [&](const Shipment& s) { return std::pair{s.from, s.to} == pair; });
+        if (listed || shipped)
+            continue;
+        const auto waiting = std::find_if(partial_since.begin(), partial_since.end(),
+                                          [&](const auto& w) { return w.first == pair; });
+        still_partial.push_back({pair, waiting != partial_since.end() ? waiting->second : now});
     }
     partial_since = std::move(still_partial);
 }

@@ -11,6 +11,7 @@
 #include "sim/world.h"
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <vector>
 
@@ -432,6 +433,63 @@ void test_short_of_pods_while_waiting() {
     assert(fleet.in_flight().empty() && !fleet.short_of_pods(provider));
 }
 
+// A provider without pods to carry its stock leaves the request to one with
+// them, rather than holding on to it.
+void test_podless_provider_steps_aside() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 3);
+    const int a = ids[0], requester = ids[1], c = ids[2];
+    for (const int p : {a, c})
+        assert(fleet.set_provides(p, true));
+    inv(world, a).add(ItemKind::Gear, 1000);
+    inv(world, c).add({{ItemKind::Gear, 100}, {ItemKind::CargoPod, 10}});
+    bridge(world, requester).set_request(ItemKind::Gear, 100);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].from == c);
+    assert(fleet.in_flight_to(requester, ItemKind::Gear) == 100);
+    assert(!fleet.short_of_pods(a));  // c had it covered
+}
+
+// Pods asked for ahead of a great many items: the most that fits is found
+// at once, and the pods go with as many items as the last one carries.
+void test_large_request_after_pods() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    assert(fleet.set_provides(provider, true));
+    inv(world, provider).add({{ItemKind::CargoPod, 31}, {ItemKind::Gear, kMaxRequest}});
+    bridge(world, requester).set_request(ItemKind::CargoPod, 30);
+    bridge(world, requester).set_request(ItemKind::Gear, kMaxRequest);
+    const auto start = std::chrono::steady_clock::now();
+    run_to_dispatch(world);
+    const auto took = std::chrono::steady_clock::now() - start;
+    assert(took < std::chrono::milliseconds(100));
+    // 30 pods and 20 gears fill the one pod left to carry them.
+    assert(fleet.in_flight_to(requester, ItemKind::CargoPod) == 30);
+    assert(fleet.in_flight_to(requester, ItemKind::Gear) == 20);
+    assert(inv(world, provider).count(ItemKind::CargoPod) == 0);
+    assert(fleet.short_of_pods(provider));
+}
+
+// A part-filled pod that has waited, but had no pod to go in, goes as soon
+// as one turns up.
+void test_waited_pod_goes_with_first_pod() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    assert(fleet.set_provides(provider, true));
+    inv(world, provider).add(ItemKind::Gear, 30);
+    bridge(world, requester).set_request(ItemKind::Gear, 120);
+    run(world, kPartialPodWait + kDispatchInterval);
+    assert(fleet.in_flight().empty());
+    inv(world, provider).add(ItemKind::CargoPod, 1);
+    run_to_dispatch(world);
+    assert(fleet.in_flight_to(requester, ItemKind::Gear) == 30);
+}
+
 }  // namespace
 
 int main() {
@@ -451,6 +509,9 @@ int main() {
     test_provider_pods();
     test_provider_sends_pods();
     test_short_of_pods_while_waiting();
+    test_podless_provider_steps_aside();
+    test_large_request_after_pods();
+    test_waited_pod_goes_with_first_pod();
     std::puts("test_fleet: all passed");
     return 0;
 }

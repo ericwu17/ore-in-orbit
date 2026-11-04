@@ -503,10 +503,6 @@ bool HasSettings(const Building& b) {
     return settings && settings->has_filter;
 }
 
-// The inspector window's settings column (HasSettings): for the bridge, its
-// item requests; for a machine, the recipe picker; for a collector, what it
-// gathers (for both, whether they run only on request); for a sorter or an
-// unloader, the filter picker.
 // The bridge's provider setting, in its inspector: whether this ship sends
 // other ships in its sector what they request, and whether it's short of
 // cargo pods to.
@@ -522,6 +518,10 @@ void DrawProvider(Fleet& fleet, const FleetShip& shown) {
         ImGui::TextColored(theme::kWarnText, "Short of cargo pods: requests here are waiting");
 }
 
+// The inspector window's settings column (HasSettings): for the bridge,
+// whether its ship is a provider and its item requests; for a machine, the
+// recipe picker; for a collector, what it gathers (for both, whether they run
+// only on request); for a sorter or an unloader, the filter picker.
 void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
     Ship& ship = shown.ship;
     if (dynamic_cast<const Bridge*>(&b)) {

@@ -13,8 +13,9 @@
 // kDispatchInterval, every ship in a sector with a provider is topped up to
 // its bridge's item requests from the providers there, in cargo pods, with
 // no clicking (dispatch). A provider gives only what it holds beyond its own
-// requests, and the one with the most of an item to spare gives it first
-// (ties: the oldest). Cargo already on its way to a ship counts toward its
+// requests and its pods can carry, and the one with the most of an item to
+// spare gives it first (ties: the oldest), so one without pods leaves it to
+// one with them. Cargo already on its way to a ship counts toward its
 // requests. Automatic sends use up the provider's pods like manual ones
 // (asked for cargo pods themselves, it keeps back the ones to carry them), so
 // they go in whole pods: a part-filled pod goes only once it covers every
