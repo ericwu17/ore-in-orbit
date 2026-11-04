@@ -160,7 +160,7 @@ void test_belt_item_sides() {
     run(world, belt_cell_ticks());  // the gear to the front, where it stops
     // A belt behind it now, and still round the corner from the side.
     assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));  // south: its right
-    run(world, kBeltSpacing / belt_speed(ItemKind::TransportBelt));  // room behind it
+    run(world, static_cast<Tick>(kBeltSpacing / belt_speed(ItemKind::TransportBelt)));  // room behind it
     assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));      // from behind
     const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
     assert(items.size() == 3);

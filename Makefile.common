@@ -51,6 +51,7 @@ WARNINGS += -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual
 WARNINGS += -Wcast-align -Wnull-dereference -Wimplicit-fallthrough
 WARNINGS += -Wformat=2
 WARNINGS += -Wconversion   # implicit narrowing (double->float, int64->int, ...) needs a cast
+WARNINGS += -Wsign-conversion   # int<->unsigned too; clang's -Wconversion has it, g++'s doesn't
 
 # One list per layer (src/<layer>/). The simulation and the save files are
 # pure logic, no SDL/imgui/OpenGL: the headless tests link against exactly
