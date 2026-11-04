@@ -322,8 +322,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     if (const auto* tube = dynamic_cast<const Tube*>(&b)) {
         ImGui::TextColored(TubeColorValue(tube->get_color()), "%s", tube_color_name(tube->get_color()));
         ImGui::SameLine();
-        ImGui::TextColored(theme::kTextDim, "links only to %s tubes",
-                           tube->get_color() == TubeColor::Amber ? "amber" : "teal");
+        ImGui::TextColored(theme::kTextDim, "links only to tubes of its color");
         if (tube->is_valve())
             ImGui::TextColored(theme::kTextDim, "Items go one way: in at the back, out at the front");
         if (tube->is_overflow())

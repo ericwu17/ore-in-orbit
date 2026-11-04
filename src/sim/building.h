@@ -323,7 +323,8 @@ struct TubeItem {
 //
 // The other pieces each bend one rule:
 //  - a check valve (CheckValve) takes items only from the cell behind it and
-//    passes them only out of its front;
+//    passes them only out of its front, never turning one round: with no
+//    way on, items wait in it;
 //  - a filter tube (FilterTube) takes only the item picked for it, and an
 //    item that matches goes into it first, as into a building (rule 3); with
 //    nothing picked it takes nothing;
@@ -340,8 +341,10 @@ private:
     std::optional<ItemKind> filter;  // a filter tube's
 
 public:
-    // `k` is one of is_tube's; `facing` only matters to a check valve.
-    Tube(ItemKind k, Direction facing) : Building(k, facing, footprint_of(k, facing)) {}
+    // `k` is one of is_tube's. Only a check valve faces a way: the others
+    // always face North, so copies and blueprints of them compare equal.
+    Tube(ItemKind k, Direction facing)
+        : Building(k, is_rotatable(k) ? facing : Direction::North, footprint_of(k, facing)) {}
 
     bool is_valve() const { return item_kind() == ItemKind::CheckValve; }
     bool is_filter() const { return item_kind() == ItemKind::FilterTube; }
@@ -396,7 +399,7 @@ struct VacuumItem {
 //
 // An entrance takes items from any side but its front, and they travel on
 // to its exit, so the items on their way belong to it, and its length()
-// reaches the exit's far edge. Without an exit it holds them. An exit takes
+// reaches the exit's back edge. Without an exit it holds them. An exit takes
 // items only from its entrance, and passes them out of its front, into a
 // tube or a building.
 class VacuumLine : public Building {

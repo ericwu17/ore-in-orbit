@@ -371,8 +371,12 @@ Ship::TubeExit Ship::tube_exit(GridPos p, const Tube& tube, Direction side, Item
             return other->admits(kind) ? TubeExit::Building : TubeExit::None;
         return other->is_overflow() ? TubeExit::Overflow : TubeExit::Tube;
     }
-    if (dynamic_cast<const Crossover*>(b) || dynamic_cast<const VacuumLine*>(b))
-        return TubeExit::Tube;
+    // A crossover leads on only with something across it to pass to, and a
+    // vacuum line only at its entrance (an exit is fed by its entrance).
+    if (dynamic_cast<const Crossover*>(b))
+        return building_at(neighbor(q, side)) ? TubeExit::Tube : TubeExit::None;
+    if (const auto* line = dynamic_cast<const VacuumLine*>(b))
+        return line->is_exit() ? TubeExit::None : TubeExit::Tube;
     if (dynamic_cast<const Extractor*>(b))
         return TubeExit::None;  // it only gives
     return TubeExit::Building;
@@ -415,6 +419,9 @@ Direction Ship::plan_tube_exit(GridPos p, Tube& tube, Direction from, ItemKind k
                 return d;
             }
         }
+    // A check valve never turns an item round: it waits at the front.
+    if (tube.is_valve())
+        return tube.facing();
     return tube_leads_on(p, tube, from, kind) ? opposite(from) : from;
 }
 
@@ -448,8 +455,9 @@ void Ship::move_tube_item(GridPos p, Tube& tube) {
             }
         }
     }
-    // Where the tubes end, it turns round.
-    if (!tube_leads_on(p, tube, item.from, item.kind) && insert_item(neighbor(p, item.from), p, item.kind)) {
+    // Where the tubes end, it turns round (never in a check valve).
+    if (!tube.is_valve() && !tube_leads_on(p, tube, item.from, item.kind) &&
+        insert_item(neighbor(p, item.from), p, item.kind)) {
         tube.pop_front();
         tube.waited = 0;
         return;

@@ -99,8 +99,10 @@ and linking like one):
 
 - **Check valve**: takes items only from behind and passes them only out of
   its front, so items go one way (the drag turns valves to face the way it
-  goes). It's how a line starts: a valve facing away from a building takes
-  what that building puts out and never lets anything back in.
+  goes). Items never turn round in it: with nothing taking them at its
+  front, they wait. It's how a line starts: a valve facing away from a
+  building takes what that building puts out and never lets anything back
+  in.
 - **Filter tube**: takes only the item picked for it, and an item that
   matches goes into it first, as into a building (rule 3); everything else
   passes it by. With nothing picked it takes nothing.

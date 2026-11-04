@@ -847,6 +847,51 @@ void test_extractor_no_source() {
 
 }  // namespace
 
+// A check valve never turns an item round: with nothing at its front, the
+// item waits in it rather than going back the way it came.
+void test_valve_dead_end() {
+    World world;
+    Ship& ship = world.flagship();
+    const GridPos tube{c + 5, b0 - 3};
+    const GridPos valve{c + 6, b0 - 3};
+    build(ship, ItemKind::Tube, tube);
+    build(ship, ItemKind::CheckValve, valve, Direction::East);
+    assert(ship.insert_item(valve, tube, ItemKind::Gear));
+    run(world, 4 * kTubeCellTicks);
+    assert(tube_at(ship, tube).get_items().empty());
+    assert(tube_at(ship, valve).get_items().size() == 1 && tube_at(ship, valve).jammed());
+}
+
+// A vacuum line's exit and a crossover with nothing past it are no way on:
+// items in the tube beside them turn round where the tubes end instead of
+// waiting on them for good.
+void test_no_way_on() {
+    for (const bool vacuum : {true, false}) {
+        World world;
+        Ship& ship = world.flagship();
+        const GridPos t1{c + 6, b0 - 3};
+        const GridPos t2{c + 7, b0 - 3};
+        const GridPos valve{c + 6, b0 - 4};
+        if (vacuum) {
+            build(ship, ItemKind::VacuumLine, {c + 2, b0 - 3}, Direction::East);
+            build(ship, ItemKind::VacuumLine, {c + 5, b0 - 3}, Direction::East);
+            assert(line_at(ship, {c + 5, b0 - 3}).is_exit());
+        } else {
+            build(ship, ItemKind::Crossover, {c + 5, b0 - 3});
+        }
+        build(ship, ItemKind::Tube, t1);
+        build(ship, ItemKind::Tube, t2);
+        build(ship, ItemKind::CheckValve, valve, Direction::South);
+        for (int i = 0; i < 3; ++i)
+            feed(world, t1, valve, {ItemKind::Gear}, kTubeCellTicks);
+        for (Tick t = 0; t < 20 * kTubeCellTicks; ++t) {
+            run(world, 1);
+            assert(!tube_at(ship, t1).jammed() && !tube_at(ship, t2).jammed());
+        }
+        assert(tube_at(ship, t1).get_items().size() + tube_at(ship, t2).get_items().size() == 3);
+    }
+}
+
 int main() {
     test_tube_to_bridge();
     test_tube_jam();
@@ -857,6 +902,8 @@ int main() {
     test_output_overflow_last();
     test_tube_colors();
     test_check_valve();
+    test_valve_dead_end();
+    test_no_way_on();
     test_crossover();
     test_collector_feeds();
     test_machine_recipe();

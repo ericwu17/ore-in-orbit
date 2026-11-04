@@ -298,6 +298,25 @@ void test_extractors() {
     assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
 }
 
+// Only a check valve faces a way: other tube pieces face North whatever
+// they were placed facing, so a copy of them reads back from a string and
+// pastes over itself.
+void test_tube_facing() {
+    Ship ship = stocked_ship();
+    assert(ship.place(ItemKind::Tube, {x0, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.building_at({x0, c})->facing() == Direction::North);
+    assert(ship.place(ItemKind::CheckValve, {x0 + 1, c}, Direction::East) == BuildResult::Ok);
+    assert(ship.building_at({x0 + 1, c})->facing() == Direction::East);
+    const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0 + 1, c});
+    assert(copy);
+    std::string error;
+    assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
+    const PasteResult again = paste(ship, *copy, {x0, c});
+    assert(again.pasted);
+    for (const PasteEntry& e : again.plan.entries)
+        assert(e.satisfied);
+}
+
 // The blueprint string `text` with `change` made to its JSON.
 std::string changed(const std::string& text, const std::function<void(Json&)>& change) {
     Json j = Json::parse(text);
@@ -471,6 +490,7 @@ int main() {
     test_rotate();
     test_vacuum_lines();
     test_extractors();
+    test_tube_facing();
     test_strings();
     const fs::path dir = fs::temp_directory_path() / "ore-in-orbit-test-blueprints";
     fs::remove_all(dir);

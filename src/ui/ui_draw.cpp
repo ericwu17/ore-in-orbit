@@ -271,7 +271,8 @@ void DrawTubeItems(ImDrawList* draw, const Tube& tube, ImVec2 min, float cell) {
     const ImVec2 c(min.x + cell * 0.5f, min.y + cell * 0.5f);
     for (const TubeItem& item : tube.get_items()) {
         // The first half of the way in from its side to the middle, the
-        // second out to the side it's headed for.
+        // second out to the side it's headed for. It may yet leave by
+        // another (Ship::move_tube_item), and then jumps there.
         const float t = static_cast<float>(item.pos) / static_cast<float>(kTubeLength);
         const bool in = t < 0.5f;
         const ImVec2 v = DirectionVector(in ? item.from : item.to);
