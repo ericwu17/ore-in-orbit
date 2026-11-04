@@ -453,9 +453,29 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail);
 // ui_grid.cpp
 
 // The ship's build grid, filling `avail`: the hull and buildings, the
-// enemies on it, and building, removing, copying and pasting with the
-// mouse.
-void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail);
+// fight it's in (`fight`, if any: the shots coming in, its shields), and
+// building, removing, copying and pasting with the mouse. `ship_id` is its
+// FleetShip's.
+void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, ImVec2 avail);
+// A building's health, as a thin bar along its top, once it's damaged; and a
+// red flash for a few frames after it's hit (`now`: the World's tick).
+void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now);
+
+// ui_combat.cpp
+
+// A weapon's charge and ammunition, or a shield projector's layer, on its
+// tile (`min`..`max`); nothing for other buildings.
+void DrawCombatStatus(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell);
+// The fight over `ship`'s grid (drawn at `origin`, `cell` px per cell, on
+// the canvas `canvas_min`..`canvas_max`): its shield bubble, the shots on
+// their way to it (from the right, on a player's ship, `ship_id`; from the
+// left on the enemy's, `enemy_side`) and those that just landed.
+void DrawCombatOverlay(ImDrawList* draw, const Ship& ship, const Engagement& fight, bool enemy_side, int ship_id,
+                       ImVec2 origin, float cell, ImVec2 canvas_min, ImVec2 canvas_max, Tick now);
+// The enemy panel, filling `avail` beside the grid while the ship shown is
+// in a fight: the enemy's name, bridge health, shields and evasion, and its
+// ship, whose buildings a click targets for the ship shown's weapons.
+void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail);
 
 // ui_blueprints.cpp
 

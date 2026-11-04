@@ -5,14 +5,17 @@
 // Sectors are linked to their neighbors; a ship jumps from one to a
 // neighbor (see World::jump). Sector 0 is home, where a game starts: safe,
 // with every raw resource. Further out, the yields vary (a sector may have
-// no iron, or twice the iridium) and the threat grows.
+// no iron, or twice the iridium) and the threat grows, and with it the
+// enemy ships lying in wait (see enemies.h): a sector may hold one, or
+// none, and one beaten is gone for good.
 //
 // What the player knows: a sector a ship has been to is visited. Its
 // neighbors are known (shown on the map, without details). A sector is
-// surveyed, its yields and threat shown, once visited, or once a ship with a
+// surveyed, its yields, threat and enemy shown, once visited, or once a ship with a
 // survey scanner is in a sector next to it.
 #pragma once
 
+#include "sim/enemies.h"
 #include "sim/game_types.h"
 
 #include <array>
@@ -33,10 +36,6 @@ std::optional<int> raw_resource_index(ItemKind kind);
 // The highest threat a sector has.
 constexpr int kMaxThreat = 5;
 
-// The waves of enemies a sector of `threat` sends before it's cleared (see
-// combat.h): none for a safe one.
-int waves_for_threat(int threat);
-
 // A yield is a percentage of the home sector's: collectors there catch
 // items that much as fast. 0: none to be had.
 using Yields = std::array<int, kRawResourceCount>;
@@ -47,17 +46,19 @@ struct Sector {
     float y = 0.0f;
     std::vector<int> neighbors;  // indices of the sectors linked to it
     Yields yields{};
-    int threat = 0;      // 0 (safe) to kMaxThreat
-    int waves_left = 0;  // waves it has yet to send (see combat.h)
+    int threat = 0;  // 0 (safe) to kMaxThreat
+    // The enemy ship waiting there, until it's beaten (never at threat 0).
+    std::optional<EnemyClass> enemy;
+    bool beaten = false;  // an enemy was destroyed here
     bool visited = false;
     bool surveyed = false;
 
     // The yield of `kind`: 0 for a kind that isn't gathered.
     int yield(ItemKind kind) const;
-    // Sends waves at the ships in it.
-    bool hostile() const { return waves_left > 0; }
-    // Was hostile, and has sent all its waves.
-    bool cleared() const { return threat > 0 && waves_left == 0; }
+    // An enemy ship waits there: ships that come in have a fight.
+    bool hostile() const { return enemy.has_value(); }
+    // Its enemy was beaten.
+    bool cleared() const { return beaten; }
 };
 
 class StarMap {

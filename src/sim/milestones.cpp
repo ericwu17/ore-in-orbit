@@ -20,10 +20,10 @@ const std::vector<Milestone>& all_milestones() {
           CargoPod}},
         {"Escape velocity",
          {{Processor, 20}},
-         {FabricatorMk3, FuelCell, Autocannon, SlugMagazine}},
+         {FabricatorMk3, FuelCell, BurstLaser, FocusCrystal}},
         {"Frontier",
-         {{FuelCell, 100}, {SlugMagazine, 200}},
-         {Railgun, RailSlug}},
+         {{FuelCell, 100}, {FocusCrystal, 100}},
+         {ShieldProjector}},
     };
     return milestones;
 }
@@ -35,6 +35,32 @@ std::size_t milestone_index(std::string_view name) {
             return i;
     assert(false && "no milestone by that name");
     return milestones.size();
+}
+
+const std::vector<Schematic>& all_schematics() {
+    using enum ItemKind;
+    static const std::vector<Schematic> schematics = {
+        {HeavyLaser, {HeavyLaser}},  // fires the burst laser's focus crystals
+        {MissileLauncher, {MissileLauncher, Missile}},
+        {IonBlaster, {IonBlaster, IonCell}},
+        {FlakCannon, {FlakCannon, FlakShell}},
+        {BeamEmitter, {BeamEmitter, IridiumLens}},
+    };
+    return schematics;
+}
+
+const Schematic* schematic_unlocking(ItemKind kind) {
+    for (const Schematic& s : all_schematics())
+        if (std::find(s.unlocks.begin(), s.unlocks.end(), kind) != s.unlocks.end())
+            return &s;
+    return nullptr;
+}
+
+const Schematic* schematic_for(ItemKind weapon) {
+    for (const Schematic& s : all_schematics())
+        if (s.weapon == weapon)
+            return &s;
+    return nullptr;
 }
 
 std::optional<std::size_t> milestone_unlocking(ItemKind kind) {
@@ -83,7 +109,20 @@ bool Progress::complete_current() {
     return true;
 }
 
+bool Progress::has_schematic(ItemKind weapon) const {
+    return std::find(schematics.begin(), schematics.end(), weapon) != schematics.end();
+}
+
+bool Progress::add_schematic(ItemKind weapon) {
+    if (!schematic_for(weapon) || has_schematic(weapon))
+        return false;
+    schematics.push_back(weapon);
+    return true;
+}
+
 bool Progress::unlocked(ItemKind kind) const {
+    if (const Schematic* s = schematic_unlocking(kind))
+        return has_schematic(s->weapon);
     const std::optional<std::size_t> at = milestone_unlocking(kind);
     return !at || *at < current;
 }

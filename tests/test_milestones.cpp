@@ -137,6 +137,11 @@ void test_progress() {
     assert(progress.all_complete());
     assert(progress.current_index() == all_milestones().size());
     assert(!progress.on_delivered(ItemKind::Processor));
+    // Everything but what only schematics unlock (see test_combat).
+    for (int i = 0; i < kItemKindCount; ++i)
+        assert(progress.unlocked(static_cast<ItemKind>(i)) == !schematic_unlocking(static_cast<ItemKind>(i)));
+    for (const Schematic& sc : all_schematics())
+        assert(progress.add_schematic(sc.weapon));
     for (int i = 0; i < kItemKindCount; ++i)
         assert(progress.unlocked(static_cast<ItemKind>(i)));
 }

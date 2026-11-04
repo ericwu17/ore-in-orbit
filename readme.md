@@ -89,7 +89,7 @@ three sides in turn.
 
 Unloaders are how items leave storage: an unloader faces a way, like a belt,
 and takes items out of the bridge or the cargo hold behind it into whatever
-is in front of it (a belt, a machine, a turret, another hold), one every
+is in front of it (a belt, a machine, a weapon, another hold), one every
 1/6 of a second, as fast as a transport belt carries them. It takes only the
 item picked for it, or with none every item the storage holds, in turn,
 skipping those the front won't take. One with no bridge or hold behind it is
@@ -159,21 +159,35 @@ belt). The jump burns all their fuel.
 
 ### Combat
 
-Sectors with a threat are hostile: they send waves of enemies at every ship
-in them, the first 30 seconds after it arrives, then one every 45 seconds,
-bigger each time and with heavier ships the higher the threat (drones,
-gunships, dreadnoughts). Enemies come in from one side, fly at the nearest
-building and shoot it. A building shot to pieces is gone, with nothing
-refunded, except an engine, which is knocked offline (taking no fuel, and
-keeping the ship from jumping) until it mends. A ship whose bridge falls is
-lost, and with every ship, the game: the last save stays as it was, to try
-again from.
+Fights are ship to ship. A sector may hold an enemy ship (the higher its
+threat, the likelier and the tougher: scouts, raiders, gunships, corsairs,
+dreadnoughts). While any of your ships is in its sector, the two fight; leave
+and it's left as it was, to fight afresh another time. The enemy panel beside
+your grid shows its ship, its bridge, shields and evasion: click one of its
+buildings to have your weapons fire at it (right click to clear), or they
+pick its shields, then its weapons, then its bridge.
 
-Turrets fight back while they have ammunition, delivered by belt: the
-autocannon fires slug magazines fast and short, the railgun (from the
-"Frontier" milestone) rail slugs slow, far and hard. Once a sector has sent
-all its waves and they're beaten, it's cleared, for good. Jumping away leaves
-the enemies behind. Buildings mend slowly while no enemy is near.
+Weapons are the only buildings that need power: each charges while it holds
+fuel cells and ammunition (delivered by belt), then fires a volley, burning
+one of each. The burst laser (from "Escape velocity") fires focus crystals;
+the others are found as schematics in what beaten enemies leave, each with
+its own ammunition: the heavy laser, the missile launcher (through shields),
+the ion blaster (knocks shields down and stuns what it hits), the flak cannon
+(a spread of pellets) and the beam emitter (sweeps a line, weakened by every
+shield layer up). Shield projectors (from "Frontier") each put up a layer
+that stops one laser shot or flak pellet, then recharges; ion thrusters
+dodge 5% of shots each, up to 30%.
+
+Enemy weapons shoot at your buildings by their design's priorities (its
+weapons, its shields, its engines, its bridge...), now and then at anything.
+A building shot to pieces is gone, with nothing refunded, except an engine,
+which is knocked offline (taking no fuel, and keeping the ship from jumping)
+until it mends. A ship whose bridge falls is lost, and with every ship, the
+game: the last save stays as it was, to try again from. Shoot the enemy's
+bridge down and its sector is cleared, for good, and your ship gets its
+salvage: materials and fuel, ammunition, some of its weapons, and maybe a
+schematic. Jumping discharges every weapon. Buildings mend slowly while no
+enemy is near.
 
 ## Controls
 
@@ -223,7 +237,8 @@ the enemies behind. Buildings mend slowly while no enemy is near.
 - **B**: the Blueprints window (saved blueprints, import and export).
 - **F1**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
-  send or clear a wave, complete the milestone, and the Dear ImGui demo
+  spawn or beat an enemy ship, find every schematic, complete the
+  milestone, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
 
@@ -351,9 +366,12 @@ One directory per layer under `src/`; includes name their layer
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships
     (`Transfer`), and providers topping up requests (`dispatch`).
-  - `combat.h/.cpp` — enemies (`Enemy`, `EnemySpec`), the waves hostile
-    sectors send, and the fight on a ship's grid (`Battle`, `combat_tick`)
-    between them and its turrets.
+  - `enemies.h/.cpp` — the enemy ships' designs (`EnemyClass`,
+    `EnemyDesign`: layout, weapons, shields, targeting priorities, threats,
+    schematics they may leave).
+  - `combat.h/.cpp` — ship-to-ship fights (`Engagement`, `combat_tick`):
+    shots in flight, shields, evasion, targeting, and a beaten enemy's
+    `Salvage`.
   - `world.h/.cpp` — `World`: owns all state (the star map, the fleet and
     the fights' random numbers), `advance_tick()` steps it; jumping between
     sectors, survey scanners, losing ships, and buildings mending.
@@ -384,8 +402,9 @@ One directory per layer under `src/`; includes name their layer
     hint bar, banners and message toasts, the Keys window, the pause menu
     and the fleet-lost screen.
   - `ui_grid.cpp` — the build grid, with its zoom / pan camera (one per
-    ship): building, removing, copying and pasting with the mouse, and the
-    enemies.
+    ship): building, removing, copying and pasting with the mouse.
+  - `ui_combat.cpp` — the fight: the enemy panel (its ship, to target),
+    shots and shields over both grids, and the fight's status.
   - `ui_panels.cpp` — the build palette (left) and the craft panel
     (right): the milestone, hand-crafting; and the inspector window.
   - `ui_fleet.cpp` — the fleet's tabs and its section of the right panel,

@@ -51,10 +51,59 @@ const ShipLayout& starter_layout() {
     return all_layouts().front();
 }
 
+const std::vector<ShipLayout>& enemy_layouts() {
+    // Like the player's, but small: room for a bridge, a few weapons and
+    // shields, and not much else.
+    static const std::vector<ShipLayout> layouts = {
+        {"scout",
+         "Scout",
+         "An enemy picket ship.",
+         {{{4, 0}, {6, 3}}, {{0, 3}, {14, 10}}, {{2, 13}, {10, 3}}},
+         {4, 5},
+         {{2, 13}, {10, 13}},
+         {},
+         std::nullopt},
+        {"raider",
+         "Raider",
+         "An enemy raider.",
+         {{{6, 0}, {8, 4}}, {{0, 4}, {20, 12}}, {{3, 16}, {14, 3}}},
+         {7, 7},
+         {{3, 16}, {9, 16}, {15, 16}},
+         {},
+         std::nullopt},
+        {"gunship",
+         "Gunship",
+         "An enemy gunship.",
+         {{{7, 0}, {10, 4}}, {{0, 4}, {24, 14}}, {{4, 18}, {16, 3}}},
+         {9, 8},
+         {{4, 18}, {11, 18}, {18, 18}},
+         {},
+         std::nullopt},
+        {"corsair",
+         "Corsair",
+         "An enemy corsair.",
+         {{{8, 0}, {12, 5}}, {{0, 5}, {28, 16}}, {{4, 21}, {20, 3}}},
+         {11, 10},
+         {{4, 21}, {10, 21}, {16, 21}, {22, 21}},
+         {},
+         std::nullopt},
+        {"dreadnought",
+         "Dreadnought",
+         "An enemy capital ship.",
+         {{{10, 0}, {14, 5}}, {{3, 5}, {28, 6}}, {{0, 11}, {34, 16}}, {{4, 27}, {26, 3}}},
+         {14, 15},
+         {{4, 27}, {10, 27}, {16, 27}, {22, 27}, {28, 27}},
+         {},
+         std::nullopt},
+    };
+    return layouts;
+}
+
 const ShipLayout* find_layout(std::string_view id) {
-    for (const ShipLayout& layout : all_layouts())
-        if (layout.id == id)
-            return &layout;
+    for (const std::vector<ShipLayout>* list : {&all_layouts(), &enemy_layouts()})
+        for (const ShipLayout& layout : *list)
+            if (layout.id == id)
+                return &layout;
     return nullptr;
 }
 

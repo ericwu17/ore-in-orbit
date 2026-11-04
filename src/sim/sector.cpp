@@ -14,10 +14,6 @@ std::optional<int> raw_resource_index(ItemKind kind) {
     return std::nullopt;
 }
 
-int waves_for_threat(int threat) {
-    return threat > 0 ? 2 + 2 * threat : 0;
-}
-
 int Sector::yield(ItemKind kind) const {
     const std::optional<int> i = raw_resource_index(kind);
     return i ? yields[static_cast<std::size_t>(*i)] : 0;
@@ -183,7 +179,11 @@ StarMap StarMap::generate(std::uint64_t seed) {
         // Home's neighbors are an easy first step.
         if (map.linked(0, i))
             s.threat = std::min(s.threat, 1);
-        s.waves_left = waves_for_threat(s.threat);
+        // An enemy, more likely the higher the threat.
+        if (s.threat > 0 && rng.chance(0.5f + 0.1f * static_cast<float>(s.threat))) {
+            const std::vector<EnemyClass> classes = enemies_for_threat(s.threat);
+            s.enemy = classes[static_cast<std::size_t>(rng.range(0, static_cast<int>(classes.size()) - 1))];
+        }
     }
     map.visit(0);
     return map;

@@ -33,8 +33,13 @@ const char* TileLabel(ItemKind kind) {
     case ItemKind::FabricatorMk3:     return "F3";
     case ItemKind::SurveyScanner:     return "SS";
     case ItemKind::IonThruster:       return "IT";
-    case ItemKind::Autocannon:        return "AC";
-    case ItemKind::Railgun:           return "RG";
+    case ItemKind::ShieldProjector:   return "SH";
+    case ItemKind::BurstLaser:        return "BL";
+    case ItemKind::HeavyLaser:        return "HL";
+    case ItemKind::MissileLauncher:   return "MS";
+    case ItemKind::IonBlaster:        return "ION";
+    case ItemKind::FlakCannon:        return "FK";
+    case ItemKind::BeamEmitter:       return "BM";
     default:                          return "?";
     }
 }
@@ -46,9 +51,14 @@ ImVec4 TileColor(ItemKind kind) {
     case ItemKind::TractorArray:      return theme::kTileCollector;
     case ItemKind::CargoHold:         return theme::kTileStorage;
     case ItemKind::SurveyScanner:
-    case ItemKind::IonThruster:       return theme::kTileSystem;
-    case ItemKind::Autocannon:
-    case ItemKind::Railgun:           return theme::kTileTurret;
+    case ItemKind::IonThruster:
+    case ItemKind::ShieldProjector:   return theme::kTileSystem;
+    case ItemKind::BurstLaser:
+    case ItemKind::HeavyLaser:
+    case ItemKind::MissileLauncher:
+    case ItemKind::IonBlaster:
+    case ItemKind::FlakCannon:
+    case ItemKind::BeamEmitter:       return theme::kTileTurret;
     default:                          return theme::kTileMachine;
     }
 }

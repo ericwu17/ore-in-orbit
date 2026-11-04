@@ -68,7 +68,11 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::AsteroidCollector:
     case ItemKind::SolarFurnace:
     case ItemKind::SurveyScanner:
-    case ItemKind::Autocannon:
+    case ItemKind::ShieldProjector:
+    case ItemKind::BurstLaser:
+    case ItemKind::HeavyLaser:
+    case ItemKind::MissileLauncher:
+    case ItemKind::IonBlaster:
         size = {2, 2};
         break;
     case ItemKind::TractorArray:
@@ -76,7 +80,8 @@ GridSize footprint_of(ItemKind kind, Direction facing) {
     case ItemKind::FabricatorMk1:
     case ItemKind::FabricatorMk2:
     case ItemKind::FabricatorMk3:
-    case ItemKind::Railgun:
+    case ItemKind::FlakCannon:
+    case ItemKind::BeamEmitter:
         size = {3, 3};
         break;
     case ItemKind::IonThruster:
@@ -144,15 +149,25 @@ int max_hp_of(std::optional<ItemKind> kind) {
     case ItemKind::TractorArray:
     case ItemKind::Refinery:
     case ItemKind::FabricatorMk2:
-    case ItemKind::Autocannon:        return 400;
+    case ItemKind::ShieldProjector:   return 400;
+    case ItemKind::BurstLaser:
+    case ItemKind::HeavyLaser:
+    case ItemKind::MissileLauncher:
+    case ItemKind::IonBlaster:        return 500;
     case ItemKind::FabricatorMk3:     return 600;
-    case ItemKind::Railgun:           return 800;
+    case ItemKind::FlakCannon:
+    case ItemKind::BeamEmitter:       return 800;
     default:                          return 100;
     }
 }
 
 Building::Building(std::optional<ItemKind> k, Direction facing, GridSize s)
-    : placed_by(k), dir(facing), size(s), hp(max_hp_of(k)) {}
+    : placed_by(k), dir(facing), size(s), hp(max_hp_of(k)), max(hp) {}
+
+void Building::set_max_hp(int full) {
+    max = std::max(full, 1);
+    hp = std::min(hp, max);
+}
 
 bool Building::take_damage(int amount) {
     hp = std::max(0, hp - std::max(amount, 0));
@@ -280,50 +295,98 @@ float Collector::catch_progress() const {
     return static_cast<float>(progress) / static_cast<float>(spec->interval * 100);
 }
 
-const TurretSpec& turret_spec(ItemKind kind) {
-    // Fast and short: a swarm-killer that eats magazines.
-    static const TurretSpec autocannon{.ammo = ItemKind::SlugMagazine,
-                                       .shots_per_ammo = 8,
-                                       .range = 9.0f,
-                                       .damage = 8,
-                                       .interval = kTicksPerSecond / 4};
-    // Slow, long and heavy: for the big ships.
-    static const TurretSpec railgun{.ammo = ItemKind::RailSlug,
-                                    .shots_per_ammo = 1,
-                                    .range = 18.0f,
-                                    .damage = 150,
-                                    .interval = 2 * kTicksPerSecond};
+const WeaponSpec& weapon_spec(ItemKind kind) {
+    constexpr Tick s = kTicksPerSecond;
+    // Three quick shots: good against shields, which each pops one of.
+    static const WeaponSpec burst_laser{.family = WeaponFamily::Laser, .ammo = ItemKind::FocusCrystal,
+                                        .shots = 3, .damage = 60, .charge = 9 * s, .flight = s,
+                                        .blurb = "Three laser shots. Each is stopped by a shield layer, and pops it."};
+    static const WeaponSpec heavy_laser{.family = WeaponFamily::Laser, .ammo = ItemKind::FocusCrystal,
+                                        .shots = 2, .damage = 160, .charge = 12 * s, .flight = s,
+                                        .blurb = "Two heavy laser shots. Each is stopped by a shield layer, and pops it."};
+    static const WeaponSpec missile_launcher{.family = WeaponFamily::Missile, .ammo = ItemKind::Missile,
+                                             .shots = 1, .damage = 280, .charge = 13 * s, .flight = 2 * s,
+                                             .blurb = "One missile, slow but heavy. It flies straight through shields."};
+    static const WeaponSpec ion_blaster{.family = WeaponFamily::Ion, .ammo = ItemKind::IonCell,
+                                        .shots = 1, .damage = 30, .charge = 7 * s, .flight = s, .stun = 10 * s,
+                                        .blurb = "An ion bolt: knocks down a shield layer and stuns its projector, "
+                                                 "or stuns the weapon or projector it hits."};
+    static const WeaponSpec flak_cannon{.family = WeaponFamily::Flak, .ammo = ItemKind::FlakShell,
+                                        .shots = 7, .damage = 50, .charge = 15 * s, .flight = s, .spread = 4,
+                                        .blurb = "A spray of pellets round the target: each is stopped by a shield "
+                                                 "layer, so it strips shields fast."};
+    static const WeaponSpec beam_emitter{.family = WeaponFamily::Beam, .ammo = ItemKind::IridiumLens,
+                                         .shots = 1, .damage = 140, .charge = 16 * s, .flight = s / 2, .spread = 10,
+                                         .blurb = "Sweeps a beam across the ship, hitting every building on its line. "
+                                                  "Never misses; each shield layer up takes 40 off each hit."};
     switch (kind) {
-    case ItemKind::Autocannon: return autocannon;
-    case ItemKind::Railgun:    return railgun;
-    default:                   break;
+    case ItemKind::BurstLaser:      return burst_laser;
+    case ItemKind::HeavyLaser:      return heavy_laser;
+    case ItemKind::MissileLauncher: return missile_launcher;
+    case ItemKind::IonBlaster:      return ion_blaster;
+    case ItemKind::FlakCannon:      return flak_cannon;
+    case ItemKind::BeamEmitter:     return beam_emitter;
+    default:                        break;
     }
-    assert(false && "turret_spec: not a turret");
-    return autocannon;
+    assert(false && "weapon_spec: not a weapon");
+    return burst_laser;
 }
 
-Turret::Turret(ItemKind k) : Building(k, Direction::North, footprint_of(k)), spec(&turret_spec(k)) {}
+Weapon::Weapon(ItemKind k) : Building(k, Direction::North, footprint_of(k)), spec(&weapon_spec(k)) {}
 
-void Turret::fire() {
-    assert(ready());
-    if (shots == 0) {
+float Weapon::charge_fraction() const {
+    const int full = static_cast<int>(spec->charge) * kChargeScale;
+    return full > 0 ? std::min(1.0f, static_cast<float>(charge) / static_cast<float>(full)) : 1.0f;
+}
+
+void Weapon::charge_up(bool free, int pace) {
+    if (stun > 0 || charged() || (!free && !powered()))
+        return;
+    charge = std::min(charge + pace, static_cast<int>(spec->charge) * kChargeScale);
+}
+
+void Weapon::fire(bool free) {
+    assert(charged());
+    if (!free) {
+        assert(powered());
+        --fuel;
         --ammo;
-        shots = spec->shots_per_ammo;
     }
-    --shots;
-    cooldown = spec->interval;
+    charge = 0;
 }
 
-void Turret::tick() {
-    if (cooldown > 0)
-        --cooldown;
+void Weapon::tick() {
+    if (stun > 0)
+        --stun;
 }
 
-std::vector<ItemStack> Turret::contents() const {
-    // A part-used item is lost.
-    if (ammo == 0)
-        return {};
-    return {{spec->ammo, ammo}};
+std::vector<ItemStack> Weapon::contents() const {
+    std::vector<ItemStack> held;
+    if (fuel > 0)
+        held.push_back({ItemKind::FuelCell, fuel});
+    if (ammo > 0)
+        held.push_back({spec->ammo, ammo});
+    return held;
+}
+
+bool Weapon::accepts(ItemKind kind) const {
+    if (kind == ItemKind::FuelCell)
+        return fuel < kWeaponFuelCapacity;
+    return kind == spec->ammo && ammo < kWeaponAmmoCapacity;
+}
+
+void Weapon::receive(ItemKind kind) {
+    if (kind == ItemKind::FuelCell)
+        ++fuel;
+    else
+        ++ammo;
+}
+
+void ShieldProjector::tick() {
+    if (stun > 0)
+        --stun;
+    else if (recharge > 0)
+        --recharge;
 }
 
 std::vector<ItemStack> Thruster::contents() const {
@@ -586,9 +649,15 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Machine>(kind);
     case ItemKind::IonThruster:
         return std::make_unique<Thruster>();
-    case ItemKind::Autocannon:
-    case ItemKind::Railgun:
-        return std::make_unique<Turret>(kind);
+    case ItemKind::BurstLaser:
+    case ItemKind::HeavyLaser:
+    case ItemKind::MissileLauncher:
+    case ItemKind::IonBlaster:
+    case ItemKind::FlakCannon:
+    case ItemKind::BeamEmitter:
+        return std::make_unique<Weapon>(kind);
+    case ItemKind::ShieldProjector:
+        return std::make_unique<ShieldProjector>();
     case ItemKind::SurveyScanner:
         return std::make_unique<ShipSystem>(kind);
     default:

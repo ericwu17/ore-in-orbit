@@ -89,8 +89,13 @@ BUILDINGS = {
     "FabricatorMk3":     (3, 3, "tile", MACHINE, "F3"),
     "SurveyScanner":     (2, 2, "tile", SYSTEM, "SS"),
     "IonThruster":       (2, 3, "tile", SYSTEM, "IT"),
-    "Autocannon":        (2, 2, "turret", TURRET, "AC"),
-    "Railgun":           (3, 3, "turret", TURRET, "RG"),
+    "ShieldProjector":   (2, 2, "tile", SYSTEM, "SH"),
+    "BurstLaser":        (2, 2, "turret", TURRET, "BL"),
+    "HeavyLaser":        (2, 2, "turret", TURRET, "HL"),
+    "MissileLauncher":   (2, 2, "turret", TURRET, "MS"),
+    "IonBlaster":        (2, 2, "turret", TURRET, "ION"),
+    "FlakCannon":        (3, 3, "turret", TURRET, "FK"),
+    "BeamEmitter":       (3, 3, "turret", TURRET, "BM"),
 }
 BRIDGE = (6, 6, "bridge", BRIDGE_COLOR, "BRIDGE")
 HULL_TILE = (1, 1, "hull", HULL, "")
@@ -118,8 +123,11 @@ ITEMS = {
     "Processor":         ("plate", ITEM_COMPONENT, "CPU"),
     "ShipStarterPack":   ("plate", ACCENT, "SHIP"),
     "CargoPod":          ("plate", STORAGE, "Pod"),
-    "SlugMagazine":      ("plate", ITEM_IRON, "Mag"),
-    "RailSlug":          ("plate", ITEM_EXOTIC, "RS"),
+    "FocusCrystal":      ("plate", ITEM_SILICA, "Fc"),
+    "Missile":           ("plate", BAD, "Ms"),
+    "IonCell":           ("plate", ITEM_COPPER, "Ion"),
+    "FlakShell":         ("plate", ITEM_IRON, "Fk"),
+    "IridiumLens":       ("plate", ITEM_EXOTIC, "Ln"),
 }
 
 

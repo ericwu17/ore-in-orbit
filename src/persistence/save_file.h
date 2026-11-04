@@ -5,20 +5,20 @@
 //
 //   {
 //     "format": "ore-in-orbit-save",
-//     "version": 9,                (kSaveVersion)
+//     "version": 10,               (kSaveVersion)
 //     "name": "Ship 1",
 //     "saved_at": 1760000000,      (Unix seconds)
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
 //     "world": { "tick": 3600, "rng": 12345,
 //       "star_map": { "sectors": [ { "name": "Home", "x": 0, "y": 0, "neighbors": [1, 2],
-//                                    "yields": {...}, "threat": 0, "waves_left": 0, "visited": true,
+//                                    "yields": {...}, "threat": 0, "enemy": null, "beaten": false, "visited": true,
 //                                    "surveyed": true }, ... ] },
 //       "fleet": {
 //         "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
 //         "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
-//                      "ship": { "layout": "skiff", "buildings": [...] },
-//                      "battle": { "enemies": [...], "next_wave": null } } ],
-//         "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] } }
+//                      "ship": { "layout": "skiff", "buildings": [...] } } ],
+//         "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] },
+//       "engagements": [ { "sector": 3, "enemy": "Raider", "ship": {...}, "shots": [...] } ] }
 //   }
 #pragma once
 
@@ -39,7 +39,7 @@
 // is renamed with that item's display name). A new key whose absence means
 // what older saves meant (none, off) can be optional instead, read with
 // that default.
-constexpr int kSaveVersion = 9;
+constexpr int kSaveVersion = 10;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

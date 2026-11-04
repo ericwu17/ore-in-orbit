@@ -22,8 +22,13 @@ const char* item_name(ItemKind kind) {
     case ItemKind::FabricatorMk3:     return "Fabricator Mk3";
     case ItemKind::SurveyScanner:     return "Survey scanner";
     case ItemKind::IonThruster:       return "Ion thruster";
-    case ItemKind::Autocannon:        return "Autocannon";
-    case ItemKind::Railgun:           return "Railgun";
+    case ItemKind::ShieldProjector:   return "Shield projector";
+    case ItemKind::BurstLaser:        return "Burst laser";
+    case ItemKind::HeavyLaser:        return "Heavy laser";
+    case ItemKind::MissileLauncher:   return "Missile launcher";
+    case ItemKind::IonBlaster:        return "Ion blaster";
+    case ItemKind::FlakCannon:        return "Flak cannon";
+    case ItemKind::BeamEmitter:       return "Beam emitter";
     case ItemKind::IronOre:           return "Iron ore";
     case ItemKind::CopperOre:         return "Copper ore";
     case ItemKind::Silica:            return "Silica";
@@ -44,8 +49,11 @@ const char* item_name(ItemKind kind) {
     case ItemKind::Processor:         return "Processor";
     case ItemKind::ShipStarterPack:   return "Ship starter pack";
     case ItemKind::CargoPod:          return "Cargo pod";
-    case ItemKind::SlugMagazine:      return "Slug magazine";
-    case ItemKind::RailSlug:          return "Rail slug";
+    case ItemKind::FocusCrystal:      return "Focus crystal";
+    case ItemKind::Missile:           return "Missile";
+    case ItemKind::IonCell:           return "Ion cell";
+    case ItemKind::FlakShell:         return "Flak shell";
+    case ItemKind::IridiumLens:       return "Iridium lens";
     case ItemKind::Count:             break;
     }
     return "?";
@@ -72,8 +80,13 @@ const char* item_id(ItemKind kind) {
     case ItemKind::FabricatorMk3:     return "FabricatorMk3";
     case ItemKind::SurveyScanner:     return "SurveyScanner";
     case ItemKind::IonThruster:       return "IonThruster";
-    case ItemKind::Autocannon:        return "Autocannon";
-    case ItemKind::Railgun:           return "Railgun";
+    case ItemKind::ShieldProjector:   return "ShieldProjector";
+    case ItemKind::BurstLaser:        return "BurstLaser";
+    case ItemKind::HeavyLaser:        return "HeavyLaser";
+    case ItemKind::MissileLauncher:   return "MissileLauncher";
+    case ItemKind::IonBlaster:        return "IonBlaster";
+    case ItemKind::FlakCannon:        return "FlakCannon";
+    case ItemKind::BeamEmitter:       return "BeamEmitter";
     case ItemKind::IronOre:           return "IronOre";
     case ItemKind::CopperOre:         return "CopperOre";
     case ItemKind::Silica:            return "Silica";
@@ -94,8 +107,11 @@ const char* item_id(ItemKind kind) {
     case ItemKind::Processor:         return "Processor";
     case ItemKind::ShipStarterPack:   return "ShipStarterPack";
     case ItemKind::CargoPod:          return "CargoPod";
-    case ItemKind::SlugMagazine:      return "SlugMagazine";
-    case ItemKind::RailSlug:          return "RailSlug";
+    case ItemKind::FocusCrystal:      return "FocusCrystal";
+    case ItemKind::Missile:           return "Missile";
+    case ItemKind::IonCell:           return "IonCell";
+    case ItemKind::FlakShell:         return "FlakShell";
+    case ItemKind::IridiumLens:       return "IridiumLens";
     case ItemKind::Count:             break;
     }
     return "?";

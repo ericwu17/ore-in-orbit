@@ -12,6 +12,12 @@ namespace ui {
 
 namespace {
 
+// Whether every schematic has been found.
+bool progress_all_found(const Progress& progress) {
+    return progress.found_schematics().size() == all_schematics().size();
+}
+
+
 // The debug menu's item cheat: what to give, and how many.
 struct DebugGiveState {
     ItemKind kind = ItemKind::TransportBelt;
@@ -21,8 +27,8 @@ struct DebugGiveState {
 DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
-// give the bridge any items, reveal the map, charge the thrusters, send or
-// clear a wave, and complete milestones. It is a developer tool, so it is
+// give the bridge any items, reveal the map, charge the thrusters, spawn
+// or beat an enemy ship, find schematics, and complete milestones. It is a developer tool, so it is
 // drawn in stock Dear ImGui (dark colors, default sizes), not the game's
 // theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
@@ -123,14 +129,34 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
         ImGui::SetItemTooltip("Fills every ion thruster on %s with fuel cells", current.name.c_str());
 
         ImGui::SeparatorText("Combat");
-        if (ImGui::Button("Send a wave"))
-            world.send_wave(current.id);
-        ImGui::SetItemTooltip("Sends %s's sector's next wave (as if hostile) at %s now",
-                              world.get_map().at(current.sector).name.c_str(), current.name.c_str());
+        static int enemy_class = 0;
+        ImGui::SetNextItemWidth(fh * 8.0f);
+        if (ImGui::BeginCombo("##enemy_class", enemy_design(static_cast<EnemyClass>(enemy_class)).name)) {
+            for (int i = 0; i < kEnemyClassCount; ++i)
+                if (ImGui::Selectable(enemy_design(static_cast<EnemyClass>(i)).name, i == enemy_class))
+                    enemy_class = i;
+            ImGui::EndCombo();
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Clear enemies"))
-            world.clear_enemies(current.id);
-        ImGui::Text("Enemies on %s: %zu", current.name.c_str(), current.battle.enemies.size());
+        if (ImGui::Button("Spawn enemy"))
+            world.spawn_enemy(current.id, static_cast<EnemyClass>(enemy_class));
+        ImGui::SetItemTooltip("Puts that enemy ship in %s, in place of any there",
+                              world.get_map().at(current.sector).name.c_str());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!world.engagement_in(current.sector));
+        if (ImGui::Button("Beat enemy"))
+            world.defeat_enemy(current.id);
+        ImGui::EndDisabled();
+        if (const Engagement* fight = world.engagement_in(current.sector))
+            ImGui::Text("Fighting a %s: its bridge %d, %zu shots flying", fight->design().name,
+                        fight->ship.get_bridge().get_hp(), fight->shots.size());
+        else
+            ImGui::TextDisabled("No fight in %s", world.get_map().at(current.sector).name.c_str());
+        ImGui::BeginDisabled(progress_all_found(world.get_fleet().get_progress()));
+        if (ImGui::Button("Find every schematic"))
+            for (const Schematic& sc : all_schematics())
+                world.get_fleet().get_progress().add_schematic(sc.weapon);
+        ImGui::EndDisabled();
 
         ImGui::SeparatorText("Milestones");
         Progress& progress = world.get_fleet().get_progress();

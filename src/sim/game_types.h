@@ -96,9 +96,14 @@ enum class ItemKind {
     // Placeable: ship systems (the ion thruster only comes with a layout).
     SurveyScanner,
     IonThruster,
-    // Placeable: turrets.
-    Autocannon,
-    Railgun,
+    ShieldProjector,
+    // Placeable: weapons (see WeaponSpec), lightest first.
+    BurstLaser,
+    HeavyLaser,
+    MissileLauncher,
+    IonBlaster,
+    FlakCannon,
+    BeamEmitter,
     // Raw resources (what the collectors gather).
     IronOre,
     CopperOre,
@@ -123,9 +128,12 @@ enum class ItemKind {
     // Fleet: launching ships and moving cargo between them.
     ShipStarterPack,
     CargoPod,
-    // Ammunition, for the turrets.
-    SlugMagazine,
-    RailSlug,
+    // Ammunition, for the weapons.
+    FocusCrystal,
+    Missile,
+    IonCell,
+    FlakShell,
+    IridiumLens,
     Count,  // not a kind: the number of kinds
 };
 
@@ -143,7 +151,12 @@ enum class ItemCategory {
 ItemCategory item_category(ItemKind kind);
 // Every kind of building, the layout parts included.
 constexpr bool is_building(ItemKind kind) {
-    return static_cast<int>(kind) <= static_cast<int>(ItemKind::Railgun);
+    return static_cast<int>(kind) <= static_cast<int>(ItemKind::BeamEmitter);
+}
+// The weapons: fed fuel cells and ammunition, they fire at enemy ships.
+constexpr bool is_weapon(ItemKind kind) {
+    return static_cast<int>(kind) >= static_cast<int>(ItemKind::BurstLaser) &&
+           static_cast<int>(kind) <= static_cast<int>(ItemKind::BeamEmitter);
 }
 // Buildings that come only with a ship's layout (its engines): never in an
 // inventory, never placed or removed by the player.

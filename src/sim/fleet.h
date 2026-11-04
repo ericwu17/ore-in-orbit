@@ -28,7 +28,6 @@
 #pragma once
 
 #include "sim/building.h"
-#include "sim/combat.h"
 #include "sim/game_types.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
@@ -36,6 +35,7 @@
 #include "sim/ship_layout.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,7 +45,9 @@ struct FleetShip {
     std::string name;
     Ship ship;
     int sector = 0;  // where it is: the index of a sector
-    Battle battle;   // the enemies on its grid, if any
+    // What its weapons fire at, on the enemy ship in its sector (see
+    // combat.h): a building's top-left cell there; none, they pick.
+    std::optional<GridPos> target;
     // Sends what its bridge holds beyond its own requests to ships in the
     // same sector that request it (see the top of this file).
     bool provides = false;

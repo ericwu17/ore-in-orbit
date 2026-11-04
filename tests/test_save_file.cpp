@@ -4,6 +4,7 @@
 // files are refused with a reason (never an assert).
 #include "persistence/save_file.h"
 #include "sim/building.h"
+#include "sim/combat.h"
 #include "sim/fleet.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
@@ -58,9 +59,10 @@ const Recipe& recipe_named(const char* name) {
 // scanner, a filter sorter with items queued on the belt into it, two machines
 // mid-craft, a west-facing express belt, a junction and a router holding
 // items, and the bridge hand-crafting, part way through a milestone; an
-// engine (ion thruster) part charged, an autocannon with ammunition
-// and a damaged cargo hold, as a wave of enemies comes in; and a second
-// ship, with cargo on its way to it.
+// engine (ion thruster) part charged, a burst laser with fuel and
+// ammunition and a damaged cargo hold, in a fight with a Raider, targeting
+// its bridge, with a schematic found; and a second ship, with cargo on its
+// way to it.
 World busy_world() {
     World world;
     world.flagship().inventory().add({{ItemKind::TransportBelt, 10},
@@ -69,7 +71,7 @@ World busy_world() {
                                       {ItemKind::Junction, 1},
                                       {ItemKind::Router, 1},
                                       {ItemKind::SurveyScanner, 1},
-                                      {ItemKind::Autocannon, 1},
+                                      {ItemKind::BurstLaser, 1},
                                       {ItemKind::Refinery, 1}});
     // Two milestones done (the refinery's recipes need them), and some way
     // into the third.
@@ -87,9 +89,11 @@ World busy_world() {
     assert(ship.place(ItemKind::SurveyScanner, {x0 + 8, c - 6}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
         assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
-    assert(ship.place(ItemKind::Autocannon, {x0 + 2, c}) == BuildResult::Ok);
-    for (int i = 0; i < 3; ++i)
-        assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::SlugMagazine));
+    assert(ship.place(ItemKind::BurstLaser, {x0 + 2, c}) == BuildResult::Ok);
+    for (int i = 0; i < 3; ++i) {
+        assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::FocusCrystal));
+        assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::FuelCell));
+    }
 
     assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::FilterSorter, {x0 + 3, c - 2}) == BuildResult::Ok);
@@ -134,8 +138,13 @@ World busy_world() {
     assert(fleet.rename(launched, "Tender"));
     assert(fleet.send(fleet.flagship().id, launched, {{ItemKind::TransportBelt, 5}}, world.get_tick()) ==
            FleetResult::Ok);
-    // A wave on its way in, and a building already hurt.
-    assert(world.send_wave(fleet.flagship().id));
+    // A fight under way, the laser aimed at the enemy's bridge, and a
+    // building already hurt.
+    assert(progress.add_schematic(ItemKind::MissileLauncher));
+    assert(world.spawn_enemy(fleet.flagship().id, EnemyClass::Raider));
+    run(world, 1);
+    const Ship& enemy = world.engagement_in(0)->ship;
+    assert(world.set_target(fleet.flagship().id, layout_to_grid(*enemy.get_layout(), enemy.get_layout()->bridge)));
     assert(!ship.building_anchored_at({x0 + 5, c - 6})->take_damage(30));
     run(world, 10);
     return world;
@@ -173,6 +182,8 @@ void test_round_trip() {
     const std::string text = save_text(world);
     std::string error;
     const std::optional<LoadedSave> loaded = load_text(text, error);
+    if (!loaded)
+        std::fprintf(stderr, "round trip refused: %s\n", error.c_str());
     assert(loaded && error.empty());
     assert(loaded->header.name == "Test ship");
     assert(loaded->header.saved_at == 1'700'000'000);
@@ -196,12 +207,17 @@ void test_round_trip() {
     assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
     const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({kEngine.x + 1, kEngine.y + 2}));
     assert(thruster && thruster->get_fuel() == 3);
-    const auto* turret = dynamic_cast<const Turret*>(copy.building_at({x0 + 3, c + 1}));
-    assert(turret && turret->get_ammo() == 3);
+    const auto* weapon = dynamic_cast<const Weapon*>(copy.building_at({x0 + 3, c + 1}));
+    assert(weapon && weapon->get_ammo() == 3 && weapon->get_fuel() == 3);
     assert(copy.building_at({x0 + 5, c - 6})->get_hp() == max_hp_of(ItemKind::CargoHold) - 30);
-    assert(loaded->world.get_fleet().flagship().battle.enemies.size() ==
-           world.get_fleet().flagship().battle.enemies.size());
-    assert(loaded->world.get_fleet().flagship().battle.under_attack());
+    // The fight, with its shots in flight and the target.
+    const Engagement* fight = loaded->world.engagement_in(0);
+    assert(fight && fight->enemy == EnemyClass::Raider);
+    assert(fight->shots.size() == world.engagement_in(0)->shots.size());
+    assert(fight->ship.get_bridge().max_hp() == enemy_design(EnemyClass::Raider).hull);
+    assert(loaded->world.get_fleet().flagship().target == world.get_fleet().flagship().target);
+    assert(loaded->world.get_fleet().flagship().target);
+    assert(loaded->world.get_fleet().get_progress().has_schematic(ItemKind::MissileLauncher));
     // The same star map.
     assert(loaded->world.get_map().size() == world.get_map().size());
     assert(loaded->world.get_map().at(3).name == world.get_map().at(3).name);
@@ -283,10 +299,10 @@ Json minimal() {
           "star_map": {"sectors": [
             {"name": "Home", "x": 0, "y": 0, "neighbors": [1],
              "yields": {"IronOre": 100, "CopperOre": 100, "Silica": 100, "Carbon": 100, "IridiumOre": 100},
-             "threat": 0, "waves_left": 0, "visited": true, "surveyed": true},
+             "threat": 0, "enemy": null, "beaten": false, "visited": true, "surveyed": true},
             {"name": "Next door", "x": 10, "y": -5.5, "neighbors": [0],
              "yields": {"IronOre": 0, "CopperOre": 150, "Silica": 100, "Carbon": 100, "IridiumOre": 0},
-             "threat": 1, "waves_left": 4, "visited": false, "surveyed": false}]},
+             "threat": 1, "enemy": "Scout", "beaten": false, "visited": false, "surveyed": false}]},
           "fleet": {
             "next_ship_id": 2,
             "progress": {"milestone": 0, "delivered": {}},
@@ -295,9 +311,9 @@ Json minimal() {
                 "buildings": [
                     {"kind": "Bridge", "x": 0, "y": 0, "facing": "North", "output_side": 0,
                      "inventory": {}, "queue": []}
-                ]},
-                "battle": {"enemies": [], "next_wave": null}}],
-            "transfers": []}}})");
+                ]}}],
+            "transfers": []},
+          "engagements": []}})");
     save["version"] = kSaveVersion;
     const ShipLayout& layout = starter_layout();
     const GridPos at = layout_to_grid(layout, layout.bridge);
@@ -430,24 +446,60 @@ void test_refused() {
     refused_after(save, "a threat past the highest", [](Json& j) { sectors(j)[1]["threat"] = kMaxThreat + 1; });
     refused_after(save, "a sector at infinity", [](Json& j) { sectors(j)[1]["x"] = 1e300; });
     refused_after(save, "a visited sector not surveyed", [](Json& j) { sectors(j)[1]["visited"] = true; });
-    refused_after(save, "more waves than the threat sends", [](Json& j) { sectors(j)[1]["waves_left"] = 99; });
+    refused_after(save, "an unknown enemy", [](Json& j) { sectors(j)[1]["enemy"] = "Kraken"; });
+    refused_after(save, "no word of beaten enemies", [](Json& j) { sectors(j)[1].erase("beaten"); });
     refused_after(save, "no random number state", [](Json& j) { j["world"].erase("rng"); });
     refused_after(save, "the bridge at no health", [](Json& j) { bridge(j)["hp"] = 0; });
     refused_after(save, "the bridge past full health", [](Json& j) { bridge(j)["hp"] = 1e6; });
-    refused_after(save, "no battle", [](Json& j) { first_ship(j).erase("battle"); });
-    refused_after(save, "a wave that should have come", [](Json& j) { first_ship(j)["battle"]["next_wave"] = 50; });
+    refused_after(save, "no fights", [](Json& j) { j["world"].erase("engagements"); });
+    refused_after(save, "a target with no fight", [](Json& j) { first_ship(j)["target"] = {{"x", 1}, {"y", 1}}; });
+    refused_after(save, "an unknown schematic's weapon", [](Json& j) { progress(j)["schematics"] = {"BurstLaser"}; });
+    refused_after(save, "a schematic found twice",
+                  [](Json& j) { progress(j)["schematics"] = {"MissileLauncher", "MissileLauncher"}; });
 
-    Json fighting = minimal();
-    first_ship(fighting)["battle"]["enemies"].push_back(
-        Json::parse(R"({"kind": "Drone", "x": -3.5, "y": 40, "hp": 20, "cooldown": 5, "target": {"x": 64, "y": 64}})"));
+    // An engine knocked offline (at 0) loads; nothing else does at 0.
+    Json offline = minimal();
+    engine(offline, 0)["hp"] = 0;
+    assert(loads(offline.dump()));
+
+    // A fight, as the game saves one, with a shot added on its way.
+    Json fighting = [] {
+        World world;
+        world.spawn_enemy(world.get_fleet().flagship().id, EnemyClass::Scout);
+        run(world, 1);
+        return Json::parse(save_text(world));
+    }();
+    auto fight = [](Json& j) -> Json& { return j["world"]["engagements"][0]; };
+    const Tick now = fighting["world"]["tick"].get<Tick>();
+    fight(fighting)["shots"].push_back({{"at_enemy", true}, {"ship", 1}, {"weapon", "BurstLaser"}, {"x", 64},
+                                        {"y", 64}, {"sweep", "East"}, {"fired", now}, {"lands", now + 30}});
+    const ShipLayout& scout = *find_layout(enemy_design(EnemyClass::Scout).layout);
+    const GridPos enemy_bridge = layout_to_grid(scout, scout.bridge);
+    first_ship(fighting)["target"] = {{"x", enemy_bridge.x}, {"y", enemy_bridge.y}};
+    {
+        std::string error;
+        if (!load_text(fighting.dump(), error))
+            std::fprintf(stderr, "fight refused: %s\n", error.c_str());
+    }
     assert(loads(fighting.dump()));
-    auto enemy = [](Json& j) -> Json& { return first_ship(j)["battle"]["enemies"][0]; };
-    refused_after(fighting, "an unknown enemy", [&](Json& j) { enemy(j)["kind"] = "Kraken"; });
-    refused_after(fighting, "an enemy past full health", [&](Json& j) { enemy(j)["hp"] = 31; });
-    refused_after(fighting, "a dead enemy", [&](Json& j) { enemy(j)["hp"] = 0; });
-    refused_after(fighting, "an enemy far beyond the map", [&](Json& j) { enemy(j)["x"] = 1e9; });
-    refused_after(fighting, "an enemy aiming off the grid", [&](Json& j) { enemy(j)["target"]["x"] = 500; });
-    refused_after(fighting, "an enemy cooling down too long", [&](Json& j) { enemy(j)["cooldown"] = 1000; });
+    auto shot = [&](Json& j) -> Json& { return fight(j)["shots"][0]; };
+    refused_after(fighting, "an unknown enemy class", [&](Json& j) { fight(j)["enemy"] = "Kraken"; });
+    refused_after(fighting, "another enemy than its sector's", [&](Json& j) { fight(j)["enemy"] = "Raider"; });
+    refused_after(fighting, "a fight where none of the fleet is", [&](Json& j) { fight(j)["sector"] = 1; });
+    refused_after(fighting, "two fights in a sector",
+                  [&](Json& j) { j["world"]["engagements"].push_back(fight(j)); });
+    refused_after(fighting, "an enemy in another class's layout",
+                  [&](Json& j) { fight(j)["ship"]["layout"] = "raider"; });
+    refused_after(fighting, "an enemy tougher than its class",
+                  [&](Json& j) { fight(j)["ship"]["buildings"][0]["hp"] = 1500; });
+    refused_after(fighting, "an enemy beaten but fighting",
+                  [&](Json& j) { fight(j)["ship"]["buildings"][0]["hp"] = 0; });
+    refused_after(fighting, "a shot that has landed", [&](Json& j) { shot(j)["lands"] = now; });
+    refused_after(fighting, "a shot landing in ages", [&](Json& j) { shot(j)["lands"] = now + 100'000; });
+    refused_after(fighting, "a shot from a plate", [&](Json& j) { shot(j)["weapon"] = "IronPlate"; });
+    refused_after(fighting, "a shot from a ship never built", [&](Json& j) { shot(j)["ship"] = 99; });
+    refused_after(fighting, "a shot off the grid", [&](Json& j) { shot(j)["x"] = 500; });
+    refused_after(fighting, "a target on bare hull", [&](Json& j) { first_ship(j)["target"] = {{"x", 0}, {"y", 0}}; });
     refused_after(save, "two bridges", [](Json& j) {
         Json second = bridge(j);
         second["x"] = 70;
@@ -553,17 +605,22 @@ void test_machine_refused() {
     refused_after(gathering, "a collector aimed at a plate", [&](Json& j) { collector(j)["target"] = "IronPlate"; });
     refused_after(gathering, "a collector with no target", [&](Json& j) { collector(j).erase("target"); });
 
-    // A turret's ammunition: never a full item loaded (it's loaded when
-    // needed).
+    // A weapon's fuel, ammunition and charge, and a shield projector.
     Json armed = minimal();
     buildings(armed).push_back(Json::parse(R"({
-        "kind": "Autocannon", "x": 70, "y": 58, "facing": "North", "output_side": 0,
-        "ammo": 4, "shots": 7, "cooldown": 3})"));
+        "kind": "BurstLaser", "x": 70, "y": 58, "facing": "North", "output_side": 0,
+        "fuel": 2, "ammo": 4, "charge": 300, "stun": 0})"));
+    buildings(armed).push_back(Json::parse(R"({
+        "kind": "ShieldProjector", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+        "recharge": 60, "stun": 0})"));
     assert(loads(armed.dump()));
-    auto turret = [](Json& j) -> Json& { return buildings(j).back(); };
-    refused_after(armed, "a full item loaded", [&](Json& j) { turret(j)["shots"] = 8; });
-    refused_after(armed, "too much ammunition", [&](Json& j) { turret(j)["ammo"] = kTurretAmmoCapacity + 1; });
-    refused_after(armed, "a turret cooling down too long", [&](Json& j) { turret(j)["cooldown"] = 1000; });
+    auto weapon = [](Json& j) -> Json& { return buildings(j)[buildings(j).size() - 2]; };
+    auto shield = [](Json& j) -> Json& { return buildings(j).back(); };
+    refused_after(armed, "too much fuel", [&](Json& j) { weapon(j)["fuel"] = kWeaponFuelCapacity + 1; });
+    refused_after(armed, "too much ammunition", [&](Json& j) { weapon(j)["ammo"] = kWeaponAmmoCapacity + 1; });
+    refused_after(armed, "past a full charge", [&](Json& j) { weapon(j)["charge"] = 1e9; });
+    refused_after(armed, "a weapon stunned for ages", [&](Json& j) { weapon(j)["stun"] = 1e6; });
+    refused_after(armed, "a shield recharging too long", [&](Json& j) { shield(j)["recharge"] = 1e6; });
 }
 
 // A tunnel saved with an item partway under comes back linked, and the item

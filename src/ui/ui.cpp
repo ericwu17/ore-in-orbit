@@ -76,26 +76,52 @@ void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
     DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 
-// The fight, along the bottom of the grid: how many enemies are on it, or
-// when the next wave comes. Returns its height (0 when there's none).
-float DrawBattleBanner(const FleetShip& ship, const Sector& sector, Tick now, ImVec2 grid_min, ImVec2 grid_size) {
-    const Battle& battle = ship.battle;
-    std::string title;
-    std::string subtitle;
-    ImVec4 color = theme::kBad;
-    if (battle.under_attack()) {
-        title = "UNDER ATTACK: " + std::to_string(battle.enemies.size()) + " enemies";
-        subtitle = sector.hostile() ? std::to_string(sector.waves_left) + " more waves to come" : "The last wave";
-    } else if (battle.next_wave) {
-        const Tick left = *battle.next_wave > now ? *battle.next_wave - now : 0;
-        title = "NEXT WAVE IN " + std::to_string((left + kTicksPerSecond - 1) / kTicksPerSecond) + " s";
-        subtitle = std::to_string(sector.waves_left) + " waves left in " + sector.name;
-        color = theme::kWarnText;
-    } else {
+// The fight, along the bottom of the grid: the enemy the ship shown is
+// fighting, and what its weapons go after. Returns its height (0 when
+// there's none).
+float DrawBattleBanner(const World& world, const FleetShip& ship, ImVec2 grid_min, ImVec2 grid_size) {
+    const Engagement* fight = world.engagement_in(ship.sector);
+    if (!fight)
         return 0.0f;
+    const EnemyDesign& design = fight->design();
+    const std::string title = std::string("UNDER FIRE: ") + design.name;
+    static constexpr const char* kGroups[] = {"weapons", "shields", "engines", "bridge", "industry"};
+    std::string subtitle = "It aims for your ";
+    for (std::size_t i = 0; i < design.priorities.size(); ++i)
+        subtitle += std::string(i == 0 ? "" : i + 1 == design.priorities.size() ? ", then " : ", ") +
+                    kGroups[static_cast<std::size_t>(design.priorities[i])];
+    subtitle += ".";
+    return DrawBanner(title.c_str(), subtitle.c_str(), theme::kBad, theme::kBad, true, grid_min, grid_size, true);
+}
+
+// A beaten enemy, announced over the top of the grid for a few seconds:
+// the last one beaten, and until when (ImGui::GetTime()) it shows.
+struct SalvageBanner {
+    std::optional<Salvage> last;
+    double until = 0.0;
+};
+SalvageBanner g_salvage;
+
+// Takes what beaten enemies left from `world` and announces it: a banner
+// (when no milestone's is up) and a message listing the salvage.
+void DrawSalvageBanner(World& world, ImVec2 grid_min, ImVec2 grid_size) {
+    for (Salvage& s : world.take_salvage()) {
+        std::string list;
+        for (const ItemStack& item : s.items)
+            list += (list.empty() ? "" : ", ") + std::to_string(item.count) + " " + item_name(item.kind);
+        const FleetShip* to = world.get_fleet().find(s.ship);
+        SetMessage(std::string(enemy_design(s.enemy).name) + " salvaged" + (to ? " by " + to->name : "") + ": " + list,
+                   theme::kGood);
+        g_salvage = {std::move(s), ImGui::GetTime() + 6.0};
     }
-    return DrawBanner(title.c_str(), subtitle.c_str(), color, battle.under_attack() ? theme::kBad : theme::kAccent,
-                      true, grid_min, grid_size, true);
+    if (!g_salvage.last || ImGui::GetTime() >= g_salvage.until || g_banner.until > ImGui::GetTime())
+        return;
+    const Salvage& s = *g_salvage.last;
+    const std::string title = std::string("ENEMY DESTROYED: ") + enemy_design(s.enemy).name;
+    const std::string subtitle = s.schematic ? std::string("Schematic found: ") + item_name(*s.schematic) +
+                                                   " (new recipes unlocked)"
+                                             : std::string("Salvage taken aboard");
+    DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kGood, false, grid_min, grid_size, false);
 }
 
 // The last message (SetMessage), for a few seconds after it's set: a toast
@@ -135,6 +161,7 @@ void LeaveGame(Screen& screen) {
     g_fleet = {};
     g_map = {};
     g_banner = {};
+    g_salvage = {};
     g_build.inspected.reset();
     g_build.inspected_building = nullptr;
     LeaveBlueprintTool();  // the clipboard stays, to paste into another game
@@ -408,17 +435,26 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     ImGui::SetCursorScreenPos(grid_min);
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
+    // In a fight, the enemy's panel at the right of the grid.
+    const Engagement* fight = world.engagement_in(shown.sector);
+    ImVec2 ship_avail = grid_avail;
     if (g_map.shown) {
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        DrawShipGrid(shown.ship, shown.battle, world.get_tick(), grid_avail);
+        const float enemy_w = fight ? std::floor(std::min(grid_avail.x * 0.4f, fh * 22.0f)) : 0.0f;
+        if (fight)
+            ship_avail.x = std::max(0.0f, grid_avail.x - enemy_w - gap * 0.5f);
+        DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), ship_avail);
+        if (fight) {
+            ImGui::SetCursorScreenPos(ImVec2(grid_min.x + ship_avail.x + gap * 0.5f, grid_min.y));
+            DrawEnemyPanel(world, shown, ImVec2(enemy_w, grid_avail.y));
+        }
     }
-    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
-    const float battle_h =
-        g_map.shown ? 0.0f
-                    : DrawBattleBanner(shown, world.get_map().at(shown.sector), world.get_tick(), grid_min, grid_avail);
-    DrawToast(grid_min, grid_avail, battle_h);
+    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, ship_avail);
+    DrawSalvageBanner(world, grid_min, ship_avail);
+    const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, ship_avail);
+    DrawToast(grid_min, ship_avail, battle_h);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     DrawCraftPanel(world, shown, craft_w);

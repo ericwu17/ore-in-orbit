@@ -68,6 +68,12 @@ void test_generate() {
                 assert(std::count(s.neighbors.begin(), s.neighbors.end(), n) == 1);
             }
             assert(s.threat >= 0 && s.threat <= kMaxThreat);
+            // An enemy only where there's a threat, and one of those found at it.
+            if (s.enemy) {
+                const std::vector<EnemyClass> fits = enemies_for_threat(s.threat);
+                assert(std::find(fits.begin(), fits.end(), *s.enemy) != fits.end());
+            }
+            assert(!s.beaten);
             int present = 0;
             for (const int y : s.yields) {
                 assert(y >= 0);
@@ -97,9 +103,16 @@ void test_generate() {
     assert(differs);
     // Somewhere out there is dangerous.
     bool hostile = false;
-    for (const Sector& s : a.all())
+    int enemies = 0;
+    int quiet = 0;
+    for (const Sector& s : a.all()) {
         hostile = hostile || s.threat >= 3;
+        enemies += s.enemy ? 1 : 0;
+        quiet += s.threat > 0 && !s.enemy ? 1 : 0;
+    }
     assert(hostile);
+    // Enemy ships to find, and threatening sectors without one.
+    assert(enemies >= 5 && quiet >= 1);
 }
 
 // Known: visited, or next to a visited sector.

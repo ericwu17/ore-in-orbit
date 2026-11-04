@@ -42,7 +42,9 @@ struct ShipLayout {
 const std::vector<ShipLayout>& all_layouts();
 // The layout a new game's flagship has: the smallest.
 const ShipLayout& starter_layout();
-// The layout with id `id`, or null.
+// The enemy ships' layouts (see enemies.h), never the player's to build.
+const std::vector<ShipLayout>& enemy_layouts();
+// The layout with id `id` (the player's or an enemy's), or null.
 const ShipLayout* find_layout(std::string_view id);
 
 // The size of the smallest box holding all its hull (from (0, 0)).

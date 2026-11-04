@@ -33,15 +33,56 @@ void World::scan() {
                 map.survey(n);
 }
 
-void World::fight() {
+std::vector<FleetShip*> World::ships_in(int sector) {
+    std::vector<FleetShip*> here;
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
-        combat_tick(s->ship, s->battle, map.at(s->sector), rng, current_tick);
+        if (s->sector == sector)
+            here.push_back(s.get());
+    return here;
+}
+
+void World::fight() {
+    // A fight wherever a ship meets an enemy.
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships()) {
+        const Sector& sector = map.at(s->sector);
+        if (sector.enemy && !engagement_in(s->sector))
+            engagements.push_back(make_engagement(s->sector, *sector.enemy, rng));
+    }
+    std::vector<Salvage> beaten;
+    std::erase_if(engagements, [&](Engagement& e) {
+        const std::vector<FleetShip*> here = ships_in(e.sector);
+        if (here.empty())
+            return true;  // left behind: the enemy waits as it was found
+        const Sector& sector = map.at(e.sector);
+        std::optional<Salvage> salvage =
+            combat_tick(e, here, sector.threat, fleet.get_progress(), rng, current_tick);
+        if (!salvage)
+            return false;
+        beaten.push_back(std::move(*salvage));
+        return true;
+    });
+    for (const Salvage& s : beaten)
+        collect(s);
+
     std::vector<int> lost;
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
         if (s->ship.bridge_destroyed())
             lost.push_back(s->id);
     for (const int id : lost)
         fleet.remove(id);
+}
+
+void World::collect(const Salvage& salvage) {
+    Sector& sector = map.at(salvage.sector);
+    sector.enemy.reset();
+    sector.beaten = true;
+    for (FleetShip* s : ships_in(salvage.sector))
+        s->target.reset();
+    if (FleetShip* s = fleet.find(salvage.ship))
+        s->ship.inventory().add(salvage.items);
+    if (salvage.schematic)
+        fleet.get_progress().add_schematic(*salvage.schematic);
+    salvaged.push_back(salvage);
 }
 
 void World::advance_tick() {
@@ -53,24 +94,66 @@ void World::advance_tick() {
     if (current_tick % kTicksPerSecond == 0) {
         scan();
         for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
-            if (!s->battle.under_attack())
+            if (!engagement_in(s->sector))
                 s->ship.repair_all(kRepairPercent);
     }
 }
 
-bool World::send_wave(int ship) {
+const Engagement* World::engagement_in(int sector) const {
+    for (const Engagement& e : engagements)
+        if (e.sector == sector)
+            return &e;
+    return nullptr;
+}
+
+bool World::set_target(int ship, std::optional<GridPos> cell) {
     FleetShip* s = fleet.find(ship);
     if (!s)
         return false;
-    Sector& sector = map.at(s->sector);
-    const int threat = std::max(sector.threat, 1);
-    spawn_wave(s->ship, s->battle, threat, std::max(waves_for_threat(threat) - sector.waves_left, 0), rng);
+    const Engagement* e = engagement_in(s->sector);
+    if (!e)
+        return false;
+    if (!cell) {
+        s->target.reset();
+        return true;
+    }
+    const std::optional<GridPos> anchor = e->ship.anchor_of(*cell);
+    if (!anchor)
+        return false;
+    s->target = anchor;
     return true;
 }
 
-void World::clear_enemies(int ship) {
-    if (FleetShip* s = fleet.find(ship))
-        s->battle.enemies.clear();
+std::vector<Salvage> World::take_salvage() {
+    std::vector<Salvage> taken;
+    taken.swap(salvaged);
+    return taken;
+}
+
+bool World::spawn_enemy(int ship, EnemyClass enemy) {
+    FleetShip* s = fleet.find(ship);
+    if (!s)
+        return false;
+    std::erase_if(engagements, [&](const Engagement& e) { return e.sector == s->sector; });
+    for (FleetShip* here : ships_in(s->sector))
+        here->target.reset();
+    Sector& sector = map.at(s->sector);
+    sector.enemy = enemy;
+    sector.beaten = false;
+    return true;
+}
+
+bool World::defeat_enemy(int ship) {
+    const FleetShip* s = fleet.find(ship);
+    if (!s)
+        return false;
+    for (Engagement& e : engagements)
+        if (e.sector == s->sector) {
+            Bridge& bridge = e.ship.get_bridge();
+            bridge.take_damage(bridge.get_hp());
+            return true;
+        }
+    return false;
 }
 
 void World::reveal_map() {
@@ -102,7 +185,10 @@ JumpResult World::jump(int ship, int sector) {
         return result;
     FleetShip& s = *fleet.find(ship);
     s.ship.burn_thrusters();
-    s.battle = {};
+    for (const GridPos p : s.ship.placement_order())
+        if (auto* w = dynamic_cast<Weapon*>(s.ship.building_anchored_at(p)))
+            w->discharge();
+    s.target.reset();
     s.sector = sector;
     s.ship.set_yields(map.at(sector).yields);
     map.visit(sector);
