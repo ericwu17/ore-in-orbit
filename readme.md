@@ -277,6 +277,12 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
   plus `buildings/Bridge.png`, `buildings/Hull.png` (one cell of hull) and
   `buildings/BeltTunnelEntrance.png` (`BeltTunnel.png` is a tunnel's exit).
+- `buildings/<Belt><Shape>.png` — a transport or express belt as the belts
+  feeding it shape it, facing North like the straight one: `CurveLeft` /
+  `CurveRight` (fed from that side only: it turns the corner), `SideLeft` /
+  `SideRight` / `SideBoth` (fed from behind and that side, or both) and
+  `Merge` (from both sides, not behind), e.g. `TransportBeltCurveLeft.png`.
+  Items on them follow the shape: round the corner, or in from the side.
   Its shape is the building's footprint (2:3 for the 2x3 ion thruster, 1:1
   for a 2x2 collector), drawn facing **North**; the game turns belts to face
   the way they point.

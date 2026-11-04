@@ -357,7 +357,10 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
     }
     if (!belt->has_room_at(pos))
         return false;
-    belt->insert(kind, pos);
+    const BeltSide side = from == back                             ? BeltSide::Back
+                          : from == neighbor(to, rotated_ccw(facing)) ? BeltSide::Left
+                                                                       : BeltSide::Right;
+    belt->insert(kind, pos, side);
     return true;
 }
 

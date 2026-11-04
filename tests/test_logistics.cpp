@@ -142,6 +142,32 @@ void test_belt_sides() {
     assert(!ship.insert_item({p.x + 1, p.y}, p, ItemKind::Gear));  // p is its front cell
 }
 
+// Each item remembers the side it came on by, and where, for the UI to draw
+// it coming round the corner or in from the side; it moves the same either
+// way.
+void test_belt_item_sides() {
+    World world;
+    Ship& ship = world.flagship();
+    const GridPos p{c, b0 - 2};
+    assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
+    assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));  // north: its left, round the corner
+    BeltItem gear = belt_at(ship, p).get_items().front();
+    assert(gear.from == BeltSide::Left && gear.entered_at == 0 && gear.pos == 0);
+
+    assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
+    run(world, belt_cell_ticks());  // the gear to the front, where it stops
+    assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));  // south: its right, halfway along
+    assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));   // from behind
+    const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
+    assert(items.size() == 3);
+    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right &&
+           items[1].entered_at == kBeltLength / 2);
+    assert(items[2].from == BeltSide::Back && items[2].entered_at == 0);
+    run(world, 5);
+    assert(belt_at(ship, p).get_items()[1].entered_at == kBeltLength / 2);
+    assert(belt_at(ship, p).get_items()[1].pos > kBeltLength / 2);
+}
+
 // Beside the bridge, a collector hands each catch straight in; one cell
 // away, a belt between them carries it.
 void test_collector_feeds() {
@@ -930,6 +956,7 @@ int main() {
     test_belt_to_bridge();
     test_belt_jam();
     test_belt_sides();
+    test_belt_item_sides();
     test_collector_feeds();
     test_machine_recipe();
     test_machine_output_full();

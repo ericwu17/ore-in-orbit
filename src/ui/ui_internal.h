@@ -240,9 +240,18 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
 // Draws one building over its footprint, whose top-left cell is at `min`
 // (cells of side `cell`): its sprite, or a stand-in when it has none. `kind`
 // is nullopt for the bridge. `alpha` fades the placement ghost. A belt tunnel
-// looks like its entrance unless `tunnel_exit`.
+// looks like its entrance unless `tunnel_exit`; a transport or express belt
+// takes `belt_shape`.
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit = false);
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit = false,
+                  sprites::BeltShape belt_shape = sprites::BeltShape::Straight);
+
+// The shape of a belt at `p` facing `facing` (built there or not), from its
+// neighbors: which sides belts (or unloaders) feed it from, and whether one
+// feeds it from behind. A belt behind counts as Ship::insert_item counts it
+// (any belt facing the same way), so the belt turns a corner exactly when
+// the items fed in from the side start at its back edge.
+sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing);
 
 // A thin gauge along the bottom of a building's footprint (`min`..`max`),
 // filled to `fraction`; warning-colored when full.
@@ -253,7 +262,11 @@ void DrawBufferGauge(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, float
 void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 
 // The items riding a belt whose cell's top-left corner is `min`: position 0
-// is its back edge, kBeltLength its front edge.
+// is its back edge, kBeltLength its front edge. One in from behind rides
+// down the middle; one in from the side at the back edge (round a corner)
+// along a quarter circle, from the middle of that side to the middle of the
+// front; one in from the side halfway along drifts over to the middle as it
+// goes. Each starts where it left the cell it came from, so none jumps.
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell);
 // One item in the top-right corner of a building's footprint: the setting
 // the building is working to. Skipped when too far out to read.

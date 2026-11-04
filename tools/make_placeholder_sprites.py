@@ -13,6 +13,8 @@ readme's "Sprites" section):
     buildings/Bridge.png     the 6x6 bridge
     buildings/Hull.png       one cell of hull
     buildings/BeltTunnelEntrance.png   a belt tunnel's entrance
+    buildings/<Belt><Shape>.png        a belt fed from the sides (see
+                                       BELT_SHAPES): CurveLeft, SideBoth...
 
 Without --force, files that already exist are left alone, so real art is
 never overwritten. The look follows the stand-ins the game draws for a
@@ -219,7 +221,9 @@ def building_image(w, h, look, color, label):
         seam = s * 0.14
         d.rectangle((seam, seam, W - seam, H - seam), outline=darker(color, 0.8), width=max(1, edge // 2))
         rivets(d, (0, 0, W, H), s * 0.05, s * 0.08, color)
-    elif look in ("belt", "tunnel", "tunnel_entrance", "sorter", "reverse_sorter"):
+    elif look == "belt":
+        return belt_shape_image(color, ("back",))
+    elif look in ("tunnel", "tunnel_entrance", "sorter", "reverse_sorter"):
         # A dark rubber belt between steel rails.
         d.rectangle(box, fill=darker(BELT, 0.7), outline=BEVEL_DARK, width=max(1, edge // 2))
         rail = s * 0.09
@@ -284,6 +288,102 @@ def building_image(w, h, look, color, label):
     return finish(img)
 
 
+# The shapes a belt takes from the belts feeding it (see BeltShape in
+# src/ui/ui_internal.h): which of its back, left and right edges take items
+# in (the front always sends them on). Straight is the belt's own sprite.
+BELT_SHAPES = {
+    "CurveLeft":  ("left",),
+    "CurveRight": ("right",),
+    "SideLeft":   ("back", "left"),
+    "SideRight":  ("back", "right"),
+    "SideBoth":   ("back", "left", "right"),
+    "Merge":      ("left", "right"),
+}
+
+
+def arrow_along(draw, cx, cy, dx, dy, h, fill):
+    """A filled arrowhead centered on (cx, cy), pointing along unit (dx, dy)
+    (image coordinates, y down), of half-length h."""
+    px, py = -dy, dx
+    draw.polygon([(cx + dx * h, cy + dy * h),
+                  (cx - dx * h * 0.5 + px * h * 0.8, cy - dy * h * 0.5 + py * h * 0.8),
+                  (cx - dx * h * 0.5 - px * h * 0.8, cy - dy * h * 0.5 - py * h * 0.8)], fill=fill)
+
+
+def ring(img, cx, cy, r0, r1, fill):
+    """The band between radii r0 and r1 around (cx, cy), clipped to img."""
+    mask = Image.new("L", img.size, 0)
+    m = ImageDraw.Draw(mask)
+    m.ellipse((cx - r1, cy - r1, cx + r1, cy + r1), fill=255)
+    m.ellipse((cx - r0, cy - r0, cx + r0, cy + r0), fill=0)
+    img.paste(Image.new("RGBA", img.size, fill + (255,)), (0, 0), mask)
+
+
+def belt_shape_image(color, inputs):
+    """A belt (facing North) fed through the edges in `inputs`: a curve when
+    only one side feeds it, else a straight run with gaps in its rails where
+    the sides join it, rounded at the corners. Its rubber runs right up to
+    its open edges (the front and its inputs), so belts joined up look like
+    one belt."""
+    s = CELL * SS
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    inset = s * 0.06
+    rail = s * 0.09
+    line = max(2, int(s * 0.025))  # the dark edge round the rails
+    rubber = darker(BELT, 0.7)
+    steel = lighter(BELT, 0.15)
+    arrow = ACCENT if color == EXPRESS_BELT else GLYPH
+
+    if inputs in (("left",), ("right",)):
+        # A quarter turn round the front-left corner (mirrored for the
+        # right): in at the left edge, out at the front.
+        r0, r1 = inset, s - inset
+        ring(img, 0, 0, r0 - line, r1 + line, BEVEL_DARK)
+        ring(img, 0, 0, r0, r1, rubber)
+        ring(img, 0, 0, r0, r0 + rail, steel)
+        ring(img, 0, 0, r1 - rail, r1, steel)
+        k = 0.70710678
+        arrow_along(ImageDraw.Draw(img), s * 0.5 * k, s * 0.5 * k, k, -k, s * 0.24, arrow)
+        if inputs == ("right",):
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        return finish(img)
+
+    d = ImageDraw.Draw(img)
+    x0 = 0 if "left" in inputs else inset
+    x1 = s if "right" in inputs else s - inset
+    y1 = s if "back" in inputs else s - inset
+    d.rectangle((x0, 0, x1, y1), fill=rubber)
+    # A rail along each closed edge, dark on its outer side.
+    if "left" not in inputs:
+        d.rectangle((inset - line, 0, inset + rail, y1), fill=BEVEL_DARK)
+        d.rectangle((inset, 0, inset + rail, y1), fill=steel)
+    if "right" not in inputs:
+        d.rectangle((s - inset - rail, 0, s - inset + line, y1), fill=BEVEL_DARK)
+        d.rectangle((s - inset - rail, 0, s - inset, y1), fill=steel)
+    if "back" not in inputs:
+        d.rectangle((x0, s - inset - rail, x1, s - inset + line), fill=BEVEL_DARK)
+        d.rectangle((x0, s - inset - rail, x1, s - inset), fill=steel)
+        # Closed corners stay square under the rails.
+        for x in ((inset,) if "left" not in inputs else ()) + ((s - inset - rail,) if "right" not in inputs else ()):
+            d.rectangle((x, s - inset - rail, x + rail, s - inset), fill=steel)
+    # Between two open edges, the rails of the belts that meet there round
+    # the corner into each other.
+    corners = [((0, 0), "left", "front"), ((s, 0), "right", "front"),
+               ((0, s), "left", "back"), ((s, s), "right", "back")]
+    for (cx, cy), a, b in corners:
+        if a in inputs and (b == "front" or b in inputs):
+            ring(img, cx, cy, inset - line, inset + rail + line, BEVEL_DARK)
+            ring(img, cx, cy, inset, inset + rail, steel)
+    d = ImageDraw.Draw(img)
+    # The way it carries items, and the way the sides feed in.
+    arrow_up(d, s / 2, s / 2, s * 0.24, arrow)
+    if "left" in inputs:
+        arrow_along(d, s * 0.19, s / 2, 1, 0, s * 0.1, arrow)
+    if "right" in inputs:
+        arrow_along(d, s * 0.81, s / 2, -1, 0, s * 0.1, arrow)
+    return finish(img)
+
+
 def placeable_icon(item_id):
     """A placeable's item icon: its building, shrunk to fit a square."""
     w, h, look, color, label = BUILDINGS[item_id]
@@ -339,6 +439,10 @@ def main():
     write("buildings/Bridge.png", lambda: building_image(*BRIDGE))
     write("buildings/Hull.png", lambda: building_image(*HULL_TILE))
     write("buildings/BeltTunnelEntrance.png", lambda: building_image(1, 1, "tunnel_entrance", BELT, ""))
+    for belt in ("TransportBelt", "ExpressBelt"):
+        color = BUILDINGS[belt][3]
+        for shape, inputs in BELT_SHAPES.items():
+            write(f"buildings/{belt}{shape}.png", lambda color=color, inputs=inputs: belt_shape_image(color, inputs))
     for item_id, spec in ITEMS.items():
         write(f"items/{item_id}.png", lambda spec=spec: item_image(*spec))
 

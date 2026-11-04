@@ -134,8 +134,16 @@ struct SaveAccess {
                 j["only_when_requested"] = true;
         } else if (const auto* belt = dynamic_cast<const Conveyor*>(&b)) {
             Json items = Json::array();
-            for (const BeltItem& item : belt->get_items())
-                items.push_back({{"item", item_id(item.kind)}, {"pos", item.pos}});
+            for (const BeltItem& item : belt->get_items()) {
+                Json saved = {{"item", item_id(item.kind)}, {"pos", item.pos}};
+                // Which side it came on by, and where, for drawing it on its
+                // way in (see BeltSide); only for the sides.
+                if (item.from != BeltSide::Back) {
+                    saved["from"] = item.from == BeltSide::Left ? "left" : "right";
+                    saved["entered_at"] = item.entered_at;
+                }
+                items.push_back(std::move(saved));
+            }
             j["items"] = std::move(items);
         } else if (const auto* sorter = dynamic_cast<const Sorter*>(&b)) {
             j["filter"] = save_optional_item(sorter->get_filter());
@@ -282,7 +290,17 @@ struct SaveAccess {
                 const int pos = static_cast<int>(load_int(item.at("pos"), 0, furthest));
                 if (!belt->has_room_at(pos))
                     throw LoadError("belt items too close together");
-                belt->insert(*kind, pos);
+                // Older saves (and items in at the back) have no side.
+                BeltSide from = BeltSide::Back;
+                int entered_at = pos;
+                if (item.contains("from")) {
+                    const std::string side = load_string(item.at("from"), "belt side");
+                    if (side != "left" && side != "right")
+                        throw LoadError("unknown belt side " + side);
+                    from = side == "left" ? BeltSide::Left : BeltSide::Right;
+                    entered_at = static_cast<int>(load_int(item.at("entered_at"), 0, pos));
+                }
+                belt->insert(*kind, pos, from, entered_at);
             }
         } else if (auto* sorter = dynamic_cast<Sorter*>(&b)) {
             sorter->set_filter(load_item(j.at("filter")));

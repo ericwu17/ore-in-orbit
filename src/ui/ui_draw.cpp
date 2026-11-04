@@ -3,6 +3,7 @@
 #include "ui/ui_internal.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ui {
 
@@ -93,8 +94,34 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
                        theme::U32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), alpha));
 }
 
+sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing) {
+    using sprites::BeltShape;
+    const Direction backward = rotated_cw(rotated_cw(facing));
+    const auto* behind = dynamic_cast<const Conveyor*>(ship.building_at(neighbor(p, backward)));
+    const bool back = behind && behind->facing() == facing;
+    // Whether what stands on side `side` sends items into `p`: a belt or an
+    // unloader pointing at it (not a tunnel's entrance, whose items go
+    // underground).
+    const auto feeds = [&](Direction side) {
+        const Building* b = ship.building_at(neighbor(p, side));
+        if (!b || b->facing() != rotated_cw(rotated_cw(side)))
+            return false;
+        if (const auto* tunnel = dynamic_cast<const Tunnel*>(b))
+            return tunnel->is_exit();
+        return dynamic_cast<const Conveyor*>(b) || dynamic_cast<const Unloader*>(b);
+    };
+    const bool left = feeds(rotated_ccw(facing));
+    const bool right = feeds(rotated_cw(facing));
+    if (back)
+        return left && right ? BeltShape::SideBoth : left ? BeltShape::SideLeft : right ? BeltShape::SideRight
+                                                                                         : BeltShape::Straight;
+    return left && right ? BeltShape::Merge : left ? BeltShape::CurveLeft : right ? BeltShape::CurveRight
+                                                                                   : BeltShape::Straight;
+}
+
 void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
-                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit) {
+                  std::optional<ItemKind> kind, Direction facing, float alpha, bool tunnel_exit,
+                  sprites::BeltShape belt_shape) {
     const float inset = cell * 0.12f;
     const ImVec2 max = FootprintMax(min, cell, size);
     const ImVec2 a(min.x + inset, min.y + inset);
@@ -124,6 +151,9 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
     const sprites::Sprite* sprite = kind ? sprites::Building(*kind) : sprites::Bridge();
     if (kind == ItemKind::BeltTunnel && !tunnel_exit)
         sprite = sprites::TunnelEntrance();
+    if (kind && belt_shape != sprites::BeltShape::Straight)
+        if (const sprites::Sprite* shaped = sprites::Belt(*kind, belt_shape))
+            sprite = shaped;
     if (sprite) {
         DrawSprite(draw, *sprite, min, max, kind && is_rotatable(*kind) ? facing : Direction::North, alpha);
         return;
@@ -241,16 +271,42 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind) {
 }
 
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell) {
-    const ImVec2 d = DirectionVector(belt.facing());
-    const ImVec2 back(min.x + cell * 0.5f - d.x * cell * 0.5f, min.y + cell * 0.5f - d.y * cell * 0.5f);
+    // The belt's own frame, in cells from the middle of its cell: `ahead`
+    // the way it goes, `right` to its right.
+    const ImVec2 ahead = DirectionVector(belt.facing());
+    const ImVec2 right = DirectionVector(rotated_cw(belt.facing()));
+    const ImVec2 mid(min.x + cell * 0.5f, min.y + cell * 0.5f);
+    const auto at = [&](float x, float y) {
+        return ImVec2(mid.x + (right.x * x + ahead.x * y) * cell, mid.y + (right.y * x + ahead.y * y) * cell);
+    };
+    constexpr float kLength = static_cast<float>(kBeltLength);
     // A tunnel's items show only on the open side of its mouth.
     const auto* tunnel = dynamic_cast<const Tunnel*>(&belt);
     constexpr int kMouth = kBeltLength / 5;  // from the edge, as DrawBuilding draws it
     for (const BeltItem& item : belt.get_items()) {
         if (tunnel && (tunnel->is_exit() ? item.pos < kMouth : item.pos > kBeltLength - kMouth))
             continue;
-        const float t = cell * static_cast<float>(item.pos) / static_cast<float>(kBeltLength);
-        DrawItem(draw, ImVec2(back.x + d.x * t, back.y + d.y * t), std::max(1.5f, cell * 0.16f), item.kind);
+        const float t = static_cast<float>(item.pos) / kLength;  // 0 at the back edge, 1 at the front
+        float x = 0.0f;
+        float y = t - 0.5f;
+        if (item.from != BeltSide::Back) {
+            const float side = item.from == BeltSide::Left ? -1.0f : 1.0f;
+            if (item.entered_at == 0 && item.pos <= kBeltLength) {
+                // Round the corner: a quarter circle about the front corner
+                // on that side, from the middle of the side to the middle of
+                // the front.
+                const float angle = t * 1.57079633f;
+                x = side * (0.5f - 0.5f * std::sin(angle));
+                y = 0.5f - 0.5f * std::cos(angle);
+            } else {
+                // In from the side partway along: over to the middle within
+                // half a cell, easing in.
+                const float k = std::clamp(static_cast<float>(item.pos - item.entered_at) / (kLength * 0.5f), 0.0f,
+                                           1.0f);
+                x = side * 0.5f * (1.0f - k * k * (3.0f - 2.0f * k));
+            }
+        }
+        DrawItem(draw, at(x, y), std::max(1.5f, cell * 0.16f), item.kind);
     }
 }
 

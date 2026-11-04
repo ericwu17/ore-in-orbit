@@ -39,7 +39,28 @@ struct Atlas {
     std::optional<Sprite> bridge;
     std::optional<Sprite> hull;
     std::optional<Sprite> tunnel_entrance;
+    // The transport belt's shapes, then the express belt's (Straight unused).
+    std::array<std::array<std::optional<Sprite>, kBeltShapeCount>, 2> belts;
 };
+
+// Which of Atlas::belts holds `kind`'s shapes, or -1.
+int BeltIndex(ItemKind kind) {
+    return kind == ItemKind::TransportBelt ? 0 : kind == ItemKind::ExpressBelt ? 1 : -1;
+}
+
+// The file name suffix of a belt shape (after the belt's id).
+const char* BeltShapeName(BeltShape shape) {
+    switch (shape) {
+    case BeltShape::Straight:   return "";
+    case BeltShape::CurveLeft:  return "CurveLeft";
+    case BeltShape::CurveRight: return "CurveRight";
+    case BeltShape::SideLeft:   return "SideLeft";
+    case BeltShape::SideRight:  return "SideRight";
+    case BeltShape::SideBoth:   return "SideBoth";
+    case BeltShape::Merge:      return "Merge";
+    }
+    return "";
+}
 Atlas g_atlas;
 
 // A decoded PNG on its way into the atlas.
@@ -142,6 +163,12 @@ void Load() {
     Decode(decoded, g_atlas.bridge, "buildings/Bridge.png", {kBridgeSize, kBridgeSize});
     Decode(decoded, g_atlas.hull, "buildings/Hull.png", {1, 1});
     Decode(decoded, g_atlas.tunnel_entrance, "buildings/BeltTunnelEntrance.png", {1, 1});
+    for (const ItemKind belt : {ItemKind::TransportBelt, ItemKind::ExpressBelt})
+        for (int i = 1; i < kBeltShapeCount; ++i) {
+            const auto shape = static_cast<BeltShape>(i);
+            Decode(decoded, g_atlas.belts[static_cast<std::size_t>(BeltIndex(belt))][static_cast<std::size_t>(i)],
+                   std::string("buildings/") + item_id(belt) + BeltShapeName(shape) + ".png", {1, 1});
+        }
     if (decoded.empty())
         return;
 
@@ -194,6 +221,17 @@ const Sprite* Hull() {
 
 const Sprite* TunnelEntrance() {
     return g_atlas.tunnel_entrance ? &*g_atlas.tunnel_entrance : nullptr;
+}
+
+const Sprite* Belt(ItemKind kind, BeltShape shape) {
+    const int belt = BeltIndex(kind);
+    if (belt < 0)
+        return nullptr;
+    if (shape == BeltShape::Straight)
+        return Building(kind);
+    const std::optional<Sprite>& s =
+        g_atlas.belts[static_cast<std::size_t>(belt)][static_cast<std::size_t>(shape)];
+    return s ? &*s : nullptr;
 }
 
 }  // namespace ui::sprites
