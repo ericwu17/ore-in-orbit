@@ -120,8 +120,8 @@ void test_belt_jam() {
     assert(ship.inventory().count(ItemKind::Gear) == gears + full);
 }
 
-// From the side, items join halfway along; but a belt nothing feeds from
-// behind is a corner, and side input starts at its back.
+// From the side, items join at the back edge, as from behind: at a corner,
+// and with a belt feeding it from behind too.
 void test_belt_sides() {
     World world;
     Ship& ship = world.flagship();
@@ -129,17 +129,46 @@ void test_belt_sides() {
     assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
     assert(belt_at(ship, p).get_items().front().pos == 0);
+    run(world, belt_cell_ticks());  // the gear to the front, where it stops
 
     assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));
     const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
     assert(items.size() == 2);
-    assert(items.front().kind == ItemKind::Glass && items.front().pos == kBeltLength / 2);
-    // No room left at the middle.
+    assert(items.back().kind == ItemKind::Glass && items.back().pos == 0);
+    // No room left at the back edge, from either side or behind.
     assert(!ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
+    assert(!ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));
     // A belt facing into the side doesn't change that: it isn't behind.
     assert(ship.place(ItemKind::TransportBelt, {p.x + 1, p.y}, Direction::West) == BuildResult::Ok);
     assert(!ship.insert_item({p.x + 1, p.y}, p, ItemKind::Gear));  // p is its front cell
+}
+
+// Each item remembers the side it came on by, and where, for the UI to draw
+// it coming round the corner or in from the side; it moves the same either
+// way.
+void test_belt_item_sides() {
+    World world;
+    Ship& ship = world.flagship();
+    const GridPos p{c, b0 - 2};
+    assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
+    assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));  // north: its left, round the corner
+    BeltItem gear = belt_at(ship, p).get_items().front();
+    assert(gear.from == BeltSide::Left && gear.pos == 0);
+
+    assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
+    run(world, belt_cell_ticks());  // the gear to the front, where it stops
+    // A belt behind it now, and still round the corner from the side.
+    assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));  // south: its right
+    run(world, kBeltSpacing / belt_speed(ItemKind::TransportBelt));  // room behind it
+    assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));      // from behind
+    const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
+    assert(items.size() == 3);
+    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right);
+    assert(items[2].from == BeltSide::Back && items[2].pos == 0);
+    run(world, 5);
+    assert(belt_at(ship, p).get_items()[1].from == BeltSide::Right);
+    assert(belt_at(ship, p).get_items()[1].pos > kBeltSpacing);
 }
 
 // Beside the bridge, a collector hands each catch straight in; one cell
@@ -795,8 +824,8 @@ void test_tunnel_remove_entrance() {
     assert(!tunnel_at(ship, exit).linked());
 }
 
-// An exit's back is the tunnel's mouth, and its side input joins halfway; an
-// entrance takes items as a belt does.
+// An exit takes nothing from its neighbors (its back is the tunnel's mouth,
+// and not from its sides either); an entrance takes items as a belt does.
 void test_tunnel_sides() {
     World world = tunnel_world();
     Ship& ship = world.flagship();
@@ -807,12 +836,70 @@ void test_tunnel_sides() {
 
     assert(!ship.insert_item(exit, {exit.x - 1, exit.y}, ItemKind::Gear));  // through the mouth
     assert(!ship.insert_item(exit, {exit.x + 1, exit.y}, ItemKind::Gear));  // the cell it feeds
-    assert(ship.insert_item(exit, {exit.x, exit.y - 1}, ItemKind::Gear));
-    assert(belt_at(ship, exit).get_items().front().pos == kBeltLength / 2);
+    assert(!ship.insert_item(exit, {exit.x, exit.y - 1}, ItemKind::Gear));  // a side
+    assert(!ship.insert_item(exit, {exit.x, exit.y + 1}, ItemKind::Gear));  // the other side
+    assert(belt_at(ship, exit).get_items().empty());
 
     assert(!ship.insert_item(entrance, {entrance.x + 1, entrance.y}, ItemKind::Gear));  // the cell it feeds
     assert(ship.insert_item(entrance, {entrance.x, entrance.y + 1}, ItemKind::Gear));   // a corner
     assert(belt_at(ship, entrance).get_items().front().pos == 0);
+}
+
+// Which way each building can send items (what the UI shapes belts by): a
+// belt the way it points; a junction what something sends in across it; a
+// sorter out of any side but the one its items came in by; a router out of
+// any side; a tunnel's exit the way it points, its entrance nowhere; a
+// cargo hold nowhere (an unloader takes from it).
+void test_can_send() {
+    {
+        World world = tunnel_world();
+        Ship& ship = world.flagship();
+        ship.inventory().add(ItemKind::Junction, 1);
+        ship.inventory().add(ItemKind::FilterSorter, 1);
+        ship.inventory().add(ItemKind::Router, 1);
+        const GridPos belt{b1 + 1, c};
+        const GridPos junction{b1 + 2, c};
+        const GridPos sorter{b1 + 3, c};
+        const GridPos router{b1 + 4, c};
+        for (int x = belt.x; x <= router.x; ++x)
+            for (const int y : {c - 1, c + 1})
+                assert(!ship.building_at({x, y}));  // nothing else around them
+
+        assert(!ship.can_send(belt, Direction::East));  // nothing there yet
+        assert(ship.place(ItemKind::TransportBelt, belt, Direction::East) == BuildResult::Ok);
+        assert(ship.can_send(belt, Direction::East));
+        assert(!ship.can_send(belt, Direction::North) && !ship.can_send(belt, Direction::West));
+
+        assert(ship.place(ItemKind::Junction, junction) == BuildResult::Ok);
+        assert(ship.can_send(junction, Direction::East));    // the belt's, across
+        assert(!ship.can_send(junction, Direction::North));  // nothing to its south
+        assert(!ship.can_send(junction, Direction::West));   // the belt points away
+
+        assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South})
+            assert(ship.can_send(sorter, d));
+        assert(!ship.can_send(sorter, Direction::West));  // back the way it came
+
+        assert(ship.place(ItemKind::Router, router) == BuildResult::Ok);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+            assert(ship.can_send(router, d));
+    }
+    {
+        World world = tunnel_world();
+        Ship& ship = world.flagship();
+        const GridPos entrance{b1 + 6, c};
+        const GridPos exit{b1 + 2, c};
+        const GridPos hold{b1 + 3, c};
+        assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::West) == BuildResult::Ok);
+        assert(ship.place(ItemKind::BeltTunnel, exit, Direction::West) == BuildResult::Ok);
+        assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+        assert(tunnel_linked(ship, entrance, exit));
+        assert(ship.can_send(exit, Direction::West));
+        assert(!ship.can_send(exit, Direction::North));
+        assert(!ship.can_send(entrance, Direction::West));  // its items go underground
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+            assert(!ship.can_send(hold, d));
+    }
 }
 
 // An unloader takes an item every kUnloaderTicks out of the cargo hold
@@ -930,6 +1017,7 @@ int main() {
     test_belt_to_bridge();
     test_belt_jam();
     test_belt_sides();
+    test_belt_item_sides();
     test_collector_feeds();
     test_machine_recipe();
     test_machine_output_full();
@@ -952,6 +1040,7 @@ int main() {
     test_tunnel_relink();
     test_tunnel_remove_entrance();
     test_tunnel_sides();
+    test_can_send();
     test_unloader_from_hold();
     test_unloader_filter();
     test_unloader_from_bridge();

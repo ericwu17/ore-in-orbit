@@ -63,6 +63,10 @@ void test_building_sprites() {
     check_sprite("buildings/Bridge.png", {kBridgeSize, kBridgeSize});
     check_sprite("buildings/Hull.png", {1, 1});
     check_sprite("buildings/BeltTunnelEntrance.png", {1, 1});
+    // The belts' shapes (see ui::sprites::BeltShape).
+    for (const char* belt : {"TransportBelt", "ExpressBelt"})
+        for (const char* shape : {"CurveLeft", "CurveRight", "SideLeft", "SideRight", "SideBoth", "Merge"})
+            check_sprite(std::string("buildings/") + belt + shape + ".png", {1, 1});
 }
 
 }  // namespace

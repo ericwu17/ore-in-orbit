@@ -99,9 +99,11 @@ Belt tunnels work as in Factorio: they carry a line underground, under
 anything, and come in pairs. A tunnel links up by itself with the nearest one
 ahead of it facing the same way, up to 5 cells off (4 between them), so a row
 of them pairs off from the back; whichever is behind is the entrance. They run
-as fast as an express belt. An exit takes items from its sides, but not
-through its mouth. A tunnel with no exit (outlined in amber) takes items and
-holds on to them, and those on their way when an exit goes wait for the next.
+as fast as an express belt. An exit takes no items of its own (not from its
+sides, nor through its mouth): it only puts out what comes through the
+tunnel, onto the cell in front of it. A tunnel with no exit (outlined in
+amber) takes items and holds on to them, and those on their way when an exit
+goes wait for the next.
 
 ### Milestones
 
@@ -277,6 +279,16 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
 - `buildings/<ItemId>.png` — how each building looks built on the grid,
   plus `buildings/Bridge.png`, `buildings/Hull.png` (one cell of hull) and
   `buildings/BeltTunnelEntrance.png` (`BeltTunnel.png` is a tunnel's exit).
+- `buildings/<Belt><Shape>.png` — a transport or express belt as the belts
+  feeding it shape it, facing North like the straight one: `CurveLeft` /
+  `CurveRight` (fed from that side only: it turns the corner), `SideLeft` /
+  `SideRight` / `SideBoth` (fed from behind and that side, or both) and
+  `Merge` (from both sides, not behind), e.g. `TransportBeltCurveLeft.png`.
+  The shape comes from every neighbor that can send items in (belts,
+  unloaders, machines, collectors, routers, fed junctions and sorters).
+  Items on them follow the shape: round the corner, or in from the side.
+  A side's items always start at the back edge and ride the curve in, so
+  they take as long to cross whatever feeds the belt from behind.
   Its shape is the building's footprint (2:3 for the 2x3 ion thruster, 1:1
   for a 2x2 collector), drawn facing **North**; the game turns belts to face
   the way they point.

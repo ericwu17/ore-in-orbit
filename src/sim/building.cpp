@@ -363,12 +363,12 @@ bool Conveyor::has_room_at(int pos) const {
     return true;
 }
 
-void Conveyor::insert(ItemKind kind, int pos) {
+void Conveyor::insert(ItemKind kind, int pos, BeltSide from) {
     assert(has_room_at(pos));
     auto it = items.begin();
     while (it != items.end() && it->pos > pos)
         ++it;
-    items.insert(it, BeltItem{kind, pos});
+    items.insert(it, BeltItem{kind, pos, from});
 }
 
 std::optional<ItemKind> Conveyor::item_at_front() const {

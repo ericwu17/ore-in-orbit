@@ -203,17 +203,26 @@ public:
     // Hands one item to the building covering `to`, coming from the next
     // cell over, `from`; false (and no change) if it won't take it. A belt
     // takes items from behind or from the side, never from the cell it
-    // points at: from behind they start at its back edge, from the side
-    // halfway along, unless no belt feeds it from behind (a corner), which
-    // counts as behind; nor, from a sorter, if it points into the building
+    // points at: from behind or the side they start at its back edge; nor,
+    // from a sorter, if it points into the building
     // the item came from before the sorter. A sorter takes the item only if
     // the neighbor it sends it to takes it now; an item from one sorter
     // never goes through a second straight into a third (nor round a ring
     // of them). A junction takes it while its queue that way has room and
     // something stands on the far side; a router while it's empty. A tunnel's
-    // entrance takes items as a belt does; its exit only from the side,
-    // halfway along.
+    // entrance takes items as a belt does; its exit takes none (its items
+    // come only from its entrance, underground).
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
+    // Whether the building covering `from` can ever hand items to the cell
+    // next to it toward `toward`, as tick() moves them (whether that cell
+    // takes them is insert_item's business): a belt or an unloader pointing
+    // that way (not a tunnel's entrance, whose items go underground); a
+    // machine or collector, out of any side; a router, out of any side (it
+    // skips only the one its current item came in by, which changes from
+    // item to item); a junction, if something can send into it from the far
+    // side; a sorter, if something can send into it from any other side. It
+    // looks back through at most a few junctions and sorters in a row.
+    bool can_send(GridPos from, Direction toward) const;
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
     // there, it can't run `recipe` or `recipe` isn't unlocked yet.

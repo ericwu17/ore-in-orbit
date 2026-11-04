@@ -522,7 +522,9 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 const bool standby = (collector && collector->on_standby()) || (machine && machine->on_standby());
                 const float alpha = thruster && thruster->offline() ? 0.4f : standby ? 0.55f : 1.0f;
                 DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), alpha,
-                             tunnel && tunnel->is_exit());
+                             tunnel && tunnel->is_exit(),
+                             b->item_kind() && sprites::HasShapes(*b->item_kind()) ? BeltShapeAt(ship, {x, y}, b->facing())
+                                                           : sprites::BeltShape::Straight);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 // A tunnel with nowhere to send its items, an unloader with
                 // nothing to take them from.
@@ -609,7 +611,9 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 }
             }
             if (r == BuildResult::Ok)
-                DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f, tunnel.is_exit);
+                DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f, tunnel.is_exit,
+                             sprites::HasShapes(*selected) ? BeltShapeAt(ship, *hover_cell, g_build.facing)
+                                                           : sprites::BeltShape::Straight);
             draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
             draw->PopClipRect();
         }

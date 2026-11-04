@@ -338,26 +338,22 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
         target->receive(kind);
         return true;
     }
+    if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt); tunnel && tunnel->is_exit())
+        return false;  // only from its entrance, underground (see tick)
     const Direction facing = belt->facing();
     if (from == neighbor(to, facing))
         return false;  // the cell it feeds
     if (source && building_at(neighbor(to, facing)) == source)
         return false;  // back where it came from, through a sorter
-    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
-    const auto* tunnel = dynamic_cast<const Tunnel*>(belt);
-    const bool exit = tunnel && tunnel->is_exit();
-    if (exit && from == back)
-        return false;  // the tunnel's mouth
-    int pos = 0;
-    if (from != back) {
-        // From the side: halfway along, unless nothing feeds it from behind.
-        const auto* behind = dynamic_cast<const Conveyor*>(building_at(back));
-        if (exit || (behind && behind->facing() == facing))
-            pos = kBeltLength / 2;
-    }
-    if (!belt->has_room_at(pos))
+    // From behind or the side, at the back edge: a side's items take as long
+    // round as a corner's, whatever feeds it from behind.
+    if (!belt->has_room_at(0))
         return false;
-    belt->insert(kind, pos);
+    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
+    const BeltSide side = from == back                             ? BeltSide::Back
+                          : from == neighbor(to, rotated_ccw(facing)) ? BeltSide::Left
+                                                                       : BeltSide::Right;
+    belt->insert(kind, 0, side);
     return true;
 }
 
@@ -434,6 +430,42 @@ bool Ship::set_only_when_requested(GridPos p, bool on) {
     else
         return false;
     return true;
+}
+
+namespace {
+
+// Ship::can_send, looking back through at most `depth` more junctions and
+// sorters.
+bool can_send(const Ship& ship, GridPos from, Direction toward, int depth) {
+    const Building* b = ship.building_at(from);
+    if (!b)
+        return false;
+    if (const auto* tunnel = dynamic_cast<const Tunnel*>(b))
+        return tunnel->is_exit() && tunnel->facing() == toward;
+    if (dynamic_cast<const Conveyor*>(b) || dynamic_cast<const Unloader*>(b))
+        return b->facing() == toward;
+    if (dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) || dynamic_cast<const Router*>(b))
+        return true;
+    if (depth <= 0)
+        return false;
+    const Direction back = rotated_cw(rotated_cw(toward));
+    if (dynamic_cast<const Junction*>(b))
+        return can_send(ship, neighbor(from, back), toward, depth - 1);
+    if (dynamic_cast<const Sorter*>(b)) {
+        // In by any side but `toward`'s, out straight across or turning:
+        // never back the way it came.
+        for (const Direction in : {Direction::North, Direction::East, Direction::South, Direction::West})
+            if (in != toward && can_send(ship, neighbor(from, in), rotated_cw(rotated_cw(in)), depth - 1))
+                return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+bool Ship::can_send(GridPos from, Direction toward) const {
+    constexpr int kDepth = 3;
+    return ::can_send(*this, from, toward, kDepth);
 }
 
 void Ship::pass_on(GridPos p, Building& b) {

@@ -13,6 +13,10 @@
 //   buildings/BeltTunnelEntrance.png
 //                            a belt tunnel's entrance (BeltTunnel.png is its
 //                            exit)
+//   buildings/<Belt><Shape>.png
+//                            a transport or express belt fed from the side
+//                            (see BeltShape), facing North:
+//                            TransportBeltCurveLeft.png, ExpressBeltMerge.png
 //
 // (<ItemId>: item_id, e.g. "IronPlate".) A sprite that is missing, can't be
 // decoded or has the wrong shape is reported once at startup and looked up
@@ -24,6 +28,19 @@
 #include "imgui.h"
 
 namespace ui::sprites {
+
+// The shape a belt takes from what feeds it (see ui::BeltShapeAt), facing
+// North. "Left" and "right" are as seen looking the way the belt goes.
+enum class BeltShape {
+    Straight,    // fed from behind, or not at all: the belt's own sprite
+    CurveLeft,   // from the left only: a quarter turn
+    CurveRight,  // from the right only
+    SideLeft,    // from behind and the left: a straight run joined on its left
+    SideRight,   // from behind and the right
+    SideBoth,    // from behind and both sides
+    Merge,       // from both sides, not behind: two turns meeting
+};
+constexpr int kBeltShapeCount = 7;
 
 // Where a sprite is: a rectangle (uv0..uv1) of the atlas texture `tex`, for
 // ImGui::Image or ImDrawList::AddImage / AddImageQuad.
@@ -50,5 +67,10 @@ const Sprite* Building(ItemKind kind);   // a building, built (facing North)
 const Sprite* Bridge();                  // the bridge, built
 const Sprite* Hull();                    // one cell of hull
 const Sprite* TunnelEntrance();          // a belt tunnel's entrance (facing North)
+// Whether `kind` is drawn in a BeltShape: transport and express belts.
+bool HasShapes(ItemKind kind);
+// A belt HasShapes() is for, in `shape` (facing North); for Straight, its
+// own sprite. Null for other kinds.
+const Sprite* Belt(ItemKind kind, BeltShape shape);
 
 }  // namespace ui::sprites

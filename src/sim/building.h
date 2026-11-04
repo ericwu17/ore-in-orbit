@@ -43,6 +43,7 @@
 #include "sim/recipes.h"
 
 #include <array>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -288,9 +289,16 @@ constexpr int kBeltSpacing = 20;
 // Belt speed in positions per tick (a cell is kBeltLength).
 int belt_speed(ItemKind kind);
 
+// Which side of a belt an item came on by, as it travels: in at the back
+// edge, or from the cell to its left or right. Only the UI reads it, to draw
+// the item coming round a corner or in from the side along the way it came
+// (see ui::DrawBeltItems); it never changes where the item goes.
+enum class BeltSide : std::uint8_t { Back, Left, Right };
+
 struct BeltItem {
     ItemKind kind;
     int pos = 0;
+    BeltSide from = BeltSide::Back;  // it came on at the back edge (pos 0) either way
 };
 
 class Conveyor : public Building {
@@ -310,8 +318,8 @@ public:
     const std::vector<BeltItem>& get_items() const { return items; }
     // Whether an item fits at `pos` (kBeltSpacing clear on both sides).
     bool has_room_at(int pos) const;
-    // Puts an item at `pos`; has_room_at(pos) must hold.
-    void insert(ItemKind kind, int pos);
+    // Puts an item at `pos`, come on from `from`; has_room_at(pos) must hold.
+    void insert(ItemKind kind, int pos, BeltSide from = BeltSide::Back);
     // The front item, once it has reached the front edge.
     std::optional<ItemKind> item_at_front() const;
     void pop_front();
@@ -329,8 +337,8 @@ constexpr int kTunnelRange = 5;
 // An entrance's belt runs on underground to its exit, so the items on their
 // way belong to it, and its length() reaches the exit's back edge. Without an
 // exit it holds them, passing nothing on to the cell it points at. An exit
-// is a plain belt whose back is the tunnel's mouth, so it only takes items
-// from its entrance and from the sides (see Ship::insert_item).
+// is a plain belt whose back is the tunnel's mouth; it takes items only
+// from its entrance, none from its neighbors (see Ship::insert_item).
 class Tunnel : public Conveyor {
 private:
     std::optional<GridPos> exit_cell;      // an entrance's exit, once linked
