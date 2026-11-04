@@ -228,6 +228,31 @@ void test_determinism() {
     assert(save_text(loaded->world) == save_text(world));
 }
 
+// The same, with a provider holding back a part-filled pod: how long it has
+// waited is saved, so it goes when it would have.
+void test_provider_determinism() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Inventory& inv = world.flagship().inventory();
+    inv.add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 2}, {ItemKind::Gear, 10}});
+    inv.add(starter_layout().cost);
+    int launched = 0;
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &launched) == FleetResult::Ok);
+    assert(fleet.set_provides(fleet.flagship().id, true));
+    fleet.find(launched)->ship.get_bridge().set_request(ItemKind::Gear, 20);
+    run(world, 9 * kTicksPerSecond);
+    assert(fleet.in_flight().empty());
+    const std::string text = save_text(world);
+    assert(text.find("waiting") != std::string::npos);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded);
+    run(world, 3 * kTicksPerSecond);
+    run(loaded->world, 3 * kTicksPerSecond);
+    assert(fleet.in_flight().size() == 1);
+    assert(save_text(loaded->world) == save_text(world));
+}
+
 void test_header_only() {
     World world;
     run(world, 42);
@@ -648,6 +673,35 @@ void test_before_requests() {
     assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
 }
 
+// A provider, and the cargo it sent, load back as such; a save from before
+// there were providers has none, and none is written for it.
+void test_provider_round_trip() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Inventory& inv = world.flagship().inventory();
+    inv.add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 2}, {ItemKind::Gear, 30}});
+    inv.add(starter_layout().cost);
+    int launched = 0;
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &launched) == FleetResult::Ok);
+    assert(fleet.set_provides(fleet.flagship().id, true));
+    fleet.find(launched)->ship.get_bridge().set_request(ItemKind::Gear, 20);
+    run(world, kDispatchInterval);
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].automatic);
+
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save_text(world), error);
+    assert(loaded && error.empty());
+    const Fleet& copy = loaded->world.get_fleet();
+    assert(copy.flagship().provides && !copy.find(launched)->provides);
+    assert(copy.in_flight().size() == 1 && copy.in_flight()[0].automatic);
+
+    Json save = minimal();
+    const std::optional<LoadedSave> old = load_text(save.dump(), error);
+    assert(old && error.empty() && !old->world.get_fleet().flagship().provides);
+    const std::string text = save_text(old->world);
+    assert(text.find("provides") == std::string::npos && text.find("automatic") == std::string::npos);
+}
+
 }  // namespace
 
 // Items and recipes the game doesn't know (here the power buildings, since
@@ -722,7 +776,9 @@ int main() {
     test_unloader_round_trip();
     test_request_round_trip();
     test_before_requests();
+    test_provider_round_trip();
     test_determinism();
+    test_provider_determinism();
     test_header_only();
     test_refused();
     test_transfers_refused();

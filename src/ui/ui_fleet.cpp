@@ -40,7 +40,8 @@ void DrawFleetStrip(World& world) {
             }
         } else {
             const bool attacked = s->battle.under_attack();
-            const std::string label = s->name + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
+            const std::string label =
+                s->name + (s->provides ? " (P)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
             if (attacked && s->id != f.current)
                 ImGui::PushStyleColor(ImGuiCol_Text, theme::kBad);
             if (theme::SegmentedButton(label.c_str(), s->id == f.current))
@@ -53,8 +54,9 @@ void DrawFleetStrip(World& world) {
                 f.focus_rename = true;
             }
             const ShipLayout* layout = s->ship.get_layout();
-            ImGui::SetItemTooltip("%s, a %s, in %s%s\nDouble-click to rename", s->name.c_str(),
+            ImGui::SetItemTooltip("%s, a %s, in %s%s%s\nDouble-click to rename", s->name.c_str(),
                                   layout ? layout->name : "ship", sector.name.c_str(),
+                                  s->provides ? "\nProvider: sends what other ships here request" : "",
                                   attacked ? "\nUnder attack!" : "");
         }
         ImGui::PopID();
@@ -98,8 +100,9 @@ void DrawFleetSection(World& world, const FleetShip& current) {
         for (const ItemStack& item : t.items)
             n += item.count;
         const double seconds = static_cast<double>(t.arrives - now) / static_cast<double>(kTicksPerSecond);
-        ImGui::TextColored(theme::kTextDim, "%s %s: %d items, %.0f s", t.from == current.id ? "To" : "From",
-                           other ? other->name.c_str() : "(lost)", n, std::ceil(seconds));
+        ImGui::TextColored(theme::kTextDim, "%s %s: %d items, %.0f s%s", t.from == current.id ? "To" : "From",
+                           other ? other->name.c_str() : "(lost)", n, std::ceil(seconds),
+                           t.automatic ? " (auto)" : "");
     }
 }
 

@@ -410,8 +410,9 @@ void DrawCraftPanel(World& world, FleetShip& current, float width);
 // then what it's doing and, in a second column, what can be set: for a
 // machine, the recipe picker; for a collector, what it gathers (for both,
 // whether they run only on request); for a sorter or an unloader, the filter
-// picker; for the bridge, its item requests.
-void DrawInspectorWindow(Ship& ship);
+// picker; for the bridge, whether its ship is a provider and its item
+// requests.
+void DrawInspectorWindow(Fleet& fleet, FleetShip& shown);
 // What a building is and what it's doing: for the grid's hover tooltip
 // (`in_tooltip`, which writes item names out and starts with its picture,
 // name and health) and the inspector window (where hovering an icon shows

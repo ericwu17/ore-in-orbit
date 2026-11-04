@@ -426,7 +426,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
         DrawBuildShipWindow(world, shown);
-        DrawInspectorWindow(shown.ship);
+        DrawInspectorWindow(world.get_fleet(), shown);
         DrawKeysWindow();
     }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
