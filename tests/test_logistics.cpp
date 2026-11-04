@@ -120,8 +120,8 @@ void test_belt_jam() {
     assert(ship.inventory().count(ItemKind::Gear) == gears + full);
 }
 
-// From the side, items join halfway along; but a belt nothing feeds from
-// behind is a corner, and side input starts at its back.
+// From the side, items join at the back edge, as from behind: at a corner,
+// and with a belt feeding it from behind too.
 void test_belt_sides() {
     World world;
     Ship& ship = world.flagship();
@@ -129,14 +129,16 @@ void test_belt_sides() {
     assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
     assert(belt_at(ship, p).get_items().front().pos == 0);
+    run(world, belt_cell_ticks());  // the gear to the front, where it stops
 
     assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));
     const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
     assert(items.size() == 2);
-    assert(items.front().kind == ItemKind::Glass && items.front().pos == kBeltLength / 2);
-    // No room left at the middle.
+    assert(items.back().kind == ItemKind::Glass && items.back().pos == 0);
+    // No room left at the back edge, from either side or behind.
     assert(!ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));
+    assert(!ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));
     // A belt facing into the side doesn't change that: it isn't behind.
     assert(ship.place(ItemKind::TransportBelt, {p.x + 1, p.y}, Direction::West) == BuildResult::Ok);
     assert(!ship.insert_item({p.x + 1, p.y}, p, ItemKind::Gear));  // p is its front cell
@@ -156,16 +158,17 @@ void test_belt_item_sides() {
 
     assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
     run(world, belt_cell_ticks());  // the gear to the front, where it stops
-    assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));  // south: its right, halfway along
-    assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));   // from behind
+    // A belt behind it now, and still round the corner from the side.
+    assert(ship.insert_item(p, {p.x, p.y + 1}, ItemKind::Glass));  // south: its right
+    run(world, kBeltSpacing / belt_speed(ItemKind::TransportBelt));  // room behind it
+    assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));      // from behind
     const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
     assert(items.size() == 3);
-    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right &&
-           items[1].entered_at == kBeltLength / 2);
+    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right && items[1].entered_at == 0);
     assert(items[2].from == BeltSide::Back && items[2].entered_at == 0);
     run(world, 5);
-    assert(belt_at(ship, p).get_items()[1].entered_at == kBeltLength / 2);
-    assert(belt_at(ship, p).get_items()[1].pos > kBeltLength / 2);
+    assert(belt_at(ship, p).get_items()[1].entered_at == 0);
+    assert(belt_at(ship, p).get_items()[1].pos > kBeltSpacing);
 }
 
 // Beside the bridge, a collector hands each catch straight in; one cell

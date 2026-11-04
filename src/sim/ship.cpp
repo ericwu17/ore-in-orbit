@@ -348,13 +348,10 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
     const bool exit = tunnel && tunnel->is_exit();
     if (exit && from == back)
         return false;  // the tunnel's mouth
-    int pos = 0;
-    if (from != back) {
-        // From the side: halfway along, unless nothing feeds it from behind.
-        const auto* behind = dynamic_cast<const Conveyor*>(building_at(back));
-        if (exit || (behind && behind->facing() == facing))
-            pos = kBeltLength / 2;
-    }
+    // From behind or the side, at the back edge (a side's items take the
+    // same time round as a corner's, whatever feeds it from behind); on a
+    // tunnel's exit, from the side, halfway along, past its mouth.
+    const int pos = exit ? kBeltLength / 2 : 0;
     if (!belt->has_room_at(pos))
         return false;
     const BeltSide side = from == back                             ? BeltSide::Back

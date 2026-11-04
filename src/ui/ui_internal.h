@@ -250,12 +250,9 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
 // neighbors: which sides something can send items into it from (a belt or
 // unloader pointing at it, a machine, collector or router beside it, a
 // junction or sorter something feeds), and whether something does from
-// behind. A belt behind counts as Ship::insert_item counts it (any belt
-// facing the same way). Fed from behind by something other than a belt, it
-// joins the side on a straight run, though the sim starts the side's items
-// at its back edge then, so they ride the quarter circle in (see
-// DrawBeltItems): still from the middle of that side to the middle of the
-// front, as on a merge.
+// behind. Whatever the shape, a side's items start at the back edge and
+// ride a quarter circle in (see DrawBeltItems), from the middle of that
+// side to the middle of the front.
 sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing);
 
 // A thin gauge along the bottom of a building's footprint (`min`..`max`),
@@ -268,10 +265,10 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 
 // The items riding a belt whose cell's top-left corner is `min`: position 0
 // is its back edge, kBeltLength its front edge. One in from behind rides
-// down the middle; one in from the side at the back edge (round a corner)
-// along a quarter circle, from the middle of that side to the middle of the
-// front; one in from the side halfway along drifts over to the middle as it
-// goes. Each starts where it left the cell it came from, so none jumps.
+// down the middle; one in from the side at the back edge (on any belt but a
+// tunnel's exit) along a quarter circle, from the middle of that side to the
+// middle of the front; one in from the side halfway along (a tunnel's exit)
+// drifts over to the middle as it goes. Each starts where it left the cell it came from, so none jumps.
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell);
 // One item in the top-right corner of a building's footprint: the setting
 // the building is working to. Skipped when too far out to read.

@@ -138,13 +138,7 @@ bool CanSend(const Ship& ship, GridPos q, Direction d, int depth) {
 sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing) {
     using sprites::BeltShape;
     constexpr int kDepth = 3;
-    // From behind: a belt facing the same way (as Ship::insert_item's corner
-    // rule counts it, whatever it carries), or anything else that can send
-    // items into it.
-    const GridPos back_cell = neighbor(p, Opposite(facing));
-    const Building* behind = ship.building_at(back_cell);
-    const bool back = dynamic_cast<const Conveyor*>(behind) ? behind->facing() == facing
-                                                            : CanSend(ship, back_cell, facing, kDepth);
+    const bool back = CanSend(ship, neighbor(p, Opposite(facing)), facing, kDepth);
     const auto feeds = [&](Direction side) { return CanSend(ship, neighbor(p, side), Opposite(side), kDepth); };
     const bool left = feeds(rotated_ccw(facing));
     const bool right = feeds(rotated_cw(facing));
@@ -335,8 +329,8 @@ void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cel
                 x = side * (0.5f - 0.5f * std::sin(angle));
                 y = 0.5f - 0.5f * std::cos(angle);
             } else {
-                // In from the side partway along: over to the middle within
-                // half a cell, easing in.
+                // In from the side partway along (onto a tunnel's exit): over
+                // to the middle within half a cell, easing in.
                 const float k = std::clamp(static_cast<float>(item.pos - item.entered_at) / (kLength * 0.5f), 0.0f,
                                            1.0f);
                 x = side * 0.5f * (1.0f - k * k * (3.0f - 2.0f * k));

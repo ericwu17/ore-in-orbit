@@ -203,9 +203,8 @@ public:
     // Hands one item to the building covering `to`, coming from the next
     // cell over, `from`; false (and no change) if it won't take it. A belt
     // takes items from behind or from the side, never from the cell it
-    // points at: from behind they start at its back edge, from the side
-    // halfway along, unless no belt feeds it from behind (a corner), which
-    // counts as behind; nor, from a sorter, if it points into the building
+    // points at: from behind or the side they start at its back edge; nor,
+    // from a sorter, if it points into the building
     // the item came from before the sorter. A sorter takes the item only if
     // the neighbor it sends it to takes it now; an item from one sorter
     // never goes through a second straight into a third (nor round a ring

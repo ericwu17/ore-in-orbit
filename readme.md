@@ -285,8 +285,8 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
   The shape comes from every neighbor that can send items in (belts,
   unloaders, machines, collectors, routers, fed junctions and sorters).
   Items on them follow the shape: round the corner, or in from the side.
-  With a building (not a belt) feeding it from behind, a side's items
-  start at the back edge, as at a corner, so they ride the curve in.
+  A side's items always start at the back edge and ride the curve in, so
+  they take as long to cross whatever feeds the belt from behind.
   Its shape is the building's footprint (2:3 for the 2x3 ion thruster, 1:1
   for a 2x2 collector), drawn facing **North**; the game turns belts to face
   the way they point.
