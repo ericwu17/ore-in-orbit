@@ -43,6 +43,8 @@ struct Atlas {
     std::array<std::array<std::optional<Sprite>, kBeltShapeCount>, 2> belts;
 };
 
+Atlas g_atlas;
+
 // Which of Atlas::belts holds `kind`'s shapes, or -1.
 int BeltIndex(ItemKind kind) {
     return kind == ItemKind::TransportBelt ? 0 : kind == ItemKind::ExpressBelt ? 1 : -1;
@@ -61,7 +63,6 @@ const char* BeltShapeName(BeltShape shape) {
     }
     return "";
 }
-Atlas g_atlas;
 
 // A decoded PNG on its way into the atlas.
 struct Decoded {
@@ -221,6 +222,10 @@ const Sprite* Hull() {
 
 const Sprite* TunnelEntrance() {
     return g_atlas.tunnel_entrance ? &*g_atlas.tunnel_entrance : nullptr;
+}
+
+bool HasShapes(ItemKind kind) {
+    return BeltIndex(kind) >= 0;
 }
 
 const Sprite* Belt(ItemKind kind, BeltShape shape) {

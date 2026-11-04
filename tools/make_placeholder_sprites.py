@@ -288,9 +288,9 @@ def building_image(w, h, look, color, label):
     return finish(img)
 
 
-# The shapes a belt takes from the belts feeding it (see BeltShape in
-# src/ui/ui_internal.h): which of its back, left and right edges take items
-# in (the front always sends them on). Straight is the belt's own sprite.
+# The shapes a belt takes from what can send items into it (see BeltShape in
+# src/ui/sprites.h and BeltShapeAt in src/ui/ui_draw.cpp): which of its back,
+# left and right edges take items in (the front always sends them on). Straight is the belt's own sprite.
 BELT_SHAPES = {
     "CurveLeft":  ("left",),
     "CurveRight": ("right",),

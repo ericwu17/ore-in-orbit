@@ -258,12 +258,6 @@ void DrawTunnelLinks(ImDrawList* draw, const Ship& ship, const Building* inspect
     }
 }
 
-// Whether `kind` is drawn in the shape what feeds it gives it (see
-// BeltShapeAt): transport and express belts.
-bool IsShapedBelt(std::optional<ItemKind> kind) {
-    return kind == ItemKind::TransportBelt || kind == ItemKind::ExpressBelt;
-}
-
 // Whether a left drag turns `kind` to face the way it goes: belts, so a
 // line drawn round a corner carries items along it.
 bool DragTurns(ItemKind kind) {
@@ -529,7 +523,7 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                 const float alpha = thruster && thruster->offline() ? 0.4f : standby ? 0.55f : 1.0f;
                 DrawBuilding(draw, min, cell, b->footprint(), b->item_kind(), b->facing(), alpha,
                              tunnel && tunnel->is_exit(),
-                             IsShapedBelt(b->item_kind()) ? BeltShapeAt(ship, {x, y}, b->facing())
+                             b->item_kind() && sprites::HasShapes(*b->item_kind()) ? BeltShapeAt(ship, {x, y}, b->facing())
                                                            : sprites::BeltShape::Straight);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 // A tunnel with nowhere to send its items, an unloader with
@@ -618,7 +612,8 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
             }
             if (r == BuildResult::Ok)
                 DrawBuilding(draw, min, cell, size, *selected, g_build.facing, 0.45f, tunnel.is_exit,
-                             BeltShapeAt(ship, *hover_cell, g_build.facing));
+                             sprites::HasShapes(*selected) ? BeltShapeAt(ship, *hover_cell, g_build.facing)
+                                                           : sprites::BeltShape::Straight);
             draw->AddRect(min, max, theme::U32(r == BuildResult::Ok ? theme::kGood : theme::kBad), 0.0f, 0, 2.0f);
             draw->PopClipRect();
         }

@@ -67,7 +67,9 @@ const Sprite* Building(ItemKind kind);   // a building, built (facing North)
 const Sprite* Bridge();                  // the bridge, built
 const Sprite* Hull();                    // one cell of hull
 const Sprite* TunnelEntrance();          // a belt tunnel's entrance (facing North)
-// A transport or express belt in `shape` (facing North); for Straight, its
+// Whether `kind` is drawn in a BeltShape: transport and express belts.
+bool HasShapes(ItemKind kind);
+// A belt HasShapes() is for, in `shape` (facing North); for Straight, its
 // own sprite. Null for other kinds.
 const Sprite* Belt(ItemKind kind, BeltShape shape);
 

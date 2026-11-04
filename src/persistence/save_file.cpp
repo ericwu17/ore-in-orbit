@@ -294,7 +294,7 @@ struct SaveAccess {
                 BeltSide from = BeltSide::Back;
                 int entered_at = pos;
                 if (item.contains("from")) {
-                    const std::string side = load_string(item.at("from"), "belt side");
+                    const std::string side = load_string(item.at("from"), "a belt side");
                     if (side != "left" && side != "right")
                         throw LoadError("unknown belt side " + side);
                     from = side == "left" ? BeltSide::Left : BeltSide::Right;
