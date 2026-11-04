@@ -473,18 +473,26 @@ struct SaveAccess {
     // The ships, oldest first, and the cargo in flight between them.
     static Json save_fleet(const Fleet& fleet) {
         Json ships = Json::array();
-        for (const std::unique_ptr<FleetShip>& s : fleet.ships)
-            ships.push_back({{"id", s->id},
-                             {"name", s->name},
-                             {"sector", s->sector},
-                             {"ship", save_ship(s->ship)},
-                             {"battle", save_battle(s->battle)}});
+        for (const std::unique_ptr<FleetShip>& s : fleet.ships) {
+            Json ship = {{"id", s->id},
+                         {"name", s->name},
+                         {"sector", s->sector},
+                         {"ship", save_ship(s->ship)},
+                         {"battle", save_battle(s->battle)}};
+            // Only for a provider.
+            if (s->provides)
+                ship["provides"] = true;
+            ships.push_back(std::move(ship));
+        }
         Json transfers = Json::array();
         for (const Transfer& t : fleet.transfers) {
             Inventory items;
             items.add(t.items);
-            transfers.push_back(
-                {{"from", t.from}, {"to", t.to}, {"items", save_inventory(items)}, {"arrives", t.arrives}});
+            Json transfer = {{"from", t.from}, {"to", t.to}, {"items", save_inventory(items)}, {"arrives", t.arrives}};
+            // Only for cargo a provider sent.
+            if (t.automatic)
+                transfer["automatic"] = true;
+            transfers.push_back(std::move(transfer));
         }
         return {
             {"next_ship_id", fleet.next_id},
@@ -510,6 +518,9 @@ struct SaveAccess {
                 throw LoadError("a ship in a sector never visited");
             fleet.ships.push_back(std::make_unique<FleetShip>(FleetShip{
                 id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector, load_battle(s.at("battle"), now)}));
+            // Not a provider in saves from before there were providers.
+            if (const auto provides = s.find("provides"); provides != s.end())
+                fleet.ships.back()->provides = provides->get<bool>();
         }
         if (fleet.ships.empty())
             throw LoadError("the fleet has no ships");
@@ -522,6 +533,8 @@ struct SaveAccess {
             transfer.arrives = load_tick(t.at("arrives"), now + kTransferTicks);
             if (transfer.arrives <= now)
                 throw LoadError("cargo that should have landed already");
+            if (const auto automatic = t.find("automatic"); automatic != t.end())
+                transfer.automatic = automatic->get<bool>();
             fleet.transfers.push_back(std::move(transfer));
         }
         return fleet;

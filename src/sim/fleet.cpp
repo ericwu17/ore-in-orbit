@@ -158,6 +158,142 @@ void Fleet::remove(int id) {
     std::erase_if(ships, [&](const std::unique_ptr<FleetShip>& s) { return s->id == id; });
 }
 
+int Fleet::in_flight_to(int to, ItemKind kind) const {
+    int n = 0;
+    for (const Transfer& t : transfers)
+        if (t.to == to)
+            for (const ItemStack& s : t.items)
+                if (s.kind == kind)
+                    n += s.count;
+    return n;
+}
+
+bool Fleet::set_provides(int id, bool on) {
+    FleetShip* s = find(id);
+    if (!s)
+        return false;
+    s->provides = on;
+    return true;
+}
+
+bool Fleet::short_of_pods(int id) const {
+    return std::find(out_of_pods.begin(), out_of_pods.end(), id) != out_of_pods.end();
+}
+
+namespace {
+
+// What a provider can give of `kind`: what its bridge holds beyond its own
+// request, less what it has already promised this dispatch.
+int surplus(const FleetShip& provider, ItemKind kind, const Inventory& promised) {
+    const Bridge& bridge = provider.ship.get_bridge();
+    const int spare = bridge.get_inventory().count(kind) - bridge.request_for(kind).value_or(0) - promised.count(kind);
+    return std::max(spare, 0);
+}
+
+int total_of(const std::vector<ItemStack>& items) {
+    int n = 0;
+    for (const ItemStack& s : items)
+        n += s.count;
+    return n;
+}
+
+// The first `n` items of `items`.
+std::vector<ItemStack> first_items(const std::vector<ItemStack>& items, int n) {
+    std::vector<ItemStack> kept;
+    for (const ItemStack& s : items) {
+        if (n <= 0)
+            break;
+        kept.push_back({s.kind, std::min(s.count, n)});
+        n -= kept.back().count;
+    }
+    return kept;
+}
+
+// Cargo one provider is to send one requester at a dispatch.
+struct Shipment {
+    int from = 0;
+    int to = 0;
+    std::vector<ItemStack> items;
+    // Whether every item in it leaves its requester's request met (counting
+    // what other providers send): a part-filled pod of it needn't wait.
+    bool completes = true;
+};
+
+}  // namespace
+
+void Fleet::dispatch(Tick now) {
+    out_of_pods.clear();
+    std::vector<Shipment> shipments;
+    // What each provider has promised this dispatch, by ship index.
+    std::vector<Inventory> promised(ships.size());
+    for (std::size_t r = 0; r < ships.size(); ++r) {
+        const FleetShip& requester = *ships[r];
+        const Bridge& bridge = requester.ship.get_bridge();
+        for (const ItemStack& request : bridge.get_requests()) {
+            int shortfall = request.count - bridge.get_inventory().count(request.kind) -
+                            in_flight_to(requester.id, request.kind);
+            std::vector<std::size_t> givers;  // the shipments it went into
+            while (shortfall > 0) {
+                // The provider in the same sector with the most to spare;
+                // ties go to the oldest.
+                std::size_t best = ships.size();
+                int best_spare = 0;
+                for (std::size_t p = 0; p < ships.size(); ++p) {
+                    const FleetShip& provider = *ships[p];
+                    if (p == r || !provider.provides || provider.sector != requester.sector)
+                        continue;
+                    const int spare = surplus(provider, request.kind, promised[p]);
+                    if (spare > best_spare) {
+                        best = p;
+                        best_spare = spare;
+                    }
+                }
+                if (best == ships.size())
+                    break;
+                const int n = std::min(shortfall, best_spare);
+                promised[best].add(request.kind, n);
+                shortfall -= n;
+                const int from = ships[best]->id;
+                auto it = std::find_if(shipments.begin(), shipments.end(),
+                                       [&](const Shipment& s) { return s.from == from && s.to == requester.id; });
+                if (it == shipments.end()) {
+                    shipments.push_back({from, requester.id, {}, true});
+                    it = shipments.end() - 1;
+                }
+                it->items.push_back({request.kind, n});
+                givers.push_back(static_cast<std::size_t>(it - shipments.begin()));
+            }
+            if (shortfall > 0)
+                for (const std::size_t g : givers)
+                    shipments[g].completes = false;
+        }
+    }
+
+    std::vector<std::pair<std::pair<int, int>, Tick>> still_partial;
+    for (const Shipment& s : shipments) {
+        const std::pair<int, int> pair{s.from, s.to};
+        const auto waiting = std::find_if(partial_since.begin(), partial_since.end(),
+                                          [&](const auto& w) { return w.first == pair; });
+        const bool waited = waiting != partial_since.end() && now - waiting->second >= kPartialPodWait;
+        const int total = total_of(s.items);
+        // Whole pods go at once; a part-filled one only if it finishes the
+        // job or has waited long enough.
+        int n = (s.completes || waited) ? total : total / kPodCapacity * kPodCapacity;
+        if (n < total)
+            still_partial.push_back({pair, waiting != partial_since.end() ? waiting->second : now});
+        // As many pods as the provider has, a pod's worth fewer at a time.
+        for (int m = n; m > 0; m = (pods_needed(m) - 1) * kPodCapacity) {
+            if (send(s.from, s.to, first_items(s.items, m), now) == FleetResult::Ok) {
+                transfers.back().automatic = true;
+                break;
+            }
+            if (!short_of_pods(s.from))
+                out_of_pods.push_back(s.from);
+        }
+    }
+    partial_since = std::move(still_partial);
+}
+
 void Fleet::tick(Tick now) {
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick();
@@ -168,4 +304,6 @@ void Fleet::tick(Tick now) {
             target->ship.inventory().add(t.items);
         return true;
     });
+    if (now % kDispatchInterval == 0)
+        dispatch(now);
 }

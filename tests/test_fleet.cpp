@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -220,6 +221,179 @@ void test_rename() {
     assert(!fleet.rename(99, "Nobody"));
 }
 
+// Providers ----------------------------------------------------------------
+
+// Runs `world` up to and through its next dispatch.
+void run_to_dispatch(World& world) {
+    run(world, kDispatchInterval - world.get_tick() % kDispatchInterval);
+}
+
+// A world of `n` ships in the home sector, every bridge emptied: the
+// flagship first, then the ships launched from it. Returns their ids, oldest
+// first.
+std::vector<int> fleet_of(World& world, int n) {
+    std::vector<int> ids{world.get_fleet().flagship().id};
+    for (int i = 1; i < n; ++i)
+        ids.push_back(launch_second(world));
+    for (const int id : ids)
+        world.get_fleet().find(id)->ship.inventory() = Inventory{};
+    return ids;
+}
+
+Inventory& inv(World& world, int id) {
+    return world.get_fleet().find(id)->ship.inventory();
+}
+Bridge& bridge(World& world, int id) {
+    return world.get_fleet().find(id)->ship.get_bridge();
+}
+
+// A provider tops up a request in its sector, by pod, and the cargo on its
+// way counts toward the request, so it isn't sent twice.
+void test_provider_fills_request() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    inv(world, provider).add({{ItemKind::Gear, 30}, {ItemKind::CargoPod, 2}});
+    bridge(world, requester).set_request(ItemKind::Gear, 20);
+
+    // Not a provider: nothing moves.
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty());
+
+    assert(fleet.set_provides(provider, true));
+    assert(!fleet.set_provides(99, true));
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1);
+    const Transfer& t = fleet.in_flight()[0];
+    assert(t.automatic && t.from == provider && t.to == requester);
+    assert(t.items.size() == 1 && t.items[0].kind == ItemKind::Gear && t.items[0].count == 20);
+    assert(inv(world, provider).count(ItemKind::Gear) == 10);
+    assert(inv(world, provider).count(ItemKind::CargoPod) == 1);
+    assert(fleet.in_flight_to(requester, ItemKind::Gear) == 20);
+
+    // In flight, it counts: the next dispatch sends nothing more.
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1);
+    run(world, kTransferTicks);
+    assert(inv(world, requester).count(ItemKind::Gear) == 20);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty() && inv(world, provider).count(ItemKind::Gear) == 10);
+
+    // Used up, the request is topped up again.
+    assert(inv(world, requester).take(ItemKind::Gear, 5));
+    run_to_dispatch(world);
+    assert(fleet.in_flight_to(requester, ItemKind::Gear) == 5);
+}
+
+// Only ships in the same sector are topped up, and never the provider from
+// itself.
+void test_provider_sector() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    inv(world, provider).add({{ItemKind::Gear, 30}, {ItemKind::CargoPod, 2}});
+    assert(fleet.set_provides(provider, true));
+    bridge(world, provider).set_request(ItemKind::Steel, 10);  // none to be had
+    bridge(world, requester).set_request(ItemKind::Gear, 20);
+    fleet.find(requester)->sector = 3;
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty());
+    fleet.find(requester)->sector = 0;
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1);
+}
+
+// A provider keeps what it requests itself, and gives only the rest.
+void test_provider_keeps_its_own() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    inv(world, provider).add({{ItemKind::Gear, 100}, {ItemKind::CargoPod, 2}});
+    bridge(world, provider).set_request(ItemKind::Gear, 100);
+    assert(fleet.set_provides(provider, true));
+    bridge(world, requester).set_request(ItemKind::Gear, 20);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty());
+
+    // Both providers, asking for the same: nothing bounces between them.
+    assert(fleet.set_provides(requester, true));
+    inv(world, requester).add(ItemKind::CargoPod, 2);
+    bridge(world, provider).set_request(ItemKind::Gear, 90);
+    // 10 to spare, short of the 20 asked for: a part-filled pod, which
+    // waits for more before it goes.
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty());
+    run(world, kPartialPodWait);
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].from == provider);
+    run(world, kTransferTicks + 4 * kDispatchInterval);
+    assert(fleet.in_flight().empty());
+    assert(inv(world, provider).count(ItemKind::Gear) == 90);
+    assert(inv(world, requester).count(ItemKind::Gear) == 10);
+}
+
+// The provider with the most to spare gives first; ties go to the oldest,
+// and what one can't give, the next one does.
+void test_most_surplus_first() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 3);
+    const int a = ids[0], requester = ids[1], c = ids[2];
+    for (const int p : {a, c}) {
+        inv(world, p).add(ItemKind::CargoPod, 5);
+        assert(fleet.set_provides(p, true));
+    }
+    inv(world, a).add(ItemKind::Gear, 10);
+    inv(world, c).add(ItemKind::Gear, 40);
+    bridge(world, requester).set_request(ItemKind::Gear, 30);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].from == c);
+
+    // A tie: the oldest.
+    bridge(world, requester).set_request(ItemKind::Circuit, 5);
+    inv(world, a).add(ItemKind::Circuit, 8);
+    inv(world, c).add(ItemKind::Circuit, 8);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 2 && fleet.in_flight()[1].from == a);
+
+    // More than either has: the bigger stock first, then the rest.
+    bridge(world, requester).set_request(ItemKind::Steel, 15);
+    inv(world, a).add(ItemKind::Steel, 6);
+    inv(world, c).add(ItemKind::Steel, 9);
+    run_to_dispatch(world);
+    assert(fleet.in_flight_to(requester, ItemKind::Steel) == 15);
+    assert(inv(world, a).count(ItemKind::Steel) == 0 && inv(world, c).count(ItemKind::Steel) == 0);
+}
+
+// Automatic sends use up pods: none, none sent; whole pods go at once, a
+// part-filled one only once it finishes the job or has waited.
+void test_provider_pods() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    assert(fleet.set_provides(provider, true));
+    inv(world, provider).add(ItemKind::Gear, 70);
+    bridge(world, requester).set_request(ItemKind::Gear, 120);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty() && fleet.short_of_pods(provider));
+
+    // One pod: one pod's worth, now; the 20 left wait to fill a pod.
+    inv(world, provider).add(ItemKind::CargoPod, 1);
+    run_to_dispatch(world);
+    assert(!fleet.short_of_pods(provider));
+    assert(fleet.in_flight().size() == 1 && fleet.in_flight_to(requester, ItemKind::Gear) == kPodCapacity);
+    inv(world, provider).add(ItemKind::CargoPod, 1);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().size() == 1);
+    // Having waited, they go anyway.
+    run(world, kPartialPodWait);
+    assert(inv(world, requester).count(ItemKind::Gear) + fleet.in_flight_to(requester, ItemKind::Gear) == 70);
+    assert(inv(world, provider).count(ItemKind::Gear) == 0 && inv(world, provider).count(ItemKind::CargoPod) == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -232,6 +406,11 @@ int main() {
     test_shared_progress();
     test_every_ship_ticks();
     test_rename();
+    test_provider_fills_request();
+    test_provider_sector();
+    test_provider_keeps_its_own();
+    test_most_surplus_first();
+    test_provider_pods();
     std::puts("test_fleet: all passed");
     return 0;
 }
