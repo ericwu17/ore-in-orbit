@@ -247,10 +247,8 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
                   sprites::BeltShape belt_shape = sprites::BeltShape::Straight);
 
 // The shape of a belt at `p` facing `facing` (built there or not), from its
-// neighbors: which sides something can send items into it from (a belt or
-// unloader pointing at it, a machine, collector or router beside it, a
-// junction or sorter something feeds), and whether something does from
-// behind. Whatever the shape, a side's items start at the back edge and
+// neighbors: which sides something can send items into it from (see
+// Ship::can_send), and whether something does from behind. Whatever the shape, a side's items start at the back edge and
 // ride a quarter circle in (see DrawBeltItems), from the middle of that
 // side to the middle of the front.
 sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing);

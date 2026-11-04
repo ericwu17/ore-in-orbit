@@ -213,6 +213,16 @@ public:
     // entrance takes items as a belt does; its exit takes none (its items
     // come only from its entrance, underground).
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
+    // Whether the building covering `from` can ever hand items to the cell
+    // next to it toward `toward`, as tick() moves them (whether that cell
+    // takes them is insert_item's business): a belt or an unloader pointing
+    // that way (not a tunnel's entrance, whose items go underground); a
+    // machine or collector, out of any side; a router, out of any side (it
+    // skips only the one its current item came in by, which changes from
+    // item to item); a junction, if something can send into it from the far
+    // side; a sorter, if something can send into it from any other side. It
+    // looks back through at most a few junctions and sorters in a row.
+    bool can_send(GridPos from, Direction toward) const;
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine
     // there, it can't run `recipe` or `recipe` isn't unlocked yet.

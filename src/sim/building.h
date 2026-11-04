@@ -337,8 +337,8 @@ constexpr int kTunnelRange = 5;
 // An entrance's belt runs on underground to its exit, so the items on their
 // way belong to it, and its length() reaches the exit's back edge. Without an
 // exit it holds them, passing nothing on to the cell it points at. An exit
-// is a plain belt whose back is the tunnel's mouth, so it only takes items
-// from its entrance and from the sides (see Ship::insert_item).
+// is a plain belt whose back is the tunnel's mouth; it takes items only
+// from its entrance, none from its neighbors (see Ship::insert_item).
 class Tunnel : public Conveyor {
 private:
     std::optional<GridPos> exit_cell;      // an entrance's exit, once linked

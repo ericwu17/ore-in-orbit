@@ -94,52 +94,10 @@ void DrawSprite(ImDrawList* draw, const sprites::Sprite& sprite, ImVec2 min, ImV
                        theme::U32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), alpha));
 }
 
-namespace {
-
-constexpr Direction Opposite(Direction d) {
-    return rotated_cw(rotated_cw(d));
-}
-
-// Whether the building covering `q` can hand items to the cell next to it
-// toward `d`, as the Ship moves them (Ship::tick): a belt or an unloader
-// pointing that way (not a tunnel's entrance, whose items go underground); a
-// machine or collector, out of any side; a router, out of any side but the
-// one an item came in by; a junction, if something can feed it from the far
-// side; a sorter, if something can feed it from any other side. `depth`
-// bounds how far it looks back through junctions and sorters.
-bool CanSend(const Ship& ship, GridPos q, Direction d, int depth) {
-    const Building* b = ship.building_at(q);
-    if (!b)
-        return false;
-    if (const auto* tunnel = dynamic_cast<const Tunnel*>(b))
-        return tunnel->is_exit() && tunnel->facing() == d;
-    if (dynamic_cast<const Conveyor*>(b) || dynamic_cast<const Unloader*>(b))
-        return b->facing() == d;
-    if (dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) || dynamic_cast<const Router*>(b))
-        return true;
-    if (depth <= 0)
-        return false;
-    if (dynamic_cast<const Junction*>(b)) {
-        const GridPos far = neighbor(q, Opposite(d));
-        return ship.building_at(far) != b && CanSend(ship, far, d, depth - 1);
-    }
-    if (dynamic_cast<const Sorter*>(b)) {
-        // In by any side but `d`'s, out straight across or turning: never
-        // back the way it came.
-        for (const Direction in : {Direction::North, Direction::East, Direction::South, Direction::West})
-            if (in != d && CanSend(ship, neighbor(q, in), Opposite(in), depth - 1))
-                return true;
-    }
-    return false;
-}
-
-}  // namespace
-
 sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing) {
     using sprites::BeltShape;
-    constexpr int kDepth = 3;
-    const bool back = CanSend(ship, neighbor(p, Opposite(facing)), facing, kDepth);
-    const auto feeds = [&](Direction side) { return CanSend(ship, neighbor(p, side), Opposite(side), kDepth); };
+    const bool back = ship.can_send(neighbor(p, rotated_cw(rotated_cw(facing))), facing);
+    const auto feeds = [&](Direction side) { return ship.can_send(neighbor(p, side), rotated_cw(rotated_cw(side))); };
     const bool left = feeds(rotated_ccw(facing));
     const bool right = feeds(rotated_cw(facing));
     if (back)

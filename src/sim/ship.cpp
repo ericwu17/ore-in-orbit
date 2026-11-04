@@ -432,6 +432,42 @@ bool Ship::set_only_when_requested(GridPos p, bool on) {
     return true;
 }
 
+namespace {
+
+// Ship::can_send, looking back through at most `depth` more junctions and
+// sorters.
+bool can_send(const Ship& ship, GridPos from, Direction toward, int depth) {
+    const Building* b = ship.building_at(from);
+    if (!b)
+        return false;
+    if (const auto* tunnel = dynamic_cast<const Tunnel*>(b))
+        return tunnel->is_exit() && tunnel->facing() == toward;
+    if (dynamic_cast<const Conveyor*>(b) || dynamic_cast<const Unloader*>(b))
+        return b->facing() == toward;
+    if (dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) || dynamic_cast<const Router*>(b))
+        return true;
+    if (depth <= 0)
+        return false;
+    const Direction back = rotated_cw(rotated_cw(toward));
+    if (dynamic_cast<const Junction*>(b))
+        return can_send(ship, neighbor(from, back), toward, depth - 1);
+    if (dynamic_cast<const Sorter*>(b)) {
+        // In by any side but `toward`'s, out straight across or turning:
+        // never back the way it came.
+        for (const Direction in : {Direction::North, Direction::East, Direction::South, Direction::West})
+            if (in != toward && can_send(ship, neighbor(from, in), rotated_cw(rotated_cw(in)), depth - 1))
+                return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+bool Ship::can_send(GridPos from, Direction toward) const {
+    constexpr int kDepth = 3;
+    return ::can_send(*this, from, toward, kDepth);
+}
+
 void Ship::pass_on(GridPos p, Building& b) {
     if (auto* junction = dynamic_cast<Junction*>(&b)) {
         for (const Direction travel : {Direction::North, Direction::East, Direction::South, Direction::West})

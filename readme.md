@@ -101,8 +101,9 @@ ahead of it facing the same way, up to 5 cells off (4 between them), so a row
 of them pairs off from the back; whichever is behind is the entrance. They run
 as fast as an express belt. An exit takes no items of its own (not from its
 sides, nor through its mouth): it only puts out what comes through the
-tunnel, onto the cell in front of it. A tunnel with no exit (outlined in amber) takes items and
-holds on to them, and those on their way when an exit goes wait for the next.
+tunnel, onto the cell in front of it. A tunnel with no exit (outlined in
+amber) takes items and holds on to them, and those on their way when an exit
+goes wait for the next.
 
 ### Milestones
 

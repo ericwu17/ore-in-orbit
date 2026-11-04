@@ -845,6 +845,63 @@ void test_tunnel_sides() {
     assert(belt_at(ship, entrance).get_items().front().pos == 0);
 }
 
+// Which way each building can send items (what the UI shapes belts by): a
+// belt the way it points; a junction what something sends in across it; a
+// sorter out of any side but the one its items came in by; a router out of
+// any side; a tunnel's exit the way it points, its entrance nowhere; a
+// cargo hold nowhere (an unloader takes from it).
+void test_can_send() {
+    {
+        World world = tunnel_world();
+        Ship& ship = world.flagship();
+        ship.inventory().add(ItemKind::Junction, 1);
+        ship.inventory().add(ItemKind::FilterSorter, 1);
+        ship.inventory().add(ItemKind::Router, 1);
+        const GridPos belt{b1 + 1, c};
+        const GridPos junction{b1 + 2, c};
+        const GridPos sorter{b1 + 3, c};
+        const GridPos router{b1 + 4, c};
+        for (int x = belt.x; x <= router.x; ++x)
+            for (const int y : {c - 1, c + 1})
+                assert(!ship.building_at({x, y}));  // nothing else around them
+
+        assert(!ship.can_send(belt, Direction::East));  // nothing there yet
+        assert(ship.place(ItemKind::TransportBelt, belt, Direction::East) == BuildResult::Ok);
+        assert(ship.can_send(belt, Direction::East));
+        assert(!ship.can_send(belt, Direction::North) && !ship.can_send(belt, Direction::West));
+
+        assert(ship.place(ItemKind::Junction, junction) == BuildResult::Ok);
+        assert(ship.can_send(junction, Direction::East));    // the belt's, across
+        assert(!ship.can_send(junction, Direction::North));  // nothing to its south
+        assert(!ship.can_send(junction, Direction::West));   // the belt points away
+
+        assert(ship.place(ItemKind::FilterSorter, sorter) == BuildResult::Ok);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South})
+            assert(ship.can_send(sorter, d));
+        assert(!ship.can_send(sorter, Direction::West));  // back the way it came
+
+        assert(ship.place(ItemKind::Router, router) == BuildResult::Ok);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+            assert(ship.can_send(router, d));
+    }
+    {
+        World world = tunnel_world();
+        Ship& ship = world.flagship();
+        const GridPos entrance{b1 + 6, c};
+        const GridPos exit{b1 + 2, c};
+        const GridPos hold{b1 + 3, c};
+        assert(ship.place(ItemKind::BeltTunnel, entrance, Direction::West) == BuildResult::Ok);
+        assert(ship.place(ItemKind::BeltTunnel, exit, Direction::West) == BuildResult::Ok);
+        assert(ship.place(ItemKind::CargoHold, hold) == BuildResult::Ok);
+        assert(tunnel_linked(ship, entrance, exit));
+        assert(ship.can_send(exit, Direction::West));
+        assert(!ship.can_send(exit, Direction::North));
+        assert(!ship.can_send(entrance, Direction::West));  // its items go underground
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+            assert(!ship.can_send(hold, d));
+    }
+}
+
 // An unloader takes an item every kUnloaderTicks out of the cargo hold
 // behind it, onto the belt in front, which carries them into the bridge:
 // there they count toward the milestone.
@@ -983,6 +1040,7 @@ int main() {
     test_tunnel_relink();
     test_tunnel_remove_entrance();
     test_tunnel_sides();
+    test_can_send();
     test_unloader_from_hold();
     test_unloader_filter();
     test_unloader_from_bridge();
