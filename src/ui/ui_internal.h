@@ -247,10 +247,11 @@ void DrawBuilding(ImDrawList* draw, ImVec2 min, float cell, GridSize size,
                   sprites::BeltShape belt_shape = sprites::BeltShape::Straight);
 
 // The shape of a belt at `p` facing `facing` (built there or not), from its
-// neighbors: which sides belts (or unloaders) feed it from, and whether one
-// feeds it from behind. A belt behind counts as Ship::insert_item counts it
-// (any belt facing the same way), so the belt turns a corner exactly when
-// the items fed in from the side start at its back edge.
+// neighbors: which sides something can send items into it from (a belt or
+// unloader pointing at it, a machine, collector or router beside it, a
+// junction or sorter something feeds), and whether something does from
+// behind. A belt behind counts as Ship::insert_item counts it (any belt
+// facing the same way).
 sprites::BeltShape BeltShapeAt(const Ship& ship, GridPos p, Direction facing);
 
 // A thin gauge along the bottom of a building's footprint (`min`..`max`),
