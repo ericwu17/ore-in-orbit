@@ -130,6 +130,17 @@ one bridge's inventory to another's, between ships in the same sector: each
 50 items use up a cargo pod, and they land 5 seconds later (cargo, like
 hand-crafting, doesn't count toward a milestone).
 
+A ship can also be a provider ("Provider", in the Fleet section; its tab
+shows "(P)"): once a second, it sends the other ships in its sector what
+their bridges request and don't have, from what its own bridge holds beyond
+its own requests, in cargo pods of its own, as above. Cargo already on its
+way counts toward a request, so it isn't sent twice, and the bridge's
+inspector shows it as incoming. With more than one provider there, the one
+with the most of an item to spare sends it (the oldest, on a tie). Pods go
+full: a part-filled one goes only once it covers everything asked for, or
+after waiting 10 seconds for more. A provider short of pods says so, and
+sends only what the pods it has can carry.
+
 ### The star map
 
 Beyond home lies a star map of sectors (M, or the Map button above the grid),
@@ -176,7 +187,7 @@ the enemies behind. Buildings mend slowly while no enemy is near.
   move it and how you size it); pick a machine's recipe, a collector's target or a sorter's or
   unloader's item, and whether a machine or collector runs only while the
   bridge requests it. Inspecting the bridge lists its item requests, to
-  change, remove or add to. New machines, collectors, sorters and unloaders
+  change, remove or add to, with what's on its way in cargo pods. New machines, collectors, sorters and unloaders
   start with the settings last picked for their kind (but always run, not
   only on request).
 - **Right click / drag**: remove buildings and refund them (not the bridge
@@ -324,8 +335,8 @@ One directory per layer under `src/`; includes name their layer
     shares one), which gates hand-crafting and machine recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
-    building a new ship in a layout, and cargo pods in flight between ships
-    (`Transfer`).
+    building a new ship in a layout, cargo pods in flight between ships
+    (`Transfer`), and providers topping up requests (`dispatch`).
   - `combat.h/.cpp` — enemies (`Enemy`, `EnemySpec`), the waves hostile
     sectors send, and the fight on a ship's grid (`Battle`, `combat_tick`)
     between them and its turrets.

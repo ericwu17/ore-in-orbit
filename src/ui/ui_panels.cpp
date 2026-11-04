@@ -419,12 +419,13 @@ namespace {
 constexpr int kNewRequest = 100;
 
 // The bridge's item requests, in its inspector: one row per item asked for,
-// with its count to change, and a picker to ask for another.
-void DrawRequests(Bridge& bridge) {
+// with its count to change and how many are on their way (from providers,
+// or sent), and a picker to ask for another.
+void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
     ImGui::SeparatorText("Requests");
     ImGui::TextColored(theme::kTextDim,
                        "How many of each item to keep in the bridge. Machines and collectors set to run only on "
-                       "request stop once it has them.");
+                       "request stop once it has them, and provider ships in this sector send what's missing.");
     // A copy: a row can remove its request.
     const std::vector<ItemStack> requests = bridge.get_requests();
     if (requests.empty())
@@ -443,6 +444,11 @@ void DrawRequests(Bridge& bridge) {
         const int have = bridge.get_inventory().count(r.kind);
         ImGui::SameLine();
         ImGui::TextColored(have >= r.count ? theme::kGood : theme::kTextDim, "have %s", ShortCount(have).c_str());
+        if (const int incoming = fleet.in_flight_to(ship_id, r.kind); incoming > 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kTextDim, "+%s incoming", ShortCount(incoming).c_str());
+            ImGui::SetItemTooltip("%d %s on their way in cargo pods", incoming, item_name(r.kind));
+        }
         ImGui::SameLine();
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
         if (theme::CloseButton("##remove"))
@@ -501,9 +507,10 @@ bool HasSettings(const Building& b) {
 // item requests; for a machine, the recipe picker; for a collector, what it
 // gathers (for both, whether they run only on request); for a sorter or an
 // unloader, the filter picker.
-void DrawSettings(Ship& ship, const Building& b) {
+void DrawSettings(const Fleet& fleet, FleetShip& shown, const Building& b) {
+    Ship& ship = shown.ship;
     if (dynamic_cast<const Bridge*>(&b)) {
-        DrawRequests(ship.get_bridge());
+        DrawRequests(ship.get_bridge(), fleet, shown.id);
         return;
     }
     ImGui::SeparatorText("Settings");
@@ -637,7 +644,8 @@ void DrawInspectorHeader(const Building& b) {
 
 }  // namespace
 
-void DrawInspectorWindow(Ship& ship) {
+void DrawInspectorWindow(const Fleet& fleet, FleetShip& shown_ship) {
+    Ship& ship = shown_ship.ship;
     const Building* b = InspectedBuilding(ship);
     if (!b)
         return;
@@ -671,7 +679,7 @@ void DrawInspectorWindow(Ship& ship) {
         ImGui::SeparatorText("Status");
         BuildingDetails(*b, false);
         ImGui::TableNextColumn();
-        DrawSettings(ship, *b);
+        DrawSettings(fleet, shown_ship, *b);
         ImGui::EndTable();
     } else {
         ImGui::SeparatorText("Status");

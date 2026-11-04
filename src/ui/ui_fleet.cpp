@@ -40,7 +40,8 @@ void DrawFleetStrip(World& world) {
             }
         } else {
             const bool attacked = s->battle.under_attack();
-            const std::string label = s->name + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
+            const std::string label =
+                s->name + (s->provides ? " (P)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
             if (attacked && s->id != f.current)
                 ImGui::PushStyleColor(ImGuiCol_Text, theme::kBad);
             if (theme::SegmentedButton(label.c_str(), s->id == f.current))
@@ -53,8 +54,9 @@ void DrawFleetStrip(World& world) {
                 f.focus_rename = true;
             }
             const ShipLayout* layout = s->ship.get_layout();
-            ImGui::SetItemTooltip("%s, a %s, in %s%s\nDouble-click to rename", s->name.c_str(),
+            ImGui::SetItemTooltip("%s, a %s, in %s%s%s\nDouble-click to rename", s->name.c_str(),
                                   layout ? layout->name : "ship", sector.name.c_str(),
+                                  s->provides ? "\nProvider: sends what other ships here request" : "",
                                   attacked ? "\nUnder attack!" : "");
         }
         ImGui::PopID();
@@ -81,6 +83,14 @@ void DrawFleetSection(World& world, const FleetShip& current) {
     Fleet& fleet = world.get_fleet();
     if (!theme::CollapsingSection("Fleet"))
         return;
+    bool provides = current.provides;
+    if (ImGui::Checkbox("Provider", &provides))
+        fleet.set_provides(current.id, provides);
+    ImGui::SetItemTooltip("Send other ships in this sector what their bridges request, from what this\n"
+                          "bridge holds beyond its own requests, in cargo pods (%d items a pod)",
+                          kPodCapacity);
+    if (current.provides && fleet.short_of_pods(current.id))
+        ImGui::TextColored(theme::kWarnText, "Short of cargo pods: requests here are waiting");
     if (ImGui::Button("Build a new ship...", ImVec2(-1.0f, 0.0f)))
         g_fleet.show_build = true;
     ImGui::SetItemTooltip("Pick a layout; it takes a ship starter pack and the layout's cost from this bridge");
@@ -98,8 +108,9 @@ void DrawFleetSection(World& world, const FleetShip& current) {
         for (const ItemStack& item : t.items)
             n += item.count;
         const double seconds = static_cast<double>(t.arrives - now) / static_cast<double>(kTicksPerSecond);
-        ImGui::TextColored(theme::kTextDim, "%s %s: %d items, %.0f s", t.from == current.id ? "To" : "From",
-                           other ? other->name.c_str() : "(lost)", n, std::ceil(seconds));
+        ImGui::TextColored(theme::kTextDim, "%s %s: %d items, %.0f s%s", t.from == current.id ? "To" : "From",
+                           other ? other->name.c_str() : "(lost)", n, std::ceil(seconds),
+                           t.automatic ? " (auto)" : "");
     }
 }
 
