@@ -265,10 +265,9 @@ void DrawItem(ImDrawList* draw, ImVec2 c, float r, ItemKind kind);
 
 // The items riding a belt whose cell's top-left corner is `min`: position 0
 // is its back edge, kBeltLength its front edge. One in from behind rides
-// down the middle; one in from the side at the back edge (on any belt but a
-// tunnel's exit) along a quarter circle, from the middle of that side to the
-// middle of the front; one in from the side halfway along (a tunnel's exit)
-// drifts over to the middle as it goes. Each starts where it left the cell it came from, so none jumps.
+// down the middle; one in from the side (at the back edge, as every item
+// comes on) along a quarter circle, from the middle of that side to the
+// middle of the front. Each starts where it left the cell it came from, so none jumps.
 void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cell);
 // One item in the top-right corner of a building's footprint: the setting
 // the building is working to. Skipped when too far out to read.

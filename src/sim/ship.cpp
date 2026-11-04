@@ -338,26 +338,22 @@ bool Ship::insert_item(GridPos to, GridPos from, const Building* source, ItemKin
         target->receive(kind);
         return true;
     }
+    if (const auto* tunnel = dynamic_cast<const Tunnel*>(belt); tunnel && tunnel->is_exit())
+        return false;  // only from its entrance, underground (see tick)
     const Direction facing = belt->facing();
     if (from == neighbor(to, facing))
         return false;  // the cell it feeds
     if (source && building_at(neighbor(to, facing)) == source)
         return false;  // back where it came from, through a sorter
-    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
-    const auto* tunnel = dynamic_cast<const Tunnel*>(belt);
-    const bool exit = tunnel && tunnel->is_exit();
-    if (exit && from == back)
-        return false;  // the tunnel's mouth
-    // From behind or the side, at the back edge (a side's items take the
-    // same time round as a corner's, whatever feeds it from behind); on a
-    // tunnel's exit, from the side, halfway along, past its mouth.
-    const int pos = exit ? kBeltLength / 2 : 0;
-    if (!belt->has_room_at(pos))
+    // From behind or the side, at the back edge: a side's items take as long
+    // round as a corner's, whatever feeds it from behind.
+    if (!belt->has_room_at(0))
         return false;
+    const GridPos back = neighbor(to, rotated_cw(rotated_cw(facing)));
     const BeltSide side = from == back                             ? BeltSide::Back
                           : from == neighbor(to, rotated_ccw(facing)) ? BeltSide::Left
                                                                        : BeltSide::Right;
-    belt->insert(kind, pos, side);
+    belt->insert(kind, 0, side);
     return true;
 }
 

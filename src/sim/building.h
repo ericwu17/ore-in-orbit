@@ -298,8 +298,7 @@ enum class BeltSide : std::uint8_t { Back, Left, Right };
 struct BeltItem {
     ItemKind kind;
     int pos = 0;
-    BeltSide from = BeltSide::Back;
-    int entered_at = 0;  // the pos it came on at
+    BeltSide from = BeltSide::Back;  // it came on at the back edge (pos 0) either way
 };
 
 class Conveyor : public Building {
@@ -319,9 +318,8 @@ public:
     const std::vector<BeltItem>& get_items() const { return items; }
     // Whether an item fits at `pos` (kBeltSpacing clear on both sides).
     bool has_room_at(int pos) const;
-    // Puts an item at `pos`, come on from `from` at `entered_at` (by default
-    // `pos`: just now); has_room_at(pos) must hold.
-    void insert(ItemKind kind, int pos, BeltSide from = BeltSide::Back, std::optional<int> entered_at = {});
+    // Puts an item at `pos`, come on from `from`; has_room_at(pos) must hold.
+    void insert(ItemKind kind, int pos, BeltSide from = BeltSide::Back);
     // The front item, once it has reached the front edge.
     std::optional<ItemKind> item_at_front() const;
     void pop_front();

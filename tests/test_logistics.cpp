@@ -154,7 +154,7 @@ void test_belt_item_sides() {
     assert(ship.place(ItemKind::TransportBelt, p, Direction::East) == BuildResult::Ok);
     assert(ship.insert_item(p, {p.x, p.y - 1}, ItemKind::Gear));  // north: its left, round the corner
     BeltItem gear = belt_at(ship, p).get_items().front();
-    assert(gear.from == BeltSide::Left && gear.entered_at == 0 && gear.pos == 0);
+    assert(gear.from == BeltSide::Left && gear.pos == 0);
 
     assert(ship.place(ItemKind::TransportBelt, {p.x - 1, p.y}, Direction::East) == BuildResult::Ok);
     run(world, belt_cell_ticks());  // the gear to the front, where it stops
@@ -164,10 +164,10 @@ void test_belt_item_sides() {
     assert(ship.insert_item(p, {p.x - 1, p.y}, ItemKind::Gear));      // from behind
     const std::vector<BeltItem>& items = belt_at(ship, p).get_items();
     assert(items.size() == 3);
-    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right && items[1].entered_at == 0);
-    assert(items[2].from == BeltSide::Back && items[2].entered_at == 0);
+    assert(items[1].kind == ItemKind::Glass && items[1].from == BeltSide::Right);
+    assert(items[2].from == BeltSide::Back && items[2].pos == 0);
     run(world, 5);
-    assert(belt_at(ship, p).get_items()[1].entered_at == 0);
+    assert(belt_at(ship, p).get_items()[1].from == BeltSide::Right);
     assert(belt_at(ship, p).get_items()[1].pos > kBeltSpacing);
 }
 
@@ -824,8 +824,8 @@ void test_tunnel_remove_entrance() {
     assert(!tunnel_at(ship, exit).linked());
 }
 
-// An exit's back is the tunnel's mouth, and its side input joins halfway; an
-// entrance takes items as a belt does.
+// An exit takes nothing from its neighbors (its back is the tunnel's mouth,
+// and not from its sides either); an entrance takes items as a belt does.
 void test_tunnel_sides() {
     World world = tunnel_world();
     Ship& ship = world.flagship();
@@ -836,8 +836,9 @@ void test_tunnel_sides() {
 
     assert(!ship.insert_item(exit, {exit.x - 1, exit.y}, ItemKind::Gear));  // through the mouth
     assert(!ship.insert_item(exit, {exit.x + 1, exit.y}, ItemKind::Gear));  // the cell it feeds
-    assert(ship.insert_item(exit, {exit.x, exit.y - 1}, ItemKind::Gear));
-    assert(belt_at(ship, exit).get_items().front().pos == kBeltLength / 2);
+    assert(!ship.insert_item(exit, {exit.x, exit.y - 1}, ItemKind::Gear));  // a side
+    assert(!ship.insert_item(exit, {exit.x, exit.y + 1}, ItemKind::Gear));  // the other side
+    assert(belt_at(ship, exit).get_items().empty());
 
     assert(!ship.insert_item(entrance, {entrance.x + 1, entrance.y}, ItemKind::Gear));  // the cell it feeds
     assert(ship.insert_item(entrance, {entrance.x, entrance.y + 1}, ItemKind::Gear));   // a corner

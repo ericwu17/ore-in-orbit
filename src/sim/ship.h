@@ -210,8 +210,8 @@ public:
     // never goes through a second straight into a third (nor round a ring
     // of them). A junction takes it while its queue that way has room and
     // something stands on the far side; a router while it's empty. A tunnel's
-    // entrance takes items as a belt does; its exit only from the side,
-    // halfway along.
+    // entrance takes items as a belt does; its exit takes none (its items
+    // come only from its entrance, underground).
     bool insert_item(GridPos to, GridPos from, ItemKind kind);
     // Sets the recipe of the machine covering `p` (null: none), refunding
     // the ingredients it held to the inventory; false if there's no machine

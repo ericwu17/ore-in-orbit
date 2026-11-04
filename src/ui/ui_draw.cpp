@@ -320,21 +320,13 @@ void DrawBeltItems(ImDrawList* draw, const Conveyor& belt, ImVec2 min, float cel
         float x = 0.0f;
         float y = t - 0.5f;
         if (item.from != BeltSide::Back) {
+            // Round the corner: a quarter circle about the front corner on
+            // that side, from the middle of the side to the middle of the
+            // front.
             const float side = item.from == BeltSide::Left ? -1.0f : 1.0f;
-            if (item.entered_at == 0 && item.pos <= kBeltLength) {
-                // Round the corner: a quarter circle about the front corner
-                // on that side, from the middle of the side to the middle of
-                // the front.
-                const float angle = t * 1.57079633f;
-                x = side * (0.5f - 0.5f * std::sin(angle));
-                y = 0.5f - 0.5f * std::cos(angle);
-            } else {
-                // In from the side partway along (onto a tunnel's exit): over
-                // to the middle within half a cell, easing in.
-                const float k = std::clamp(static_cast<float>(item.pos - item.entered_at) / (kLength * 0.5f), 0.0f,
-                                           1.0f);
-                x = side * 0.5f * (1.0f - k * k * (3.0f - 2.0f * k));
-            }
+            const float angle = std::min(t, 1.0f) * 1.57079633f;
+            x = side * (0.5f - 0.5f * std::sin(angle));
+            y = 0.5f - 0.5f * std::cos(angle);
         }
         DrawItem(draw, at(x, y), std::max(1.5f, cell * 0.16f), item.kind);
     }

@@ -465,28 +465,24 @@ void test_refused() {
     assert(loads(with_building(
         R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
             "items": [{"item": "IronOre", "pos": 30}]})")));
-    // An item in from the side keeps which side and where, saved again.
+    // An item in from the side keeps which side, saved again.
     {
         const std::string side_text = with_building(
             R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                "items": [{"item": "IronOre", "pos": 40, "from": "left", "entered_at": 30}]})");
+                "items": [{"item": "IronOre", "pos": 40, "from": "left"}]})");
         std::string error;
         const std::optional<LoadedSave> side = load_text(side_text, error);
         assert(side && error.empty());
         const auto* belt = dynamic_cast<const Conveyor*>(side->world.flagship().building_at({70, 64}));
         assert(belt && belt->get_items().size() == 1);
         const BeltItem& item = belt->get_items()[0];
-        assert(item.pos == 40 && item.from == BeltSide::Left && item.entered_at == 30);
+        assert(item.pos == 40 && item.from == BeltSide::Left);
         const std::string again = save_text(side->world);
-        assert(again.find(R"("from": "left",)") != std::string::npos);
-        assert(again.find(R"("entered_at": 30)") != std::string::npos);
+        assert(again.find(R"("from": "left")") != std::string::npos);
     }
     refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "items": [{"item": "IronOre", "pos": 40, "from": "up", "entered_at": 30}]})"),
+                              "items": [{"item": "IronOre", "pos": 40, "from": "up"}]})"),
             "an unknown belt side");
-    refused(with_building(R"({"kind": "TransportBelt", "x": 70, "y": 64, "facing": "East", "output_side": 0,
-                              "items": [{"item": "IronOre", "pos": 20, "from": "right", "entered_at": 30}]})"),
-            "a belt item that came on ahead of where it is");
     refused(with_building(R"({"kind": "TransportBelt", "x": 64, "y": 64, "facing": "East", "output_side": 0,
                               "items": []})"),
             "overlapping buildings");
