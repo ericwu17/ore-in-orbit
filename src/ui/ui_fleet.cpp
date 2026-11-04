@@ -83,14 +83,6 @@ void DrawFleetSection(World& world, const FleetShip& current) {
     Fleet& fleet = world.get_fleet();
     if (!theme::CollapsingSection("Fleet"))
         return;
-    bool provides = current.provides;
-    if (ImGui::Checkbox("Provider", &provides))
-        fleet.set_provides(current.id, provides);
-    ImGui::SetItemTooltip("Send other ships in this sector what their bridges request, from what this\n"
-                          "bridge holds beyond its own requests, in cargo pods (%d items a pod)",
-                          kPodCapacity);
-    if (current.provides && fleet.short_of_pods(current.id))
-        ImGui::TextColored(theme::kWarnText, "Short of cargo pods: requests here are waiting");
     if (ImGui::Button("Build a new ship...", ImVec2(-1.0f, 0.0f)))
         g_fleet.show_build = true;
     ImGui::SetItemTooltip("Pick a layout; it takes a ship starter pack and the layout's cost from this bridge");

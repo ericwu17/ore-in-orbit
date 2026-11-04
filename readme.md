@@ -130,10 +130,11 @@ one bridge's inventory to another's, between ships in the same sector: each
 50 items use up a cargo pod, and they land 5 seconds later (cargo, like
 hand-crafting, doesn't count toward a milestone).
 
-A ship can also be a provider ("Provider", in the Fleet section; its tab
-shows "(P)"): once a second, it sends the other ships in its sector what
-their bridges request and don't have, from what its own bridge holds beyond
-its own requests, in cargo pods of its own, as above. Cargo already on its
+A ship can also be a provider (inspect its bridge and tick "Provide to
+ships in this sector"; its tab then shows "(P)"): once a second, it sends
+the other ships in its sector what their bridges request and don't have,
+from what its own bridge holds beyond its own requests, in cargo pods of
+its own, as above. Cargo already on its
 way counts toward a request, so it isn't sent twice, and the bridge's
 inspector shows it as incoming. With more than one provider there, the one
 with the most of an item to spare sends it (the oldest, on a tie). Pods go
@@ -186,9 +187,10 @@ the enemies behind. Buildings mend slowly while no enemy is near.
 - **Left click a building**: inspect it (in a window that keeps where you
   move it and how you size it); pick a machine's recipe, a collector's target or a sorter's or
   unloader's item, and whether a machine or collector runs only while the
-  bridge requests it. Inspecting the bridge lists its item requests, to
-  change, remove or add to, with what's on its way in cargo pods. New machines, collectors, sorters and unloaders
-  start with the settings last picked for their kind (but always run, not
+  bridge requests it. Inspecting the bridge sets whether its ship is a
+  provider, and lists its item requests, to change, remove or add to, with
+  what's on its way in cargo pods. New machines, collectors, sorters and
+  unloaders start with the settings last picked for their kind (but always run, not
   only on request).
 - **Right click / drag**: remove buildings and refund them (not the bridge
   or the engines, which are part of the ship's layout).

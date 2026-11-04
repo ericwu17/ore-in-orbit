@@ -507,9 +507,25 @@ bool HasSettings(const Building& b) {
 // item requests; for a machine, the recipe picker; for a collector, what it
 // gathers (for both, whether they run only on request); for a sorter or an
 // unloader, the filter picker.
-void DrawSettings(const Fleet& fleet, FleetShip& shown, const Building& b) {
+// The bridge's provider setting, in its inspector: whether this ship sends
+// other ships in its sector what they request, and whether it's short of
+// cargo pods to.
+void DrawProvider(Fleet& fleet, const FleetShip& shown) {
+    ImGui::SeparatorText("Provider");
+    bool provides = shown.provides;
+    if (ImGui::Checkbox("Provide to ships in this sector", &provides))
+        fleet.set_provides(shown.id, provides);
+    ImGui::SetItemTooltip("Send other ships in this sector what their bridges request, from what this\n"
+                          "bridge holds beyond its own requests, in cargo pods (%d items a pod)",
+                          kPodCapacity);
+    if (shown.provides && fleet.short_of_pods(shown.id))
+        ImGui::TextColored(theme::kWarnText, "Short of cargo pods: requests here are waiting");
+}
+
+void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
     Ship& ship = shown.ship;
     if (dynamic_cast<const Bridge*>(&b)) {
+        DrawProvider(fleet, shown);
         DrawRequests(ship.get_bridge(), fleet, shown.id);
         return;
     }
@@ -644,7 +660,7 @@ void DrawInspectorHeader(const Building& b) {
 
 }  // namespace
 
-void DrawInspectorWindow(const Fleet& fleet, FleetShip& shown_ship) {
+void DrawInspectorWindow(Fleet& fleet, FleetShip& shown_ship) {
     Ship& ship = shown_ship.ship;
     const Building* b = InspectedBuilding(ship);
     if (!b)
