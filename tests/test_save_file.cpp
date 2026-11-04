@@ -228,6 +228,31 @@ void test_determinism() {
     assert(save_text(loaded->world) == save_text(world));
 }
 
+// The same, with a provider holding back a part-filled pod: how long it has
+// waited is saved, so it goes when it would have.
+void test_provider_determinism() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Inventory& inv = world.flagship().inventory();
+    inv.add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 2}, {ItemKind::Gear, 10}});
+    inv.add(starter_layout().cost);
+    int launched = 0;
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &launched) == FleetResult::Ok);
+    assert(fleet.set_provides(fleet.flagship().id, true));
+    fleet.find(launched)->ship.get_bridge().set_request(ItemKind::Gear, 20);
+    run(world, 9 * kTicksPerSecond);
+    assert(fleet.in_flight().empty());
+    const std::string text = save_text(world);
+    assert(text.find("waiting") != std::string::npos);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded);
+    run(world, 3 * kTicksPerSecond);
+    run(loaded->world, 3 * kTicksPerSecond);
+    assert(fleet.in_flight().size() == 1);
+    assert(save_text(loaded->world) == save_text(world));
+}
+
 void test_header_only() {
     World world;
     run(world, 42);
@@ -753,6 +778,7 @@ int main() {
     test_before_requests();
     test_provider_round_trip();
     test_determinism();
+    test_provider_determinism();
     test_header_only();
     test_refused();
     test_transfers_refused();

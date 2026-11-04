@@ -219,6 +219,30 @@ struct Shipment {
     bool completes = true;
 };
 
+// How many cargo pods provider `from` can send requester `to` as cargo,
+// when `spare` is its surplus of them: the pods that carry its shipments
+// come from the same stock, so it keeps back enough for those (the ones
+// already planned, and this one with the pods added).
+int pods_to_spare(int spare, const std::vector<Shipment>& shipments, int from, int to) {
+    int planned = 0;  // items already going to `to`
+    for (const Shipment& s : shipments) {
+        if (s.from != from)
+            continue;
+        if (s.to == to)
+            planned = total_of(s.items);
+        else
+            spare -= pods_needed(total_of(s.items));
+    }
+    if (spare <= 0)
+        return 0;
+    // The most n with n pods sent and the pods to carry everything kept.
+    const auto fits = [&](int n) { return n + pods_needed(planned + n) <= spare; };
+    int n = std::max(spare - pods_needed(planned + spare), 0);
+    while (fits(n + 1))
+        ++n;
+    return fits(n) ? n : 0;
+}
+
 }  // namespace
 
 void Fleet::dispatch(Tick now) {
@@ -242,7 +266,9 @@ void Fleet::dispatch(Tick now) {
                     const FleetShip& provider = *ships[p];
                     if (p == r || !provider.provides || provider.sector != requester.sector)
                         continue;
-                    const int spare = surplus(provider, request.kind, promised[p]);
+                    int spare = surplus(provider, request.kind, promised[p]);
+                    if (request.kind == ItemKind::CargoPod)
+                        spare = pods_to_spare(spare, shipments, provider.id, requester.id);
                     if (spare > best_spare) {
                         best = p;
                         best_spare = spare;
@@ -281,15 +307,19 @@ void Fleet::dispatch(Tick now) {
         int n = (s.completes || waited) ? total : total / kPodCapacity * kPodCapacity;
         if (n < total)
             still_partial.push_back({pair, waiting != partial_since.end() ? waiting->second : now});
-        // As many pods as the provider has, a pod's worth fewer at a time.
-        for (int m = n; m > 0; m = (pods_needed(m) - 1) * kPodCapacity) {
+        // Short of pods for all of it, whether or not it all goes now.
+        if (can_send(s.from, s.to, s.items) != FleetResult::Ok && !short_of_pods(s.from))
+            out_of_pods.push_back(s.from);
+        // As much as the provider's pods carry: a pod's worth fewer at a
+        // time, or one fewer when the cargo is pods (each one sent is one
+        // fewer to carry it in).
+        const bool carries_pods = std::any_of(s.items.begin(), s.items.end(),
+                                              [](const ItemStack& i) { return i.kind == ItemKind::CargoPod; });
+        for (int m = n; m > 0; m = carries_pods ? m - 1 : (pods_needed(m) - 1) * kPodCapacity)
             if (send(s.from, s.to, first_items(s.items, m), now) == FleetResult::Ok) {
                 transfers.back().automatic = true;
                 break;
             }
-            if (!short_of_pods(s.from))
-                out_of_pods.push_back(s.from);
-        }
     }
     partial_since = std::move(still_partial);
 }

@@ -494,12 +494,21 @@ struct SaveAccess {
                 transfer["automatic"] = true;
             transfers.push_back(std::move(transfer));
         }
-        return {
+        Json j = {
             {"next_ship_id", fleet.next_id},
             {"progress", save_progress(*fleet.progress)},
             {"ships", std::move(ships)},
             {"transfers", std::move(transfers)},
         };
+        // Part-filled pods providers are holding back, and since when; only
+        // when there are some.
+        if (!fleet.partial_since.empty()) {
+            Json waiting = Json::array();
+            for (const auto& [pair, since] : fleet.partial_since)
+                waiting.push_back({{"from", pair.first}, {"to", pair.second}, {"since", since}});
+            j["waiting"] = std::move(waiting);
+        }
+        return j;
     }
 
     // `now`: the World's tick, which cargo in flight lands after; ships are
@@ -537,6 +546,14 @@ struct SaveAccess {
                 transfer.automatic = automatic->get<bool>();
             fleet.transfers.push_back(std::move(transfer));
         }
+        // None in saves from before there were providers.
+        if (const auto waiting = j.find("waiting"); waiting != j.end())
+            for (const Json& w : load_array(*waiting, "waiting")) {
+                const int from = static_cast<int>(load_int(w.at("from"), 1, fleet.next_id - 1));
+                const int to = static_cast<int>(load_int(w.at("to"), 1, fleet.next_id - 1));
+                const Tick since = load_tick(w.at("since"), now);
+                fleet.partial_since.push_back({{from, to}, since});
+            }
         return fleet;
     }
 

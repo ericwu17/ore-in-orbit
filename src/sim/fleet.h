@@ -15,7 +15,8 @@
 // no clicking (dispatch). A provider gives only what it holds beyond its own
 // requests, and the one with the most of an item to spare gives it first
 // (ties: the oldest). Cargo already on its way to a ship counts toward its
-// requests. Automatic sends use up the provider's pods like manual ones, so
+// requests. Automatic sends use up the provider's pods like manual ones
+// (asked for cargo pods themselves, it keeps back the ones to carry them), so
 // they go in whole pods: a part-filled pod goes only once it covers every
 // shortfall it carries, or once it has waited kPartialPodWait.
 //
@@ -101,12 +102,12 @@ private:
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
     std::vector<Transfer> transfers;  // in flight
 
-    // Not saved: a load starts these afresh.
     // Since when each provider-to-requester pair (from, to) has had a
-    // part-filled pod waiting.
+    // part-filled pod waiting (saved, so a reloaded game sends it when the
+    // original would).
     std::vector<std::pair<std::pair<int, int>, Tick>> partial_since;
-    // Providers that had cargo to send but not the pods to carry it, at the
-    // last dispatch.
+    // Providers that had cargo to send but not the pods to carry it all, at
+    // the last dispatch. Only the UI reads it: not saved.
     std::vector<int> out_of_pods;
 
     // Adds `ship`, sharing the fleet's progress, under the next id.
@@ -155,7 +156,7 @@ public:
     // Makes ship `id` a provider, or not; false if there's none.
     bool set_provides(int id, bool on);
     // Whether provider `id` had cargo to send at the last dispatch but not
-    // the cargo pods to carry it.
+    // the cargo pods to carry it all (whether or not it went yet).
     bool short_of_pods(int id) const;
 
     // Renames ship `id`; false if there's none.

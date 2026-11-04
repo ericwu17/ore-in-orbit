@@ -383,7 +383,7 @@ void test_provider_pods() {
     // One pod: one pod's worth, now; the 20 left wait to fill a pod.
     inv(world, provider).add(ItemKind::CargoPod, 1);
     run_to_dispatch(world);
-    assert(!fleet.short_of_pods(provider));
+    assert(fleet.short_of_pods(provider));  // for the 20 more
     assert(fleet.in_flight().size() == 1 && fleet.in_flight_to(requester, ItemKind::Gear) == kPodCapacity);
     inv(world, provider).add(ItemKind::CargoPod, 1);
     run_to_dispatch(world);
@@ -392,6 +392,44 @@ void test_provider_pods() {
     run(world, kPartialPodWait);
     assert(inv(world, requester).count(ItemKind::Gear) + fleet.in_flight_to(requester, ItemKind::Gear) == 70);
     assert(inv(world, provider).count(ItemKind::Gear) == 0 && inv(world, provider).count(ItemKind::CargoPod) == 0);
+}
+
+// Cargo pods asked for come out of the same stock as the pods that carry
+// them: a provider keeps back what carrying them takes.
+void test_provider_sends_pods() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    assert(fleet.set_provides(provider, true));
+    inv(world, provider).add(ItemKind::CargoPod, 20);
+    bridge(world, requester).set_request(ItemKind::CargoPod, 20);
+    // 19 and the one that carries them: short of the 20 asked for, so a
+    // part-filled pod that waits.
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty() && !fleet.short_of_pods(provider));
+    run(world, kPartialPodWait);
+    assert(fleet.in_flight_to(requester, ItemKind::CargoPod) == 19);
+    assert(inv(world, provider).count(ItemKind::CargoPod) == 0);
+    run_to_dispatch(world);
+    assert(!fleet.short_of_pods(provider));
+}
+
+// A provider without the pods for what it has to send says so at once,
+// even while it holds back a part-filled pod.
+void test_short_of_pods_while_waiting() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    const std::vector<int> ids = fleet_of(world, 2);
+    const int provider = ids[0], requester = ids[1];
+    assert(fleet.set_provides(provider, true));
+    inv(world, provider).add(ItemKind::Gear, 30);
+    bridge(world, requester).set_request(ItemKind::Gear, 120);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty() && fleet.short_of_pods(provider));
+    inv(world, provider).add(ItemKind::CargoPod, 1);
+    run_to_dispatch(world);
+    assert(fleet.in_flight().empty() && !fleet.short_of_pods(provider));
 }
 
 }  // namespace
@@ -411,6 +449,8 @@ int main() {
     test_provider_keeps_its_own();
     test_most_surplus_first();
     test_provider_pods();
+    test_provider_sends_pods();
+    test_short_of_pods_while_waiting();
     std::puts("test_fleet: all passed");
     return 0;
 }
