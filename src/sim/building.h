@@ -248,6 +248,9 @@ private:
     int yield = 100;    // of `target` where the ship is: % of the home sector's
     bool only_when_requested = false;
     bool standby = false;  // kept by the Ship (not saved)
+    // Its target has run out where the ship is (not saved: the next
+    // gather() finds out again).
+    bool exhausted = false;
 
 public:
     explicit Collector(ItemKind k);
@@ -267,8 +270,15 @@ public:
     bool on_standby() const { return standby; }
     void set_standby(bool on) { standby = on; }
     // Gathers at the yield last set, unless the buffer is full or it's on
-    // standby.
-    void tick() override;
+    // standby, from an endless supply (a ship on its own; Ship::tick gives
+    // a fleet's ships their sector's reserves, see gather()).
+    void tick() override { gather(nullptr); }
+    // tick(), drawing on `left`, how many of its target are left to gather
+    // where the ship is (null: no end to them): each catch takes one, and
+    // with none left it stalls, exhausted.
+    void gather(int* left);
+    // Its target ran out where the ship is, when it last tried to gather.
+    bool is_exhausted() const { return exhausted; }
     // The yield of its target where the ship is (see Ship::set_yields): it
     // gathers that many % as fast as at home; 0 stalls it.
     int get_yield() const { return yield; }

@@ -341,7 +341,17 @@ void DrawFleetLost(Screen& screen) {
 using namespace ui;
 
 void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir) {
-    PlayEventSounds(world);
+    const std::vector<Event> events = world.take_events();
+    PlayEventSounds(world, events);
+    // Resources running out where the fleet is, said over the grid (all
+    // of them at once, if more than one did).
+    std::string run_out;
+    for (const Event& e : events)
+        if (e.kind == EventKind::ResourceRunOut)
+            run_out += (run_out.empty() ? "" : "; ") + world.get_map().at(e.sector).name + " has run out of " +
+                       LowerItemName(e.item);
+    if (!run_out.empty())
+        SetMessage(run_out + ": find more in another sector", theme::kWarnText);
     if (world.fleet_lost()) {
         paused = false;
         DrawFleetLost(screen);

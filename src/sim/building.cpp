@@ -277,14 +277,17 @@ void Collector::set_target(ItemKind kind) {
     target = kind;
 }
 
-void Collector::tick() {
-    if (full() || standby)
+void Collector::gather(int* left) {
+    exhausted = left && *left <= 0;
+    if (full() || standby || exhausted)
         return;
     progress += static_cast<Tick>(yield);
     if (progress < spec->interval * 100)
         return;
     progress -= spec->interval * 100;
     caught.add(target);
+    if (left)
+        --*left;
 }
 
 double Collector::rate_per_second() const {

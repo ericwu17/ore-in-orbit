@@ -316,6 +316,10 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         if (collector->get_yield() == 0) {
             ImGui::TextColored(theme::kWarnText, "No %s in this sector: aim it at something else",
                                item_name(collector->get_target()));
+        } else if (collector->is_exhausted()) {
+            ImGui::TextColored(theme::kWarnText,
+                               "This sector's %s has run out: aim it at something else, or take the ship elsewhere",
+                               LowerItemName(collector->get_target()).c_str());
         } else {
             ImGui::TextColored(theme::kTextDim, "Gathers %s: %.0f / min (%d%% of home)",
                                item_name(collector->get_target()), collector->rate_per_second() * 60.0,

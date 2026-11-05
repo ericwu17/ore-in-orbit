@@ -604,7 +604,7 @@ void Ship::recharge_shields() {
         next->recharge_step();
 }
 
-void Ship::tick() {
+void Ship::tick(Reserves* reserves) {
     for (const GridPos p : placed) {
         Building& b = *at(buildings, p);
         const auto standby = [&](bool only_when_requested) {
@@ -616,8 +616,15 @@ void Ship::tick() {
         else if (auto* machine = dynamic_cast<Machine*>(&b))
             machine->set_standby(standby(machine->get_only_when_requested()));
     }
-    for (const GridPos p : placed)
-        at(buildings, p)->tick();
+    for (const GridPos p : placed) {
+        Building& b = *at(buildings, p);
+        if (auto* collector = dynamic_cast<Collector*>(&b)) {
+            const std::optional<int> i = raw_resource_index(collector->get_target());
+            collector->gather(reserves && i ? &(*reserves)[static_cast<std::size_t>(*i)] : nullptr);
+        } else {
+            b.tick();
+        }
+    }
     recharge_shields();
     for (const GridPos p : placed)
         pass_on(p, *at(buildings, p));

@@ -492,9 +492,11 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                                                            : sprites::BeltShape::Straight);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 // A tunnel with nowhere to send its items, an unloader with
-                // nothing to take them from.
+                // nothing to take them from, a collector with nothing to
+                // gather (none here, or run out).
                 const auto* unloader = dynamic_cast<const Unloader*>(b);
-                if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})))
+                if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})) ||
+                    (collector && (collector->is_exhausted() || collector->get_yield() == 0)))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
                 if (collector)
                     DrawCollectorStatus(draw, *collector, min, max, cell);
