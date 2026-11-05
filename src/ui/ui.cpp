@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 
 namespace ui {
 
@@ -94,37 +95,48 @@ float DrawBattleBanner(const World& world, const FleetShip& ship, ImVec2 grid_mi
     return DrawBanner(title.c_str(), subtitle.c_str(), theme::kBad, theme::kBad, true, grid_min, grid_size, true);
 }
 
-// A beaten enemy, announced over the top of the grid for a few seconds:
-// the last one beaten, and until when (ImGui::GetTime()) it shows.
-struct SalvageBanner {
-    std::optional<Salvage> last;
-    double until = 0.0;
-};
-SalvageBanner g_salvage;
+// What beaten enemies left, waiting for the player to acknowledge it,
+// oldest first.
+std::deque<Salvage> g_salvage;
 
-// Takes what beaten enemies left from `world` and announces it: a banner
-// (when no milestone's is up) and a message listing the salvage.
-void DrawSalvageBanner(World& world, ImVec2 grid_min, ImVec2 grid_size) {
-    for (Salvage& s : world.take_salvage()) {
-        std::string list;
-        for (const ItemStack& item : s.items)
-            list += (list.empty() ? "" : ", ") + std::to_string(item.count) + " " + item_name(item.kind);
-        const FleetShip* to = world.get_fleet().find(s.ship);
-        SetMessage(std::string(enemy_design(s.enemy).name) + " salvaged" + (to ? " by " + to->name : "") + ": " + list,
-                   theme::kGood);
-        g_salvage = {std::move(s), ImGui::GetTime() + 6.0};
-    }
-    if (!g_salvage.last || ImGui::GetTime() >= g_salvage.until || g_banner.until > ImGui::GetTime())
+// Takes what beaten enemies left from `world` and shows the oldest not yet
+// acknowledged: a window centered over the grid listing what was taken
+// aboard, which stays up until the player clicks Take it.
+void DrawSalvageWindow(World& world, ImVec2 grid_min, ImVec2 grid_size) {
+    for (Salvage& s : world.take_salvage())
+        g_salvage.push_back(std::move(s));
+    if (g_salvage.empty())
         return;
-    const Salvage& s = *g_salvage.last;
-    const std::string title = std::string("ENEMY DESTROYED: ") + enemy_design(s.enemy).name;
-    std::string subtitle = "Salvage taken aboard";
-    if (!s.found.empty()) {
-        subtitle = "New weapon found: ";
-        for (std::size_t i = 0; i < s.found.size(); ++i)
-            subtitle += (i ? ", " : "") + std::string(item_name(s.found[i]));
+    const Salvage& s = g_salvage.front();
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowPos(ImVec2(grid_min.x + grid_size.x * 0.5f, grid_min.y + grid_size.y * 0.4f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(fh * 14.0f, 0.0f), ImVec2(std::max(fh * 14.0f, grid_size.x * 0.9f),
+                                                                       std::max(fh * 8.0f, grid_size.y * 0.9f)));
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoMove;
+    if (ImGui::Begin("##salvage", nullptr, flags)) {
+        const std::string title = std::string("ENEMY DESTROYED: ") + enemy_design(s.enemy).name;
+        ImGui::TextColored(theme::kGood, "%s", title.c_str());
+        const FleetShip* to = world.get_fleet().find(s.ship);
+        ImGui::TextColored(theme::kTextDim, "Salvage taken aboard%s%s:", to ? " " : "", to ? to->name.c_str() : "");
+        ImGui::Separator();
+        for (const ItemKind w : s.found)
+            ImGui::TextColored(theme::kWarnText, "New weapon found: %s (its ammunition can now be made)",
+                               item_name(w));
+        for (const ItemStack& item : s.items) {
+            const bool found = std::find(s.found.begin(), s.found.end(), item.kind) != s.found.end();
+            AmountLine(ItemIcon(item.kind), std::to_string(item.count), found ? theme::kWarnText : theme::kText,
+                       true);
+        }
+        ImGui::Separator();
+        if (g_salvage.size() > 1)
+            ImGui::TextColored(theme::kTextDim, "%zu more salvaged after this", g_salvage.size() - 1);
+        if (theme::PrimaryButton("Take it", ImVec2(fh * 6.0f, 0.0f)))
+            g_salvage.pop_front();
     }
-    DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kGood, false, grid_min, grid_size, false);
+    ImGui::End();
 }
 
 // The last message (SetMessage), for a few seconds after it's set: a toast
@@ -164,7 +176,7 @@ void LeaveGame(Screen& screen) {
     g_fleet = {};
     g_map = {};
     g_banner = {};
-    g_salvage = {};
+    g_salvage.clear();
     g_build.inspected.reset();
     g_build.inspected_building = nullptr;
     LeaveBlueprintTool();  // the clipboard stays, to paste into another game
@@ -455,9 +467,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         }
     }
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, ship_avail);
-    DrawSalvageBanner(world, grid_min, ship_avail);
     const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, ship_avail);
     DrawToast(grid_min, ship_avail, battle_h);
+    DrawSalvageWindow(world, grid_min, ship_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     DrawCraftPanel(world, shown, craft_w);
