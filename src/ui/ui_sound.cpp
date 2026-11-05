@@ -87,6 +87,7 @@ std::optional<Cue> CueFor(const Event& e) {
     case EventKind::ThrustersCharged:  return Cue{Sound::GameThrustersCharged, 1.0f, Heard::OnShownShip};
     case EventKind::Jumped:            return Cue{Sound::GameJump, 1.0f, Heard::OnShownShip};
     case EventKind::SectorSurveyed:    return Cue{Sound::GameSectorSurveyed, 0.7f, Heard::Anywhere};
+    case EventKind::ResourceRunOut:    return Cue{Sound::UiError, 0.8f, Heard::Anywhere};
     }
     return std::nullopt;
 }
@@ -126,10 +127,10 @@ void VolumeSliders(float width) {
         PlayUi(Sound::UiConfirm);
 }
 
-void PlayEventSounds(World& world) {
+void PlayEventSounds(const World& world, const std::vector<Event>& events) {
     // The ship on screen, if it's still there (it may have just been lost).
     const FleetShip* shown = world.get_fleet().find(g_fleet.current);
-    for (const Event& e : world.take_events()) {
+    for (const Event& e : events) {
         const std::optional<Cue> cue = CueFor(e);
         if (!cue)
             continue;

@@ -769,6 +769,34 @@ void test_before_requests() {
     assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
 }
 
+// What's left to gather in each sector loads back as it was; a save from
+// before resources ran out has as much as a new map would.
+void test_reserves_round_trip() {
+    World world;
+    world.drain_sector(0, 42);
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save_text(world), error);
+    assert(loaded && error.empty());
+    assert(loaded->world.get_map().at(0).left(ItemKind::IronOre) == 42);
+    assert(loaded->world.get_map().at(1).reserves == world.get_map().at(1).reserves);
+
+    const std::optional<LoadedSave> before = load_text(minimal().dump(), error);
+    assert(before && error.empty());
+    const StarMap& map = before->world.get_map();
+    assert(map.at(0).reserves == kHomeReserves);
+    assert(map.at(1).reserves == starting_reserves(map.at(1), false));
+    assert(map.at(1).left(ItemKind::IronOre) == 0 && map.at(1).left(ItemKind::CopperOre) > 0);
+
+    Json save = minimal();
+    sectors(save)[0]["reserves"] = {{"IronOre", 5}, {"CopperOre", 5}, {"Silica", 5}, {"Carbon", 5}};
+    assert(!load_text(save.dump(), error));
+    sectors(save)[0]["reserves"]["IridiumOre"] = -1;
+    assert(!load_text(save.dump(), error));
+    sectors(save)[0]["reserves"]["IridiumOre"] = 0;
+    const std::optional<LoadedSave> edited = load_text(save.dump(), error);
+    assert(edited && edited->world.get_map().at(0).left(ItemKind::Silica) == 5);
+}
+
 // A provider, and the cargo it sent, load back as such; a save from before
 // there were providers has none, and none is written for it.
 void test_provider_round_trip() {
@@ -873,6 +901,7 @@ int main() {
     test_request_round_trip();
     test_before_requests();
     test_provider_round_trip();
+    test_reserves_round_trip();
     test_determinism();
     test_provider_determinism();
     test_header_only();

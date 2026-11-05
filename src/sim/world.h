@@ -12,6 +12,9 @@
 // weapons found by the fleet, and the sector is cleared. Where no
 // enemy is, buildings mend, kRepairPercent of their health a second.
 //
+// Collectors gather from their sector's reserves (see sector.h), and what
+// runs out there is gone for good.
+//
 // What happens along the way (fights, cargo landing, milestones, jumps...)
 // is recorded as events (see events.h), for the UI to take each frame.
 #pragma once
@@ -116,6 +119,9 @@ public:
     const StarMap& get_map() const { return map; }
     // Surveys every sector at once (the debug menu).
     void reveal_map();
+    // Leaves `left` of each raw resource in sector `sector`, of those it
+    // has, at most (the debug menu); one already run out stays so.
+    void drain_sector(int sector, int left);
     // The fight in sector `sector`, or null if there's none.
     const Engagement* engagement_in(int sector) const;
     // Every fight going on.

@@ -121,6 +121,9 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
                     }
         }
         ImGui::SetItemTooltip("Fills every ion thruster on %s with fuel cells", current.name.c_str());
+        if (ImGui::Button("Nearly run out"))
+            world.drain_sector(current.sector, 20);
+        ImGui::SetItemTooltip("Leaves 20 of each raw resource in %s", world.get_map().at(current.sector).name.c_str());
 
         ImGui::SeparatorText("Combat");
         static int enemy_class = 0;

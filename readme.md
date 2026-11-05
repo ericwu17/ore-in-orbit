@@ -62,8 +62,10 @@ inside it). The bridge can hand-craft the simpler items, to get started.
 ### Belts and machines
 
 Each collector is aimed at one raw resource (iron ore, copper ore, silica or
-carbon; the tractor array can also gather iridium ore) and gathers it at a
-set rate into an internal buffer, stalling when it is full. As in Mindustry
+carbon; the tractor array can also gather iridium ore, which home has none
+of) and gathers it at a set rate into an internal buffer, stalling when it
+is full, or when what it's aimed at has run out in its sector (see Running
+out, under the star map). As in Mindustry
 there are no inserters: buildings put their output straight onto neighboring
 belts (or into neighboring buildings that take it), and belts carry items
 into whatever they point at, the bridge included. Machines craft the recipe
@@ -114,6 +116,12 @@ takes out of the bridge counts against the milestone, so sending items
 round from the bridge back into it gains nothing. Locked recipes show
 greyed out, marked with the milestone that unlocks them.
 
+In order: First light, Heavy industry, Deep space, Escape velocity (fuel
+cells, to travel, and focus crystals, the first weapon's ammunition),
+Frontier and Starforge. Everything up to and including Frontier can be made
+from what home has; Starforge asks for iridium plates, and home has no
+iridium.
+
 ### The fleet
 
 The player commands a fleet. "Build a new ship...", in the right panel's
@@ -121,7 +129,7 @@ Fleet section, opens a window to pick a layout and build a ship in it from
 the bridge of the ship on screen: it takes a ship starter pack (unlocked by
 the "Deep space" milestone) and the layout's cost, in raw and processed
 resources. The layouts, smallest first: Skiff (from the start), Hauler (from
-"Deep space"), Frigate ("Escape velocity") and Carrier ("Frontier"); bigger
+"Deep space"), Frigate ("Escape velocity") and Carrier ("Starforge"); bigger
 ones have more engines.
 
 Every ship keeps running while another is on screen; the tabs above the grid
@@ -149,9 +157,39 @@ sends only what the pods it has can carry.
 Beyond home lies a star map of sectors (M, or the Map button above the grid),
 a new one for each game. Each sector has its own yields of the raw resources
 (as a % of home's: a collector aimed at something a sector lacks stalls
-there) and a threat, which grows with the distance from home. A sector a ship
+there) and a threat, both growing with the distance from home: a sector
+next door gathers about half as fast again as home, one at the edge of the
+map about two and a half times as fast, give or take 15%, though any sector
+may lack a resource or two. Between them, home's neighbors have every raw
+resource, iridium included. A sector a ship
 has been to is visited; its neighbors show on the map, and their yields and
 threat once surveyed: visited, or next to a ship with a survey scanner.
+
+#### Running out
+
+Every sector's resources run out. Each holds so many of each raw resource
+(the map shows how many are left, in amber once under a fifth), and every
+catch a collector makes there takes one; ships in the same sector share
+them. When one is gone it's gone for good: collectors aimed at it there
+stall (outlined in amber), and the game says so. Home holds 7,000 iron ore,
+1,200 copper ore, 1,100 silica and 1,700 carbon, and no iridium. Other
+sectors hold half as much again as home at a yield of 100% (and 1,500
+iridium ore), scaled by their yields, so the richer they are, the more.
+
+Home's amounts come from the sums in raw resources of what it takes to
+reach travel: the milestones up to Escape velocity, a factory of a fair size
+(around 20 asteroid collectors, 8 solar furnaces, 6 fabricators, 3
+refineries, 2 tractor arrays and 400 belts), a 25% margin for parts made
+and never used, the fuel for a first jump and a first fight's focus
+crystals. That comes to about 4,000 iron ore, 720 copper ore, 630 silica
+and 960 carbon, and home holds about 1.7 times as much. Played out in a
+model of a new game, a player with a fair-sized factory runs home's copper,
+silica and carbon dry a few minutes after Escape velocity, and has just
+enough in the bridge to make Frontier's fuel cells and focus crystals
+before they have to move on; one with a sprawling factory gets to Escape
+velocity and a first jump, and then has to; a lean one, gathering slowly,
+has plenty of time. `tools/home_reserves_model.py` is that model, to rerun
+with other amounts.
 
 Ships jump to a linked sector at once, when every ion thruster their layout
 has is charged (10 fuel cells each, refined from carbon and delivered by
@@ -247,7 +285,7 @@ weapon. Buildings mend slowly while no enemy is near.
 - **B**: the Blueprints window (saved blueprints, import and export).
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
-  spawn or beat an enemy ship, give every weapon, complete the
+  nearly run the sector out (20 of each left), spawn or beat an enemy ship, give every weapon, complete the
   milestone, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
@@ -414,11 +452,13 @@ One directory per layer under `src/`; includes name their layer
     buildings stored at their top-left cell), placement / removal rules,
     the starting ship, linking belt tunnels, and moving items between
     neighboring buildings each tick; the yields of the sector it's in, which
-    its collectors gather at.
+    its collectors gather at, taking what they catch out of its reserves.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
     hull, bridge and engines, its cost, and the milestone that unlocks it.
-  - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, threat,
-    what the player knows of each) and generating it from a seed.
+  - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, what's
+    left to gather, threat, what the player knows of each), generating it
+    from a seed, and how much of each resource home and the other sectors
+    start with.
   - `rng.h` — `Rng`: a small random number generator whose whole state is
     one number, so saves keep it.
   - `blueprint.h/.cpp` — `Blueprint`: copying part of a ship (buildings
@@ -509,8 +549,9 @@ One directory per layer under `src/`; includes name their layer
   test`), linked against `src/sim/` and `src/persistence/` only (and the
   header-only `src/audio/sounds.h`).
 - `assets/` — the app icon (`logo.png`), the sprites and the sounds.
-- `tools/` — `make_placeholder_sprites.py` (see Sprites) and
-  `make_sounds.py` (see Sounds).
+- `tools/` — `make_placeholder_sprites.py` (see Sprites),
+  `make_sounds.py` (see Sounds) and `home_reserves_model.py` (see Running
+  out).
 - `imgui/`, `implot/` — Dear ImGui and ImPlot, as git submodules.
 - `third_party/` — vendored single headers: nlohmann::json (saves,
   blueprints and settings) and stb_image (decoding the icon and sprites).

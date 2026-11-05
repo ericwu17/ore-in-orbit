@@ -366,11 +366,23 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
         } else if (s.threat > 0) {
             ImGui::TextColored(theme::kTextDim, "No enemy ships here");
         }
-        ImGui::TextColored(theme::kTextDim, "Yields (home: 100%%)");
+        ImGui::TextColored(theme::kTextDim, "Yields (home: 100%%), and what's left");
+        const Reserves full = starting_reserves(s, index == 0);
         for (int r = 0; r < kRawResourceCount; ++r) {
-            const int y = s.yields[static_cast<std::size_t>(r)];
-            AmountLine(ItemIcon(kRawResources[r]), y > 0 ? std::to_string(y) + "%" : "none",
-                       y > 100 ? theme::kGood : y > 0 ? theme::kText : theme::kTextDim, false);
+            const auto i = static_cast<std::size_t>(r);
+            const int y = s.yields[i];
+            const int left = s.reserves[i];
+            if (y == 0) {
+                AmountLine(ItemIcon(kRawResources[r]), "none", theme::kTextDim, false);
+            } else if (left == 0) {
+                AmountLine(ItemIcon(kRawResources[r]), std::to_string(y) + "%", theme::kTextDim, false, "  run out");
+            } else {
+                // Low once under a fifth of what it started with.
+                const bool low = full[i] > 0 && left * 5 < full[i];
+                const std::string note = "  " + Thousands(left) + " left";
+                AmountLine(ItemIcon(kRawResources[r]), std::to_string(y) + "%",
+                           low ? theme::kWarnText : y > 100 ? theme::kGood : theme::kText, false, note.c_str());
+            }
         }
     }
     std::string here;

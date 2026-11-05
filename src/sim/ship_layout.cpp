@@ -48,7 +48,7 @@ const std::vector<ShipLayout>& all_layouts() {
          {53, 44},
          {{18, 93}, {34, 93}, {50, 93}, {60, 93}, {76, 93}, {92, 93}},
          {{IronOre, 1000}, {IridiumOre, 300}, {Steel, 300}, {IridiumPlate, 50}, {Processor, 20}},
-         milestone_index("Frontier"),
+         milestone_index("Starforge"),
          {{40, 4}, {71, 4}, {2, 27}, {109, 27}},
          {{20, 15}, {91, 15}, {56, 30}}},
     };

@@ -390,9 +390,9 @@ void Fleet::dispatch(Tick now) {
     partial_since = std::move(still_partial);
 }
 
-void Fleet::tick(Tick now, EventLog& events) {
+void Fleet::tick(Tick now, EventLog& events, StarMap* map) {
     for (const std::unique_ptr<FleetShip>& s : ships)
-        s->ship.tick();
+        s->ship.tick(map ? &map->at(s->sector).reserves : nullptr);
     std::erase_if(transfers, [&](const Transfer& t) {
         if (t.arrives > now)
             return false;

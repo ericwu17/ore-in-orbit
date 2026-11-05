@@ -16,14 +16,18 @@ const std::vector<Milestone>& all_milestones() {
          {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel}},
         {"Deep space",
          {{AdvancedCircuit, 50}, {StructuralFrame, 25}},
-         {FabricatorMk2, TractorArray, SurveyScanner, IridiumPlate, Processor, ShipStarterPack,
-          CargoPod}},
+         {FabricatorMk2, TractorArray, SurveyScanner, ShipStarterPack, CargoPod}},
+        // Travel and weapons, from what home has: iridium is only to be had
+        // in other sectors, so the milestones that need it come after.
         {"Escape velocity",
-         {{Processor, 20}},
-         {FabricatorMk3, FuelCell, FocusCrystal}},
+         {{AdvancedCircuit, 40}, {StructuralFrame, 15}, {Glass, 60}},
+         {FuelCell, FocusCrystal, IridiumPlate}},
         {"Frontier",
          {{FuelCell, 100}, {FocusCrystal, 30}},
          {ShieldProjector}},
+        {"Starforge",
+         {{IridiumPlate, 40}},
+         {Processor, FabricatorMk3}},
     };
     return milestones;
 }

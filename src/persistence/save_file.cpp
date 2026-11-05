@@ -638,20 +638,24 @@ struct SaveAccess {
     }
 
     // Every sector, home first: where it is on the map, its links (by
-    // index), its yields (by raw resource) and threat, and what the player
-    // knows of it.
+    // index), its yields and what's left to gather (by raw resource), its
+    // threat, and what the player knows of it.
     static Json save_map(const StarMap& map) {
         Json sectors = Json::array();
         for (const Sector& s : map.sectors) {
             Json yields = Json::object();
-            for (int r = 0; r < kRawResourceCount; ++r)
+            Json reserves = Json::object();
+            for (int r = 0; r < kRawResourceCount; ++r) {
                 yields[item_id(kRawResources[r])] = s.yields[static_cast<std::size_t>(r)];
+                reserves[item_id(kRawResources[r])] = s.reserves[static_cast<std::size_t>(r)];
+            }
             sectors.push_back({
                 {"name", s.name},
                 {"x", s.x},
                 {"y", s.y},
                 {"neighbors", s.neighbors},
                 {"yields", std::move(yields)},
+                {"reserves", std::move(reserves)},
                 {"threat", s.threat},
                 {"enemy", s.enemy ? Json(enemy_id(*s.enemy)) : Json(nullptr)},
                 {"beaten", s.beaten},
@@ -683,6 +687,16 @@ struct SaveAccess {
                     static_cast<int>(load_int(yields.at(item_id(kRawResources[r])), 0, 1'000));
             if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
                 throw LoadError("a yield for something that isn't a raw resource");
+            // Saves from before resources ran out: as much as a new map has.
+            if (const auto reserves = js.find("reserves"); reserves != js.end()) {
+                for (int r = 0; r < kRawResourceCount; ++r)
+                    s.reserves[static_cast<std::size_t>(r)] =
+                        static_cast<int>(load_int(reserves->at(item_id(kRawResources[r])), 0, 100'000'000));
+                if (reserves->size() != static_cast<std::size_t>(kRawResourceCount))
+                    throw LoadError("reserves of something that isn't a raw resource");
+            } else {
+                s.reserves = starting_reserves(s, map.sectors.empty());
+            }
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
             if (const Json& enemy = js.at("enemy"); !enemy.is_null()) {
                 s.enemy = enemy_from_id(load_string(enemy, "an enemy class"));

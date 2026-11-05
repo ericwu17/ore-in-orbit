@@ -4,10 +4,18 @@
 //
 // Sectors are linked to their neighbors; a ship jumps from one to a
 // neighbor (see World::jump). Sector 0 is home, where a game starts: safe,
-// with every raw resource. Further out, the yields vary (a sector may have
-// no iron, or twice the iridium) and the threat grows, and with it the
+// with every raw resource but iridium. Further out, the yields grow (a
+// sector may lack one resource or another, but what it has comes faster
+// the further it is from home) and so does the threat, and with it the
 // enemy ships lying in wait (see enemies.h): a sector may hold one, or
 // none, and one beaten is gone for good.
+//
+// Every sector's resources run out: each holds so many of each raw
+// resource (its reserves), and every catch a collector makes there takes
+// one. Once one is gone, it's gone for good: collectors aimed at it there
+// stall, and the fleet has to go elsewhere for more. Home holds enough to
+// reach travel (the "Escape velocity" milestone) with a margin; the
+// other sectors hold more, the richer their yields.
 //
 // What the player knows: a sector a ship has been to is visited. Its
 // neighbors are known (shown on the map, without details). A sector is
@@ -40,12 +48,29 @@ constexpr int kMaxThreat = 5;
 // items that much as fast. 0: none to be had.
 using Yields = std::array<int, kRawResourceCount>;
 
+// How many of each raw resource are left to gather in a sector, by
+// kRawResources index. 0: run out (or never there).
+using Reserves = std::array<int, kRawResourceCount>;
+
+// What home starts with: enough of each to reach the "Escape velocity"
+// milestone (fuel cells, to travel) with a factory of a fair size, a jump
+// and a first fight's ammunition, and a margin over (see the readme's
+// "Running out" section for the sums). No iridium: that's found elsewhere.
+// Other sectors start with kSectorReserves scaled by their yields (see
+// starting_reserves()).
+constexpr Reserves kHomeReserves = {7000, 1200, 1100, 1700, 0};
+// What a sector other than home holds of each at a yield of 100%: more
+// than home, and the richer its yields, the more.
+constexpr Reserves kSectorReserves = {10'500, 1800, 1650, 2550, 1500};
+
 struct Sector {
     std::string name;
     float x = 0.0f;  // where it is drawn on the map (home at 0, 0)
     float y = 0.0f;
     std::vector<int> neighbors;  // indices of the sectors linked to it
     Yields yields{};
+    // What's left to gather of each, from starting_reserves() down to 0.
+    Reserves reserves{};
     int threat = 0;  // 0 (safe) to kMaxThreat
     // The enemy ship waiting there, until it's beaten (never at threat 0).
     std::optional<EnemyClass> enemy;
@@ -55,6 +80,11 @@ struct Sector {
 
     // The yield of `kind`: 0 for a kind that isn't gathered.
     int yield(ItemKind kind) const;
+    // How many of `kind` are left to gather: 0 for a kind that isn't
+    // gathered, or has run out.
+    int left(ItemKind kind) const;
+    // Whether `kind` was there to gather and has all been gathered.
+    bool run_out(ItemKind kind) const { return yield(kind) > 0 && left(kind) == 0; }
     // An enemy ship waits there: ships that come in have a fight.
     bool hostile() const { return enemy.has_value(); }
     // Its enemy was beaten.
@@ -88,6 +118,12 @@ public:
     // A survey scanner next door: surveyed from now on.
     void survey(int i);
 };
+
+// What sector `s` holds of each raw resource before any is gathered: home's
+// kHomeReserves (`home`), or kSectorReserves scaled by its yields (none of
+// what it has none of). The same for a sector every time, so saves that
+// predate reserves can be given them.
+Reserves starting_reserves(const Sector& s, bool home);
 
 // How many sectors StarMap::generate() makes.
 constexpr int kStarMapSize = 24;
