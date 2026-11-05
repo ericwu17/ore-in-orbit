@@ -226,6 +226,8 @@ enemy is near.
   in the right panel: hand-craft one (Shift: 5).
 - **Mouse wheel**: zoom the grid (about the cursor).
 - **Middle drag, or hold Space and move the mouse**: pan the grid.
+- **H**: in a fight, show or hide the side panels (hidden by default, so
+  both ships get the room).
 - **M**: the star map; click a sector for its details, and to jump the
   ship shown there. Drag to pan, mouse wheel to zoom.
 - **[ / ]**: show the previous / next ship of the fleet (or click its tab

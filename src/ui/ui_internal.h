@@ -90,6 +90,9 @@ struct BuildUiState {
     std::optional<GridPos> drag_last;
     std::vector<GridPos> drag_placed;
     bool show_keys = false;  // the keys overlay (?)
+    // The side panels (build palette, craft panel) shown during a fight,
+    // when they make way for the enemy (H).
+    bool panels_in_fight = false;
 };
 extern BuildUiState g_build;
 

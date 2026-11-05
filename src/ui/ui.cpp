@@ -283,6 +283,7 @@ void DrawKeysWindow() {
         {paste.c_str(), "Pick the last copy up to paste"},
         {"B", "Blueprint library"},
         {"M", "Star map"},
+        {"H", "In a fight: show or hide the side panels"},
         {"[ / ]", "Previous / next ship"},
         {"?", "This list"},
         {"Esc", "Put the tool away, close what's open, then pause"},
@@ -428,19 +429,27 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         }
         if (ShortcutPressed(ImGuiKey_B))
             bp.show_library = !bp.show_library;
+        if (ShortcutPressed(ImGuiKey_H) && world.engagement_in(current.sector))
+            g_build.panels_in_fight = !g_build.panels_in_fight;
     }
 
     // The mouse wheel zooms the grid; it never scrolls the page.
     BeginFullscreenPage("##playing", ImGuiWindowFlags_NoScrollWithMouse);
     const float fh = ImGui::GetFrameHeight();
     const float gap = ImGui::GetStyle().WindowPadding.x * 2.0f;
-    const float palette_w = fh * 11.0f;
-    const float craft_w = fh * 12.0f;
-    DrawBuildPalette(ship, palette_w);
-    ImGui::SameLine(0.0f, gap);
+    // In a fight the side panels make way for both ships, unless the
+    // player brings them back (H).
+    const bool in_fight = !g_map.shown && world.engagement_in(current.sector);
+    const bool panels = !in_fight || g_build.panels_in_fight;
+    const float palette_w = panels ? fh * 11.0f : 0.0f;
+    const float craft_w = panels ? fh * 12.0f : 0.0f;
+    if (panels) {
+        DrawBuildPalette(ship, palette_w);
+        ImGui::SameLine(0.0f, gap);
+    }
     const ImVec2 column_min = ImGui::GetCursorScreenPos();
     ImVec2 column_avail = ImGui::GetContentRegionAvail();
-    column_avail.x = std::max(0.0f, column_avail.x - craft_w - gap);
+    column_avail.x = std::max(0.0f, column_avail.x - (panels ? craft_w + gap : 0.0f));
     // The middle column: the fleet's tabs, the grid under them, and the
     // hint bar under that.
     DrawFleetStrip(world);
@@ -448,6 +457,16 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const ImVec2 grid_min(column_min.x, column_min.y + strip_h);
     const ImVec2 grid_avail(column_avail.x, std::max(0.0f, column_avail.y - strip_h * 2.0f));
     ImGui::SetCursorScreenPos(grid_min);
+    if (in_fight) {
+        // The side panels' toggle, at the strip's right end.
+        const char* label = panels ? "Hide panels (H)" : "Show panels (H)";
+        const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x - w, column_min.y));
+        if (ImGui::Button(label))
+            g_build.panels_in_fight = !panels;
+        ImGui::SetItemTooltip("In a fight, the build palette and craft panel make way for both ships");
+        ImGui::SetCursorScreenPos(grid_min);
+    }
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
     // In a fight, the enemy's panel at the right of the grid.
@@ -457,7 +476,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        const float enemy_w = fight ? std::floor(std::min(grid_avail.x * 0.4f, fh * 22.0f)) : 0.0f;
+        const float enemy_w = fight ? std::floor(std::min(grid_avail.x * 0.45f, fh * (panels ? 22.0f : 34.0f))) : 0.0f;
         if (fight)
             ship_avail.x = std::max(0.0f, grid_avail.x - enemy_w - gap * 0.5f);
         DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), ship_avail);
@@ -471,8 +490,10 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     DrawToast(grid_min, ship_avail, battle_h);
     DrawSalvageWindow(world, grid_min, ship_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
-    ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
-    DrawCraftPanel(world, shown, craft_w);
+    if (panels) {
+        ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
+        DrawCraftPanel(world, shown, craft_w);
+    }
     if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
