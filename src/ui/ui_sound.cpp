@@ -74,7 +74,6 @@ std::optional<Cue> CueFor(const Event& e) {
     case EventKind::ShipLost:          return Cue{Sound::CombatShipLost, 1.0f, Heard::Anywhere};
     case EventKind::FleetLost:         return Cue{Sound::GameOver, 1.0f, Heard::Anywhere};
     case EventKind::MilestoneComplete: return Cue{Sound::GameMilestoneComplete, 1.0f, Heard::Anywhere};
-    case EventKind::CraftComplete:     return Cue{Sound::GameCraftComplete, 1.0f, Heard::OnShownShip};
     case EventKind::CargoLanded:       return Cue{Sound::GameCargoLand, 1.0f, Heard::OnShownShip};
     case EventKind::ThrustersCharged:  return Cue{Sound::GameThrustersCharged, 1.0f, Heard::OnShownShip};
     case EventKind::Jumped:            return Cue{Sound::GameJump, 1.0f, Heard::OnShownShip};
@@ -138,10 +137,14 @@ void PlayEventSounds(World& world) {
 using namespace ui;
 
 void PlayFrameSounds(Screen screen, const World& world) {
-    // The music, except over the wreck of a lost fleet (its game-over sound
-    // plays alone).
+    // The music: the fight's while the ship on screen is in one, none over
+    // the wreck of a lost fleet (its game-over sound plays alone), the
+    // background's otherwise. audio crossfades between them.
+    const FleetShip* shown = screen == Screen::Playing ? world.get_fleet().find(g_fleet.current) : nullptr;
     if (screen == Screen::Playing && world.fleet_lost())
         audio::StopMusic();
+    else if (shown && world.engagement_in(shown->sector))
+        audio::PlayMusic(audio::Music::RedAlert);
     else
         audio::PlayMusic(audio::Music::ColdOrbit);
 

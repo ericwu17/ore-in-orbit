@@ -10,9 +10,9 @@ readme's "Sounds" section), as 16-bit mono WAV:
 
     sfx/<name>.wav       one short effect per game event (see SOUNDS),
                          44.1 kHz
-    music/<name>.wav     the background track, 32 kHz, written to loop
-                         seamlessly: its echo tail is folded back onto
-                         its start
+    music/<name>.wav     the two tracks (background and combat), 32 kHz,
+                         each written to loop seamlessly: its echo tail
+                         is folded back onto its start
 
 Without --force, files that already exist are left alone, so real audio is
 never overwritten. The game plays every file it lists in src/audio/sounds.h
@@ -372,12 +372,12 @@ def build_place_belt():
 
 
 def build_remove():
-    """Unbolted and lifted back into the bridge: a wrench, then a suction
-    rising away."""
-    d = 0.22
-    pry = crush(lowpass(stepped_noise(0.06, 3000), 2200) * env(0.06, 0.001, curve=4), 6)
-    lift = lowpass(square(ramp(140, 520, d), d, 0.3), ramp(700, 2500, d), 0.4) * adsr(d, 0.01, 0.05, 0.6, 0.08)
-    return mix(0.9 * pry, 0.5 * lift, at=[0, 0.03])
+    """Whisked back into the bridge: a quick, soft swish of noise sweeping
+    up and away, with a faint tick at its start. Right-dragging removes a
+    row of buildings, so it stays small."""
+    d = 0.09
+    swish = lowpass(highpass(noise(d), 900), ramp(1200, 7000, d), 0.3) * adsr(d, 0.025, 0.02, 0.6, 0.05)
+    return mix(swish, 0.25 * relay_click(1.4, 0.01))
 
 
 def build_rotate():
@@ -400,9 +400,12 @@ def build_blueprint_place():
 
 # -- Game events --------------------------------------------------------------
 
-def game_craft_complete():
-    """Something hand-crafted drops into the bridge's inventory."""
-    return mix(beep(1175, 0.05, 0.125), beep(1568, 0.08, 0.125), 0.6 * thump(220, 0.07, 0.7), at=[0, 0.05, 0.0])
+def game_craft_queued():
+    """A hand-craft added to the bridge's queue: a soft, short blip, quieter
+    than a confirm (it's clicked often, five at a time with Shift)."""
+    d = 0.045
+    blip = tri(ramp(1400, 1900, d), d) * env(d, 0.002, curve=5)
+    return mix(crush(blip, 6), 0.3 * relay_click(1.2, 0.01))
 
 
 def game_milestone_complete():
@@ -652,7 +655,7 @@ SOUNDS = {
     "build_invalid": build_invalid,
     "build_blueprint_place": build_blueprint_place,
     # Game events
-    "game_craft_complete": game_craft_complete,
+    "game_craft_queued": game_craft_queued,
     "game_milestone_complete": game_milestone_complete,
     "game_cargo_launch": game_cargo_launch,
     "game_cargo_land": game_cargo_land,
@@ -691,8 +694,8 @@ SOUNDS = {
 LEVELS = {
     "ui_type": -10, "ui_click": -5, "ui_tab_switch": -4,
     "ui_toggle_on": -4, "ui_toggle_off": -4, "ui_panel_open": -4, "ui_panel_close": -4,
-    "build_place_belt": -4, "build_rotate": -5, "build_invalid": -3,
-    "game_ship_switch": -4, "game_craft_complete": -3,
+    "build_place_belt": -4, "build_rotate": -5, "build_remove": -9, "build_invalid": -3,
+    "game_ship_switch": -4, "game_craft_queued": -11,
     "combat_burst_laser": -2, "combat_heavy_laser": -2, "combat_missile_launch": -2,
     "combat_ion_blaster": -2, "combat_flak_cannon": -2, "combat_beam_emitter": -3,
     "combat_hit_shield": -3, "combat_miss": -5,
@@ -703,33 +706,48 @@ LEVELS = {
 
 
 # ---------------------------------------------------------------------------
-# The background track: "Cold Orbit", A minor, 96 bpm, 16 bars.
+# The music: two loops, which the game crossfades between.
 #
-# Two eight-bar halves over the same chords (i VI III VII / i VI iv V):
-# the first is bass, pad and a ticking arpeggio; the second adds a sparse
-# pulse lead and a little more drum. The last bar's E major turns back into
-# the first bar's A minor, and the echoes ringing past the end are folded
-# back onto the start, so it loops without a seam.
+#   cold_orbit   the background: A minor, 96 bpm, 16 bars, calm and cold
+#   red_alert    in a fight: D minor, 132 bpm, 16 bars, tense and driving
+#
+# Each is built over its length plus a tail, and the echoes ringing past the
+# end are folded back onto its start, so it loops without a seam.
 
-BPM = 96
-BEAT = 60.0 / BPM
-BAR = 4 * BEAT
-BARS = 16
-CHORDS = [  # one per bar: (bass root, pad voicing)
-    ("A1", ["A3", "C4", "E4", "B4"]),
-    ("F1", ["F3", "A3", "C4", "E4"]),
-    ("C2", ["G3", "C4", "E4", "B4"]),
-    ("G1", ["G3", "B3", "D4", "A4"]),
-    ("A1", ["A3", "C4", "E4", "B4"]),
-    ("F1", ["F3", "A3", "C4", "E4"]),
-    ("D2", ["F3", "A3", "D4", "E4"]),
-    ("E1", ["G#3", "B3", "E4", "F#4"]),
-]
-# Lead for bars 9-16, in eighth notes ("-" holds the last note, "." rests).
-LEAD = (
-    "E5 - - - . . B4 C5 | D5 - C5 - B4 - . . | C5 - - - . . A4 C5 | E5 - - - - - . . | "
-    "E5 - - - . . B4 C5 | D5 - E5 - A5 - . . | F5 - - - E5 - D5 - | B4 - - - G#4 - . ."
-)
+
+def place(track, sig, t):
+    """Adds `sig` into `track` starting at `t` seconds (cut off at its end)."""
+    s = n_of(t)
+    e = min(len(track), s + len(sig))
+    track[s:e] += sig[: e - s]
+
+
+def place_melody(track, pattern, t0, step, voice):
+    """Plays `pattern` (note names, "-" holding the last note, "." resting,
+    "|" between bars, one step each) into `track` from `t0`, `step` seconds
+    a step, each note made by voice(freq, dur)."""
+    steps = pattern.replace("|", " ").split()
+    k = 0
+    while k < len(steps):
+        if steps[k] in ("-", "."):
+            k += 1
+            continue
+        length = 1
+        while k + length < len(steps) and steps[k + length] == "-":
+            length += 1
+        place(track, voice(note(steps[k]), length * step * 0.95), t0 + k * step)
+        k += length
+
+
+def fold_loop(out, total, peak=0.6):
+    """`out` (longer than `total` seconds) with everything past the loop
+    point added back onto its start, normalized to `peak` (under the
+    effects)."""
+    loop = n_of(total)
+    looped = out[:loop].copy()
+    looped[: len(out) - loop] += out[loop:]
+    looped -= np.mean(looped)
+    return looped * (peak / np.max(np.abs(looped)))
 
 
 def pad_voice(freq, dur):
@@ -739,9 +757,9 @@ def pad_voice(freq, dur):
     return lowpass(v, cut, 0.2) * adsr(dur, 0.6, 0.4, 0.7, 0.8)
 
 
-def bass_note(freq, dur):
+def bass_note(freq, dur, bite=1400):
     v = square(freq, dur, 0.35) + 0.6 * saw(freq * 2, dur)
-    cut = 180 + 1400 * env(dur, 0.002, curve=5)
+    cut = 180 + bite * env(dur, 0.002, curve=5)
     return drive(lowpass(v, cut, 0.6) * adsr(dur, 0.003, 0.08, 0.7, 0.03), 1.5)
 
 
@@ -776,26 +794,51 @@ def snare():
     return crush(0.5 * tone + hiss, 5)
 
 
-def place(track, sig, t):
-    s = n_of(t)
-    e = min(len(track), s + len(sig))
-    track[s:e] += sig[: e - s]
+def tom(freq):
+    d = 0.25
+    return drive(sine(ramp(freq, freq * 0.55, d), d) * env(d, 0.001, curve=5), 1.8)
+
+
+# -- Cold Orbit -----------------------------------------------------------------
+#
+# Two eight-bar halves over the same chords (i VI III VII / i VI iv V): the
+# first is bass, pad and a ticking arpeggio; the second adds a sparse pulse
+# lead and a little more drum. The last bar's E major turns back into the
+# first bar's A minor.
+
+COLD_BEAT = 60.0 / 96
+COLD_BAR = 4 * COLD_BEAT
+COLD_CHORDS = [  # one per bar: (bass root, pad voicing)
+    ("A1", ["A3", "C4", "E4", "B4"]),
+    ("F1", ["F3", "A3", "C4", "E4"]),
+    ("C2", ["G3", "C4", "E4", "B4"]),
+    ("G1", ["G3", "B3", "D4", "A4"]),
+    ("A1", ["A3", "C4", "E4", "B4"]),
+    ("F1", ["F3", "A3", "C4", "E4"]),
+    ("D2", ["F3", "A3", "D4", "E4"]),
+    ("E1", ["G#3", "B3", "E4", "F#4"]),
+]
+# Lead for bars 9-16, in eighth notes.
+COLD_LEAD = (
+    "E5 - - - . . B4 C5 | D5 - C5 - B4 - . . | C5 - - - . . A4 C5 | E5 - - - - - . . | "
+    "E5 - - - . . B4 C5 | D5 - E5 - A5 - . . | F5 - - - E5 - D5 - | B4 - - - G#4 - . ."
+)
 
 
 def music_cold_orbit():
-    total = BARS * BAR
-    tail = 4.0
-    n = n_of(total + tail)
+    beat, bar = COLD_BEAT, COLD_BAR
+    total = 2 * len(COLD_CHORDS) * bar
+    n = n_of(total + 4.0)
     bass, pad, arp, lead, drums = (np.zeros(n) for _ in range(5))
-    eighth = BEAT / 2
-    sixteenth = BEAT / 4
+    eighth = beat / 2
+    sixteenth = beat / 4
 
-    for i, (root, voicing) in enumerate(CHORDS * 2):
-        t0 = i * BAR
-        second_half = i >= len(CHORDS)
+    for i, (root, voicing) in enumerate(COLD_CHORDS * 2):
+        t0 = i * bar
+        second_half = i >= len(COLD_CHORDS)
         # Pad: the whole bar, re-struck each chord, overlapping the next.
         for nm in voicing:
-            place(pad, pad_voice(note(nm), BAR + 0.5), t0)
+            place(pad, pad_voice(note(nm), bar + 0.5), t0)
         # Bass: driving eighths, root and its octave, a fifth near the end.
         r = note(root)
         for k, f in enumerate([r, r, r * 2, r, r, r * 2, r * 1.5, r * 2]):
@@ -809,49 +852,116 @@ def music_cold_orbit():
         # Drums: kick on 1 and 3 throughout; hats from bar 5; snare in the
         # second half, with an open hat lifting every second bar.
         place(drums, kick(), t0)
-        place(drums, 0.8 * kick(), t0 + 2 * BEAT)
+        place(drums, 0.8 * kick(), t0 + 2 * beat)
         if i >= 4:
             for k in range(8):
                 place(drums, (0.5 if k % 2 else 0.8) * hat(), t0 + k * eighth)
         if second_half:
-            place(drums, 0.7 * snare(), t0 + BEAT)
-            place(drums, 0.7 * snare(), t0 + 3 * BEAT)
+            place(drums, 0.7 * snare(), t0 + beat)
+            place(drums, 0.7 * snare(), t0 + 3 * beat)
             if i % 2 == 1:
-                place(drums, 0.5 * hat(True), t0 + 3.5 * BEAT)
-                place(drums, 0.5 * kick(), t0 + 3.5 * BEAT)
-
-    # Lead, bars 9-16.
-    steps = [s for s in LEAD.replace("|", " ").split()]
-    t_lead = 8 * BAR
-    k = 0
-    while k < len(steps):
-        s = steps[k]
-        if s in ("-", "."):
-            k += 1
-            continue
-        length = 1
-        while k + length < len(steps) and steps[k + length] == "-":
-            length += 1
-        place(lead, lead_note(note(s), length * eighth * 0.95), t_lead + k * eighth)
-        k += length
+                place(drums, 0.5 * hat(True), t0 + 3.5 * beat)
+                place(drums, 0.5 * kick(), t0 + 3.5 * beat)
+    place_melody(lead, COLD_LEAD, len(COLD_CHORDS) * bar, eighth, lead_note)
 
     arp = echo(arp, 3 * sixteenth, feedback=0.4, mix=0.35, repeats=5)[:n]
     lead = echo(lead, 3 * eighth, feedback=0.35, mix=0.35, repeats=5)[:n]
-    pad = echo(pad, 2 * BEAT, feedback=0.3, mix=0.25, repeats=3)[:n]
-
+    pad = echo(pad, 2 * beat, feedback=0.3, mix=0.25, repeats=3)[:n]
     out = 0.38 * bass + 0.16 * pad + 0.10 * arp + 0.17 * lead + 0.42 * drums
-    out = np.tanh(out * 1.4) / np.tanh(1.4)
+    return fold_loop(np.tanh(out * 1.4) / np.tanh(1.4), total)
 
-    # Fold everything past the loop point back onto the start.
-    loop = n_of(total)
-    looped = out[:loop].copy()
-    looped[: n - loop] += out[loop:]
-    looped -= np.mean(looped)
-    return looped * (0.6 / np.max(np.abs(looped)))  # sits under the effects
+
+# -- Red Alert ------------------------------------------------------------------
+#
+# The same kit, wound tight: D minor at 132 bpm, the chords leaning on the
+# half step above the root (D minor to E flat, the Phrygian sound of a
+# threat), a bass pulsing in sixteenths, a two-note ostinato ticking like a
+# warning, and four-on-the-floor kicks. The first eight bars build; the
+# second add a siren-like lead and a tom fill into the loop. The last bar's
+# A major pulls back to D minor.
+
+RED_BEAT = 60.0 / 132
+RED_BAR = 4 * RED_BEAT
+RED_CHORDS = [  # one per bar: (bass root, pad voicing)
+    ("D1", ["D3", "F3", "A3", "E4"]),
+    ("Eb1", ["Eb3", "G3", "Bb3", "D4"]),
+    ("D1", ["D3", "F3", "A3", "C4"]),
+    ("C1", ["C3", "Eb3", "G3", "D4"]),
+    ("Bb0", ["Bb2", "D3", "F3", "A3"]),
+    ("G0", ["G2", "Bb2", "D3", "F3"]),
+    ("A0", ["A2", "C#3", "E3", "Bb3"]),
+    ("A0", ["A2", "C#3", "E3", "G3"]),
+]
+# Over the chords, an ostinato in sixteenths: the root, the half step above
+# it, the root an octave up (the "-" here never hold: each step plays).
+RED_OSTINATO = [0, 1, 12, 1, 0, 1, 7, 1]
+# Lead for bars 9-16, in eighth notes: a falling siren, then a climbing line.
+RED_LEAD = (
+    "A5 - - - Bb5 - - - | A5 - - - . . F5 E5 | D5 - - - Eb5 - - - | D5 - - - . . . . | "
+    "F5 - E5 - D5 - C5 - | D5 - - - Bb4 - - - | A4 - C#5 - E5 - G5 - | A5 - - - - - . ."
+)
+
+
+def siren_note(freq, dur):
+    """The lead: a hard pulse with a fast, narrow vibrato, like an alarm."""
+    vib = 1 + 0.008 * np.sin(2 * np.pi * phase(9.0, dur))
+    v = square(freq * vib, dur, 0.3) + 0.4 * saw(freq * vib * 1.004, dur)
+    return crush(lowpass(v, 3600, 0.3) * adsr(dur, 0.004, 0.06, 0.75, 0.04), 5)
+
+
+def music_red_alert():
+    beat, bar = RED_BEAT, RED_BAR
+    total = 2 * len(RED_CHORDS) * bar
+    n = n_of(total + 4.0)
+    bass, pad, ostinato, lead, drums = (np.zeros(n) for _ in range(5))
+    eighth = beat / 2
+    sixteenth = beat / 4
+
+    for i, (root, voicing) in enumerate(RED_CHORDS * 2):
+        t0 = i * bar
+        second_half = i >= len(RED_CHORDS)
+        for nm in voicing:
+            place(pad, pad_voice(note(nm), bar + 0.3), t0)
+        # Bass: sixteenths on the root, an octave jump on every off-beat,
+        # biting harder in the second half.
+        r = note(root)
+        bite = 2600 if second_half else 1800
+        for k in range(16):
+            f = r * 2 if k % 4 == 2 else r
+            place(bass, bass_note(f, sixteenth * 0.8, bite), t0 + k * sixteenth)
+        # Ostinato: from bar 3, two octaves over the bass's root.
+        if i >= 2:
+            base = r * 4
+            for k in range(16):
+                semis = RED_OSTINATO[k % len(RED_OSTINATO)]
+                place(ostinato, arp_note(base * 2 ** (semis / 12), sixteenth * 0.8), t0 + k * sixteenth)
+        # Drums: four on the floor; sixteenth hats from bar 2; snare on 2
+        # and 4 from bar 5; a tom fill in each half's last bar.
+        last_bar = i % len(RED_CHORDS) == len(RED_CHORDS) - 1
+        for b in range(4):
+            place(drums, kick(), t0 + b * beat)
+        if i >= 1:
+            for k in range(16):
+                place(drums, (0.6 if k % 4 == 2 else 0.35) * hat(), t0 + k * sixteenth)
+        if i >= 4:
+            place(drums, 0.75 * snare(), t0 + beat)
+            if not last_bar:
+                place(drums, 0.75 * snare(), t0 + 3 * beat)
+        if last_bar:
+            for k, f in enumerate([180, 180, 140, 140, 110, 110, 90, 90]):
+                place(drums, 0.7 * tom(f), t0 + 2 * beat + k * sixteenth)
+    place_melody(lead, RED_LEAD, len(RED_CHORDS) * bar, eighth, siren_note)
+
+    ostinato = echo(ostinato, 3 * sixteenth, feedback=0.3, mix=0.25, repeats=3)[:n]
+    lead = echo(lead, 2 * eighth, feedback=0.3, mix=0.3, repeats=4)[:n]
+    pad = echo(pad, beat, feedback=0.25, mix=0.2, repeats=3)[:n]
+    out = 0.36 * bass + 0.13 * pad + 0.09 * ostinato + 0.16 * lead + 0.45 * drums
+    return fold_loop(np.tanh(out * 1.6) / np.tanh(1.6), total)
 
 
 MUSIC = {
     "cold_orbit": music_cold_orbit,
+    "red_alert": music_red_alert,
 }
 
 

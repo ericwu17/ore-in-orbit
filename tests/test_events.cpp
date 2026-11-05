@@ -1,13 +1,12 @@
 // test_events.cpp — headless tests for the events the World records as the
 // game goes on (sim/events.h), which the UI plays sounds for: fights met,
-// fought, won and lost, engines charged, jumps, cargo landing, hand-crafting
-// finished, milestones, and the log's cap.
+// fought, won and lost, engines charged, jumps, cargo landing, milestones,
+// and the log's cap.
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/events.h"
 #include "sim/fleet.h"
 #include "sim/milestones.h"
-#include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 #include "sim/world.h"
@@ -179,28 +178,6 @@ void test_cargo() {
     assert(count(events, EventKind::CargoLanded, [&](const Event& e) { return e.ship == to; }) == 1);
 }
 
-// A hand-crafting job finishing at the bridge is reported.
-void test_craft_complete() {
-    World world;
-    Bridge& bridge = world.flagship().get_bridge();
-    const Recipe* hand = nullptr;
-    for (const Recipe& r : all_recipes())
-        if (bridge.can_hand_craft(r)) {
-            hand = &r;
-            break;
-        }
-    assert(hand && "a new game can hand-craft something");
-    assert(bridge.queue_craft(*hand));
-    std::vector<Event> events;
-    for (int i = 0; i < 60 * static_cast<int>(kTicksPerSecond) && !bridge.craft_queue().empty(); ++i)
-        for (const Event& e : run(world, 1))
-            events.push_back(e);
-    assert(bridge.craft_queue().empty());
-    assert(count(events, EventKind::CraftComplete, [&](const Event& e) {
-               return e.ship == world.get_fleet().flagship().id;
-           }) == 1);
-}
-
 // The last item a milestone wants, delivered by belt as the ship ticks,
 // completes it: reported once.
 void test_milestone() {
@@ -246,7 +223,6 @@ int main() {
     test_fleet_lost();
     test_engines_and_jumps();
     test_cargo();
-    test_craft_complete();
     test_milestone();
     test_log_cap();
     std::puts("test_events: all passed");

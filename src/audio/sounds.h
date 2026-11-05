@@ -36,7 +36,7 @@ namespace audio {
     X(BuildRotate, "build_rotate")                      \
     X(BuildInvalid, "build_invalid")                    \
     X(BuildBlueprintPlace, "build_blueprint_place")     \
-    X(GameCraftComplete, "game_craft_complete")         \
+    X(GameCraftQueued, "game_craft_queued")             \
     X(GameMilestoneComplete, "game_milestone_complete") \
     X(GameCargoLaunch, "game_cargo_launch")             \
     X(GameCargoLand, "game_cargo_land")                 \
@@ -68,8 +68,10 @@ namespace audio {
     X(CombatSalvage, "combat_salvage")                  \
     X(CombatWeaponFound, "combat_weapon_found")
 
-// Every background track, the same way.
-#define ORE_MUSIC(X) X(ColdOrbit, "cold_orbit")
+// Every music track, the same way: the background, and the fight.
+#define ORE_MUSIC(X)         \
+    X(ColdOrbit, "cold_orbit") \
+    X(RedAlert, "red_alert")
 
 #define ORE_AUDIO_ENUMERATOR(id, file) id,
 #define ORE_AUDIO_FILE(id, file) file,

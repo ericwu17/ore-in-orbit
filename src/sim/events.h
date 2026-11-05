@@ -31,7 +31,6 @@ enum class EventKind {
 
     // The fleet.
     MilestoneComplete,
-    CraftComplete,      // a hand-crafted job finished at ship `ship`'s bridge
     CargoLanded,        // cargo pods landed at ship `ship`
     ThrustersCharged,   // every engine of ship `ship` charged and online: it can jump
     Jumped,             // ship `ship` jumped, to sector `sector`

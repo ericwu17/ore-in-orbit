@@ -58,8 +58,9 @@ struct DebugControls {
     int ticks_to_step = 0;    // step this many ticks next frame, paused or not
 };
 
-// The frame's own sounds (ui_sound.cpp): the music for `screen` (none once
-// the fleet of `world`, the game being played, is lost), a click for a
+// The frame's own sounds (ui_sound.cpp): the music for `screen` (the
+// fight's while the ship on screen in `world`, the game being played, is in
+// one; none once its fleet is lost), a click for a
 // press on any widget that played no sound of its own, and typing ticks.
 // Call once a frame, after drawing the screen.
 void PlayFrameSounds(Screen screen, const World& world);

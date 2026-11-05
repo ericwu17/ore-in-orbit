@@ -130,33 +130,15 @@ void World::collect(Salvage salvage) {
     salvaged.push_back(std::move(salvage));
 }
 
-namespace {
-
-// A ship's hand-crafting queue's length before the fleet ticks, to report
-// the jobs that finished.
-struct QueueBefore {
-    int id = 0;
-    std::size_t length = 0;
-};
-
-}  // namespace
-
 void World::advance_tick() {
     if (fleet_lost())
         return;
     ++current_tick;
 
-    // A bridge's queue only gets shorter within a tick by finishing a job
-    // (the player cancels between ticks), and a milestone completes as the
-    // fleet's ships tick.
+    // A milestone completes as the fleet's ships tick (deliveries reach
+    // their bridges).
     const std::size_t milestone = fleet.get_progress().current_index();
-    std::vector<QueueBefore> queues;
-    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
-        queues.push_back({s->id, s->ship.get_bridge().craft_queue().size()});
     fleet.tick(current_tick, events);
-    for (const QueueBefore& q : queues)
-        if (const FleetShip* s = fleet.find(q.id); s && s->ship.get_bridge().craft_queue().size() < q.length)
-            events.push({.kind = EventKind::CraftComplete, .ship = q.id, .sector = s->sector});
     if (fleet.get_progress().current_index() > milestone)
         events.push({.kind = EventKind::MilestoneComplete});
     report_engines();

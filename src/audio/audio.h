@@ -1,6 +1,6 @@
 // audio.h — playing the game's sounds (see sounds.h) through SDL's audio
-// device: a small software mixer, with one looping music track under any
-// number of effects. src/audio/ is the only code that touches SDL audio; the
+// device: a small software mixer, with a looping music track (crossfading
+// from one to the next) under any number of effects. src/audio/ is the only code that touches SDL audio; the
 // UI decides what to play and when (ui/ui_sound.h).
 //
 // Every call is safe without a device (none found, or before Init()): it
@@ -27,10 +27,13 @@ void Play(Sound sound, float gain = 1.0f);
 constexpr unsigned kRetriggerMs = 45;
 constexpr int kMaxVoices = 24;
 
-// Loops `music` from the start, in place of any playing; does nothing if
-// it is the one playing already.
+// Loops `music`, crossfading over kCrossfadeMs from whatever was playing;
+// does nothing if it is the one playing already. A track still fading out
+// fades back in from where it had got to; any other starts from the top.
 void PlayMusic(Music music);
+// Fades the music out, over kCrossfadeMs.
 void StopMusic();
+constexpr unsigned kCrossfadeMs = 2000;
 
 // The volumes, 0 to 1 (1: as made). The effects volume scales every
 // effect, the music volume the track. (The game's defaults are the

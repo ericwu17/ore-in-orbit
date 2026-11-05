@@ -31,6 +31,16 @@ struct Clip {
     std::vector<float> samples;
 };
 
+// A music track playing, looping: where it's got to, and its fade.
+struct Track {
+    const Clip* clip = nullptr;  // null: free
+    std::size_t pos = 0;
+    float level = 0.0f;   // 0 to 1, moving toward `target` by kFadeStep a sample
+    float target = 0.0f;  // 1: fading in (or playing), 0: fading out, then freed
+};
+// How far a track's level moves each sample: across 0..1 in kCrossfadeMs.
+constexpr float kFadeStep = 1000.0f / (static_cast<float>(kRate) * static_cast<float>(kCrossfadeMs));
+
 // A clip playing: where it's got to, and how loud.
 struct Voice {
     const Clip* clip = nullptr;  // null: free
@@ -46,7 +56,7 @@ struct State {
 
     // Read by the audio thread: changed only with the device locked.
     std::array<Voice, kMaxVoices> voices;
-    Voice track;  // the music, looping
+    std::array<Track, 2> tracks;  // the music: one playing, maybe one fading out
     float effects_gain = 0.0f;
     float music_gain = 0.0f;
 
@@ -108,13 +118,21 @@ void Mix(void*, Uint8* bytes, int len) {
     const std::size_t n = static_cast<std::size_t>(len) / sizeof(float);
     std::fill(out, out + n, 0.0f);
 
-    if (const Clip* clip = g.track.clip; clip && !clip->samples.empty()) {
-        const std::vector<float>& s = clip->samples;
-        for (std::size_t i = 0; i < n; ++i) {
-            out[i] += s[g.track.pos] * g.music_gain;
-            if (++g.track.pos == s.size())
-                g.track.pos = 0;  // the track is made to loop seamlessly
+    for (Track& t : g.tracks) {
+        if (!t.clip)
+            continue;
+        const std::vector<float>& s = t.clip->samples;
+        for (std::size_t i = 0; i < n && !s.empty(); ++i) {
+            if (t.level < t.target)
+                t.level = std::min(t.target, t.level + kFadeStep);
+            else if (t.level > t.target)
+                t.level = std::max(t.target, t.level - kFadeStep);
+            out[i] += s[t.pos] * t.level * g.music_gain;
+            if (++t.pos == s.size())
+                t.pos = 0;  // the tracks are made to loop seamlessly
         }
+        if (t.target == 0.0f && t.level == 0.0f)
+            t = Track{};
     }
     for (Voice& v : g.voices) {
         if (!v.clip)
@@ -197,8 +215,24 @@ void PlayMusic(Music music) {
     if (!g.device || g.playing == music)
         return;
     g.playing = music;
+    const Clip* clip = &g.music[static_cast<std::size_t>(music)];
     DeviceLock lock;
-    g.track = Voice{.clip = &g.music[static_cast<std::size_t>(music)], .pos = 0, .gain = 1.0f, .started = 0};
+    // Everything else fades out; this one fades back in if it's still
+    // fading out, or else starts in a free slot (or the quieter one).
+    Track* slot = nullptr;
+    for (Track& t : g.tracks) {
+        t.target = 0.0f;
+        if (t.clip == clip)
+            slot = &t;
+    }
+    if (!slot) {
+        slot = &g.tracks.front();
+        for (Track& t : g.tracks)
+            if (!t.clip || t.level < slot->level)
+                slot = &t;
+        *slot = Track{.clip = clip, .pos = 0, .level = 0.0f, .target = 1.0f};
+    }
+    slot->target = 1.0f;
 }
 
 void StopMusic() {
@@ -206,7 +240,8 @@ void StopMusic() {
         return;
     g.playing.reset();
     DeviceLock lock;
-    g.track = Voice{};
+    for (Track& t : g.tracks)
+        t.target = 0.0f;
 }
 
 Volumes GetVolumes() {

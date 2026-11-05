@@ -98,7 +98,7 @@ void DrawBuildPalette(Ship& ship, float width) {
             while (queued < n && bridge.queue_craft(*hand))
                 ++queued;
             if (queued > 0)
-                PlayUi(audio::Sound::UiConfirm);
+                PlayUi(audio::Sound::GameCraftQueued);
             else
                 SetMessage(std::string("Can't hand-craft ") + item_name(kind) + " now: see its recipe");
         }
@@ -250,7 +250,7 @@ void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
             while (queued < n && bridge.queue_craft(r))
                 ++queued;
             if (queued > 0)
-                PlayUi(audio::Sound::UiConfirm);
+                PlayUi(audio::Sound::GameCraftQueued);
         }
         ImGui::EndDisabled();
         const std::string hint = LockedHint(bridge.get_progress(), r);
