@@ -719,20 +719,22 @@ public:
     void receive(ItemKind kind) override;
 };
 
-// How long a shield projector takes to put its layer back up once it's
-// knocked down.
-constexpr Tick kShieldRecharge = 6 * kTicksPerSecond;
+// How long a shield layer knocked down takes to come back up. A ship puts
+// its layers back one at a time, FTL-style (see Ship::tick): three knocked
+// down take three times as long.
+constexpr Tick kShieldRecharge = 1 * kTicksPerSecond;
 
 // The shield projector: one shield layer around its whole ship, stopping
-// one laser shot or flak pellet before it's knocked down; then it puts it
-// back up after kShieldRecharge (not while stunned). No power needed.
+// one laser shot or flak pellet before it's knocked down; then it waits its
+// turn to put it back up, taking kShieldRecharge (not while stunned). No
+// power needed.
 class ShieldProjector : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
     // the private state.
     friend struct SaveAccess;
 
-    Tick recharge = 0;  // ticks until its layer is up again; 0: up
+    Tick recharge = 0;  // ticks of recharging until its layer is up again; 0: up
     Tick stun = 0;      // ticks it's stunned for: no recharging
 
 public:
@@ -741,6 +743,13 @@ public:
     bool up() const { return recharge == 0 && get_hp() > 0; }
     Tick get_recharge() const { return recharge; }
     Tick get_stun() const { return stun; }
+    // Whether it could recharge this tick: down and not stunned.
+    bool can_recharge() const { return recharge > 0 && stun == 0 && get_hp() > 0; }
+    // One tick of recharging (its ship picks which of its projectors).
+    void recharge_step() {
+        if (can_recharge())
+            --recharge;
+    }
     void knock_down() { recharge = kShieldRecharge; }
     void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
     void tick() override;

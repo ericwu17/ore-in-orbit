@@ -423,13 +423,15 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     }
     if (const auto* shield = dynamic_cast<const ShieldProjector*>(&b)) {
         ImGui::TextColored(theme::kTextDim, "One shield layer round the ship: it stops a laser shot or flak "
-                                            "pellet, then recharges. Missiles go through.");
+                                            "pellet, then recharges, one layer a second, in turn with the ship's "
+                                            "other projectors. Missiles go through.");
         if (shield->get_stun() > 0)
             ImGui::TextColored(theme::kBad, "Stunned by an ion hit: %d s", static_cast<int>((shield->get_stun() + kTicksPerSecond - 1) / kTicksPerSecond));
         else if (shield->up())
             ImGui::TextColored(theme::kGood, "Layer up");
         else
-            ImGui::TextColored(theme::kWarnText, "Recharging: %d s", static_cast<int>((shield->get_recharge() + kTicksPerSecond - 1) / kTicksPerSecond));
+            ImGui::TextColored(theme::kWarnText, "Down: %d%% recharged",
+                               static_cast<int>(100 * (kShieldRecharge - shield->get_recharge()) / kShieldRecharge));
     }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);

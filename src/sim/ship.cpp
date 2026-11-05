@@ -567,6 +567,17 @@ void Ship::unload(GridPos p, Unloader& unloader) {
             return;
 }
 
+void Ship::recharge_shields() {
+    // The layer furthest along, so one started is finished first.
+    ShieldProjector* next = nullptr;
+    for (const GridPos p : placed)
+        if (auto* shield = dynamic_cast<ShieldProjector*>(at(buildings, p).get());
+            shield && shield->can_recharge() && (!next || shield->get_recharge() < next->get_recharge()))
+            next = shield;
+    if (next)
+        next->recharge_step();
+}
+
 void Ship::tick() {
     for (const GridPos p : placed) {
         Building& b = *at(buildings, p);
@@ -581,6 +592,7 @@ void Ship::tick() {
     }
     for (const GridPos p : placed)
         at(buildings, p)->tick();
+    recharge_shields();
     for (const GridPos p : placed)
         pass_on(p, *at(buildings, p));
     for (const GridPos p : placed) {

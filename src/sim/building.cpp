@@ -385,8 +385,6 @@ void Weapon::receive(ItemKind kind) {
 void ShieldProjector::tick() {
     if (stun > 0)
         --stun;
-    else if (recharge > 0)
-        --recharge;
 }
 
 std::vector<ItemStack> Thruster::contents() const {

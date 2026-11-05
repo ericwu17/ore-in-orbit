@@ -259,12 +259,48 @@ void test_shields_stop_lasers() {
     player.target = bridge_of(e.ship);
     const WeaponSpec& spec = w.get_spec();
     assert(shield_layers(e.ship) == 1);
-    fight(e, player, rng, now, spec.charge + spec.flight + kTicksPerSecond);
+    fight(e, player, rng, now, spec.charge + spec.flight + kTicksPerSecond / 2);
     assert(shield_layers(e.ship) == 0);
     assert(e.ship.get_bridge().get_hp() == enemy_design(EnemyClass::Raider).hull - (spec.shots - 1) * spec.damage);
     // Back up once it has recharged (before the next volley lands).
     fight(e, player, rng, now, kShieldRecharge);
     assert(shield_layers(e.ship) == 1);
+}
+
+// Shield layers come back one at a time: two knocked down, one is up
+// after kShieldRecharge and both after twice that; a stunned projector
+// waits, while the other recharges.
+void test_shields_one_at_a_time() {
+    Rng rng{4};
+    Engagement e = make_engagement(0, EnemyClass::Corsair, rng);
+    std::vector<ShieldProjector*> shields;
+    for (const GridPos p : e.ship.placement_order())
+        if (auto* s = dynamic_cast<ShieldProjector*>(e.ship.building_anchored_at(p)))
+            shields.push_back(s);
+    assert(shields.size() == 2 && shield_layers(e.ship) == 2);
+    const auto run = [&](Tick ticks) {
+        for (Tick t = 0; t < ticks; ++t)
+            e.ship.tick();
+    };
+    for (ShieldProjector* s : shields)
+        s->knock_down();
+    assert(shield_layers(e.ship) == 0);
+    run(kShieldRecharge - 1);
+    assert(shield_layers(e.ship) == 0);
+    run(1);
+    assert(shield_layers(e.ship) == 1);
+    run(kShieldRecharge);
+    assert(shield_layers(e.ship) == 2);
+    // One stunned: the other comes back first.
+    for (ShieldProjector* s : shields)
+        s->knock_down();
+    shields[0]->stun_for(3 * kShieldRecharge);
+    run(kShieldRecharge);
+    assert(!shields[0]->up() && shields[1]->up());
+    run(kShieldRecharge);
+    assert(!shields[0]->up());
+    run(2 * kShieldRecharge);
+    assert(shields[0]->up());
 }
 
 // Missiles fly through shields; ion bolts knock a layer down and stun its
@@ -518,6 +554,7 @@ int main() {
     test_needs_power();
     test_no_fight_no_charge();
     test_shields_stop_lasers();
+    test_shields_one_at_a_time();
     test_missiles_and_ion();
     test_ion_stuns_weapons();
     test_beam();

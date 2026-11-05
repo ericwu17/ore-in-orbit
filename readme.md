@@ -176,7 +176,9 @@ velocity"); the others are the heavy laser (focus crystals too), the missile lau
 the ion blaster (knocks shields down and stuns what it hits), the flak cannon
 (a spread of pellets) and the beam emitter (sweeps a line, weakened by every
 shield layer up). Shield projectors (from "Frontier") each put up a layer
-that stops one laser shot or flak pellet, then recharges; ion thrusters
+that stops one laser shot or flak pellet, then recharges: a ship puts its
+layers back one at a time, a second each, so a volley can still break
+through; ion thrusters
 dodge 5% of shots each, up to 30%. Each ship layout has a fixed number of
 weapon ports and shield ports, one taken by each weapon or shield projector
 built: the skiff has 2 and 1, the hauler 2 and 2, the frigate 3 and 2 and

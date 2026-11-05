@@ -134,6 +134,10 @@ private:
     // bridge or engines (loading adds them from the save).
     void set_hull(const ShipLayout& ship_layout);
 
+    // One tick of recharging for the shield projector furthest along of
+    // those that can: one layer comes back at a time.
+    void recharge_shields();
+
 public:
     // An empty grid (no hull, no bridge). Games start from new_game().
     Ship();
@@ -256,6 +260,7 @@ public:
     // moving), then junctions and routers pass on what's ready, then each
     // belt's front item goes to what it points at (a tunnel's, to its exit),
     // then each building puts one item of output out to a neighbor, and
-    // each ready unloader takes one out of storage.
+    // each ready unloader takes one out of storage. One shield layer down
+    // (if any) recharges.
     void tick();
 };
