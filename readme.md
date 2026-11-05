@@ -195,8 +195,8 @@ until it mends. A ship whose bridge falls is lost, and with every ship, the
 game: the last save stays as it was, to try again from. Shoot the enemy's
 bridge down and its sector is cleared, for good, and your ship gets its
 salvage: materials and fuel, ammunition, some of its weapons, and maybe a
-weapon from its hold, one the fleet hasn't found. Jumping discharges every weapon. Buildings mend slowly while no
-enemy is near.
+weapon from its hold, one the fleet hasn't found. Jumping discharges every
+weapon. Buildings mend slowly while no enemy is near.
 
 ## Controls
 

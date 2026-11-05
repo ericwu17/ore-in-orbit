@@ -58,7 +58,7 @@ ImVec4 TileColor(ItemKind kind) {
     case ItemKind::MissileLauncher:
     case ItemKind::IonBlaster:
     case ItemKind::FlakCannon:
-    case ItemKind::BeamEmitter:       return theme::kTileTurret;
+    case ItemKind::BeamEmitter:       return theme::kTileWeapon;
     default:                          return theme::kTileMachine;
     }
 }

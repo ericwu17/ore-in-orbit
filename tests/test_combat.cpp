@@ -574,6 +574,38 @@ void test_losing() {
     assert(world.fleet_lost());
 }
 
+// A target knocked out (an engine offline, at 0) is dropped, so the
+// weapons pick again rather than fire rounds at it for nothing; and a
+// fight won leaves no weapon charged for the next one.
+void test_targets_and_standing_down() {
+    {
+        FleetShip player = new_flagship();
+        place_weapon(player.ship, ItemKind::BurstLaser, kGun, 5, 5);
+        Rng rng{5};
+        Tick now = 0;
+        Engagement e = make_engagement(0, EnemyClass::Scout, rng);
+        const Thruster* engine = e.ship.thrusters().front();
+        for (const GridPos p : e.ship.placement_order())
+            if (e.ship.building_anchored_at(p) == engine)
+                player.target = p;
+        assert(player.target);
+        ground(e.ship);
+        fight(e, player, rng, now, 1);
+        assert(!player.target);
+    }
+    World world;
+    FleetShip& flagship = world.get_fleet().flagship();
+    Weapon& w = place_weapon(flagship.ship, ItemKind::BurstLaser, kGun, 5, 5);
+    assert(world.spawn_enemy(flagship.id, EnemyClass::Scout));
+    for (int i = 0; i < 2 * static_cast<int>(kTicksPerSecond); ++i)
+        world.advance_tick();
+    assert(w.charge_fraction() > 0.0f);
+    assert(world.defeat_enemy(flagship.id));
+    world.advance_tick();
+    assert(!world.take_salvage().empty());
+    assert(w.charge_fraction() == 0.0f);
+}
+
 // The same seed fights the same fight.
 void test_deterministic() {
     const auto run = [] {
@@ -617,6 +649,7 @@ int main() {
     test_no_repair_in_a_fight();
     test_leaving();
     test_losing();
+    test_targets_and_standing_down();
     test_deterministic();
     std::puts("test_combat: all passed");
     return 0;

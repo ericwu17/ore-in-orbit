@@ -52,7 +52,6 @@ constexpr int kPortSpacing = 3;
 
 // The two kinds of port: what a weapon or a shield projector takes.
 enum class Port { Weapon, Shield };
-constexpr int kPortKindCount = 2;
 // The port a building of kind `kind` takes, if any.
 std::optional<Port> port_of(ItemKind kind);
 // The cells of `layout`'s ports of kind `port` (layout coordinates).
