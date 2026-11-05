@@ -435,7 +435,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const float fh = ImGui::GetFrameHeight();
     const float gap = ImGui::GetStyle().WindowPadding.x * 2.0f;
     const float palette_w = fh * 11.0f;
-    const float craft_w = fh * 12.0f;
+    // In a fight the right-hand column widens to hold the enemy's ship.
+    const bool in_fight = world.engagement_in(current.sector) != nullptr;
+    const float craft_w = fh * (in_fight ? 20.0f : 12.0f);
     DrawBuildPalette(ship, palette_w);
     ImGui::SameLine(0.0f, gap);
     const ImVec2 column_min = ImGui::GetCursorScreenPos();
@@ -457,14 +459,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        const float enemy_w = fight ? std::floor(std::min(grid_avail.x * 0.4f, fh * 22.0f)) : 0.0f;
-        if (fight)
-            ship_avail.x = std::max(0.0f, grid_avail.x - enemy_w - gap * 0.5f);
         DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), ship_avail);
-        if (fight) {
-            ImGui::SetCursorScreenPos(ImVec2(grid_min.x + ship_avail.x + gap * 0.5f, grid_min.y));
-            DrawEnemyPanel(world, shown, ImVec2(enemy_w, grid_avail.y));
-        }
     }
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, ship_avail);
     const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, ship_avail);
@@ -472,7 +467,23 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     DrawSalvageWindow(world, grid_min, ship_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
-    DrawCraftPanel(world, shown, craft_w);
+    if (fight) {
+        // The right-hand column: the enemy, or (picked) the craft panel.
+        const float half = (craft_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (theme::SegmentedButton("Enemy", !g_build.craft_in_fight, ImVec2(half, 0.0f)))
+            g_build.craft_in_fight = false;
+        ImGui::SameLine();
+        if (theme::SegmentedButton("Ship", g_build.craft_in_fight, ImVec2(half, 0.0f)))
+            g_build.craft_in_fight = true;
+        ImGui::SetItemTooltip("The milestone, fleet, craft queue and hand-crafting");
+        ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y + strip_h));
+        if (g_build.craft_in_fight)
+            DrawCraftPanel(world, shown, craft_w);
+        else
+            DrawEnemyPanel(world, shown, ImVec2(craft_w, ImGui::GetContentRegionAvail().y));
+    } else {
+        DrawCraftPanel(world, shown, craft_w);
+    }
     if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
