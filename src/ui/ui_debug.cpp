@@ -1,4 +1,4 @@
-// ui_debug.cpp — the developer windows: the debug menu (F1) and the ImPlot
+// ui_debug.cpp — the developer windows: the debug menu (`) and the ImPlot
 // demo window (F2) (see ui.h).
 #include "ui/ui.h"
 #include "ui/ui_internal.h"
@@ -183,7 +183,7 @@ using namespace ui;
 void DrawDevWindows(Screen screen, World& world, DebugControls& debug) {
     static bool show_debug = false;
     static bool show_implot_demo = false;
-    if (ShortcutPressed(ImGuiKey_F1))
+    if (ShortcutPressed(ImGuiKey_GraveAccent))
         show_debug = !show_debug;
     if (ShortcutPressed(ImGuiKey_F2))
         show_implot_demo = !show_implot_demo;

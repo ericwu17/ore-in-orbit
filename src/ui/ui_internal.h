@@ -15,7 +15,7 @@
 //   ui_fleet.cpp       the fleet's tabs and windows, and the star map
 //   ui_blueprints.cpp  the Blueprints window (the library)
 //   ui_menus.cpp       the main menu, the save list and the credits
-//   ui_debug.cpp       the developer windows (F1 / F2)
+//   ui_debug.cpp       the developer windows (GraveAccent / F2)
 //   ui_sound.cpp       the sounds of the player's actions and of the
 //                      simulation's events, and the music
 #pragma once

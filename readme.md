@@ -245,7 +245,7 @@ weapon. Buildings mend slowly while no enemy is near.
   While pasting: **left click** pastes, **R** turns it, **right click**,
   **Escape** or **Q** puts it away (see Blueprints).
 - **B**: the Blueprints window (saved blueprints, import and export).
-- **F1**: the debug menu, while playing: pause and single-step the
+- **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
   spawn or beat an enemy ship, give every weapon, complete the
   milestone, and the Dear ImGui demo
@@ -482,7 +482,7 @@ One directory per layer under `src/`; includes name their layer
     the Send cargo and Build a new ship windows, and the star map.
   - `ui_blueprints.cpp` — the Blueprints window.
   - `ui_menus.cpp` — the main menu, save list and credits.
-  - `ui_debug.cpp` — the debug menu (F1) and the ImPlot demo window (F2).
+  - `ui_debug.cpp` — the debug menu (Accent Grave) and the ImPlot demo window (F2).
   - `ui_common.cpp`, `ui_draw.cpp` — the shared state and widgets, and
     drawing buildings, items and icons (from their sprites, or stand-ins).
   - `ui_theme.h/.cpp` — the dark, industrial look: the palette, ImGui /

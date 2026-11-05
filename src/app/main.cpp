@@ -239,7 +239,7 @@ int main(int, char**)
     // one.
     Screen screen = Screen::MainMenu;
     bool paused = false;  // the pause menu is open over the game
-    DebugControls debug;  // the debug menu's (F1) own pause and single-stepping
+    DebugControls debug;  // the debug menu's own pause and single-stepping
     Session session;
     std::string save_list_message;  // why the last new game / load failed
     float tick_accumulator = 0.0f;

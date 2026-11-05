@@ -65,7 +65,7 @@ struct DebugControls {
 // Call once a frame, after drawing the screen.
 void PlayFrameSounds(Screen screen, const World& world);
 
-// The developer windows, on any screen: F1 toggles the debug menu (shown
+// The developer windows, on any screen: GraveAccent toggles the debug menu (shown
 // while playing: pause and single-step the simulation, give yourself items,
 // reveal the map, charge the thrusters, spawn or beat an enemy ship, complete
 // milestones, and the ImGui demo window), F2 the ImPlot demo window.
