@@ -90,6 +90,8 @@ struct BuildUiState {
     std::optional<GridPos> drag_last;
     std::vector<GridPos> drag_placed;
     bool show_keys = false;  // the keys overlay (?)
+    // The enemy's picture-in-picture over the grid, folded down to a bar.
+    bool enemy_folded = false;
 };
 extern BuildUiState g_build;
 
@@ -475,7 +477,7 @@ void DrawCombatOverlay(ImDrawList* draw, const Ship& ship, const Engagement& fig
 // The enemy panel, filling `avail` beside the grid while the ship shown is
 // in a fight: the enemy's name, bridge health, shields and evasion, and its
 // ship, whose buildings a click targets for the ship shown's weapons.
-void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail);
+void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail, bool* folded = nullptr);
 
 // ui_blueprints.cpp
 

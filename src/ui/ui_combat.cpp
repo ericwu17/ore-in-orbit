@@ -161,7 +161,7 @@ void DrawCombatOverlay(ImDrawList* draw, const Ship& ship, const Engagement& fig
     }
 }
 
-void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail) {
+void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail, bool* folded) {
     const Engagement* fight = world.engagement_in(shown.sector);
     if (!fight)
         return;
@@ -177,6 +177,13 @@ void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail) {
     theme::PushMono(theme::kFontTitle);
     ImGui::TextColored(theme::kBad, "ENEMY %s", design.name);
     theme::PopMono();
+    if (folded) {
+        // A button at the title's right that folds the panel away.
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - fh * 1.6f);
+        if (ImGui::Button("-", ImVec2(fh * 1.6f, 0.0f)))
+            *folded = true;
+        ImGui::SetItemTooltip("Fold the enemy ship away, to see your own");
+    }
     ImGui::TextColored(theme::kTextDim, "%s", design.description);
 
     // Its bridge: beaten at 0.

@@ -457,13 +457,42 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        const float enemy_w = fight ? std::floor(std::min(grid_avail.x * 0.4f, fh * 22.0f)) : 0.0f;
-        if (fight)
-            ship_avail.x = std::max(0.0f, grid_avail.x - enemy_w - gap * 0.5f);
         DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), ship_avail);
         if (fight) {
-            ImGui::SetCursorScreenPos(ImVec2(grid_min.x + ship_avail.x + gap * 0.5f, grid_min.y));
-            DrawEnemyPanel(world, shown, ImVec2(enemy_w, grid_avail.y));
+            // The enemy, picture-in-picture over the grid's top-right
+            // corner; folded, just its name and bridge.
+            const float pad = fh * 0.4f;
+            const float w = std::floor(std::min(grid_avail.x * 0.42f, fh * 18.0f));
+            const Ship& enemy = fight->ship;
+            if (g_build.enemy_folded) {
+                const float h = fh + ImGui::GetStyle().WindowPadding.y * 2.0f;
+                const ImVec2 at(grid_min.x + grid_avail.x - w - pad, grid_min.y + pad);
+                ImGui::SetCursorScreenPos(at);
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kPanel);
+                ImGui::BeginChild("##enemy_folded", ImVec2(w, h), ImGuiChildFlags_Borders,
+                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                ImGui::TextColored(theme::kBad, "ENEMY %s", fight->design().name);
+                ImGui::SameLine();
+                const float bw = ImGui::GetContentRegionAvail().x - fh * 2.2f;
+                const std::string hp = std::to_string(enemy.get_bridge().get_hp()) + " / " +
+                                       std::to_string(enemy.get_bridge().max_hp());
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, theme::kBad);
+                ImGui::ProgressBar(static_cast<float>(enemy.get_bridge().get_hp()) /
+                                       static_cast<float>(enemy.get_bridge().max_hp()),
+                                   ImVec2(std::max(bw, fh), 0.0f), hp.c_str());
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                if (ImGui::Button("+", ImVec2(fh * 1.6f, 0.0f)))
+                    g_build.enemy_folded = false;
+                ImGui::SetItemTooltip("Show the enemy ship");
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+            } else {
+                const float h = std::floor(std::min(grid_avail.y * 0.65f, fh * 24.0f));
+                const ImVec2 at(grid_min.x + grid_avail.x - w - pad, grid_min.y + pad);
+                ImGui::SetCursorScreenPos(at);
+                DrawEnemyPanel(world, shown, ImVec2(w, h), &g_build.enemy_folded);
+            }
         }
     }
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, ship_avail);
