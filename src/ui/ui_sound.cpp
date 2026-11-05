@@ -29,6 +29,15 @@ using audio::Sound;
 // A UI sound was played this frame (PlayUi), so the generic click stays out.
 bool g_played_ui_sound = false;
 
+// The left mouse press in progress: whether it began on a widget, and
+// whether anything played a sound of its own since (the generic click is
+// left out if so).
+struct Press {
+    bool on_item = false;
+    bool sounded = false;
+};
+Press g_press;
+
 // Where an event is heard (see the top of this file).
 enum class Heard {
     Anywhere,
@@ -148,11 +157,21 @@ void PlayFrameSounds(Screen screen, const World& world) {
     else
         audio::PlayMusic(audio::Music::ColdOrbit);
 
-    // A press on any widget that played nothing of its own clicks; typing
-    // ticks.
+    // A press on any widget clicks when it is let go, unless something played
+    // its own sound between press and release: most widgets (buttons,
+    // checkboxes) act on the release, others (the grid) on the press or
+    // while dragging. Typing ticks.
     const ImGuiIO& io = ImGui::GetIO();
-    if (!g_played_ui_sound && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsAnyItemActive())
-        audio::Play(Sound::UiClick);
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        g_press.on_item = ImGui::IsAnyItemActive();
+        g_press.sounded = false;
+    }
+    g_press.sounded |= g_played_ui_sound;
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (g_press.on_item && !g_press.sounded)
+            audio::Play(Sound::UiClick);
+        g_press = {};
+    }
     if (io.WantTextInput && !io.InputQueueCharacters.empty())
         audio::Play(Sound::UiType);
     g_played_ui_sound = false;

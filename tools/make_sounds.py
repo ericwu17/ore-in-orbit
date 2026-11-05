@@ -3,7 +3,7 @@
 
     python3 tools/make_sounds.py           # only the missing ones
     python3 tools/make_sounds.py --force   # all of them, overwriting
-    python3 tools/make_sounds.py --only ui_click combat_heavy_laser
+    python3 tools/make_sounds.py --only ui_click combat_heavy_laser   # just these, overwriting
 
 Needs NumPy (pip install numpy). Files go under assets/sounds/ (see the
 readme's "Sounds" section), as 16-bit mono WAV:
@@ -14,8 +14,8 @@ readme's "Sounds" section), as 16-bit mono WAV:
                          each written to loop seamlessly: its echo tail
                          is folded back onto its start
 
-Without --force, files that already exist are left alone, so real audio is
-never overwritten. The game plays every file it lists in src/audio/sounds.h
+Without --force (or --only, which names what to overwrite), files that
+already exist are left alone, so real audio is never overwritten. The game plays every file it lists in src/audio/sounds.h
 (tests/test_sounds.cpp checks the two agree), so a new sound goes there too. Everything is made from scratch here, with nothing
 sampled: pulse, saw and triangle oscillators, noise, pitch sweeps, filters,
 bit crushing and echoes. The style follows the sprites': cold, hard and
@@ -982,7 +982,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--force", action="store_true", help="overwrite sounds that already exist")
     parser.add_argument("--out", default=os.path.join(ROOT, "assets", "sounds"), help="sounds folder")
-    parser.add_argument("--only", nargs="+", metavar="NAME", help="make just these sounds (and/or music)")
+    parser.add_argument("--only", nargs="+", metavar="NAME", help="make just these sounds (and/or music), overwriting them")
     args = parser.parse_args()
 
     unknown = set(args.only or []) - set(SOUNDS) - set(MUSIC)
@@ -998,7 +998,7 @@ def main():
         if args.only and name not in args.only:
             return
         path = os.path.join(args.out, rel)
-        if os.path.exists(path) and not args.force:
+        if os.path.exists(path) and not (args.force or args.only):
             skipped += 1
             return
         _rate = rate

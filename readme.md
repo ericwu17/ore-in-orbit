@@ -357,7 +357,7 @@ oscillators, chip noise, pitch sweeps, resonant filters and bit crushing.
 Effects are leveled by loudness, quieter for the ones heard constantly. Like
 the sprite script it only writes the files that are missing, so it never
 overwrites real audio; `--force` regenerates them all, and `--only NAME...`
-just the ones named. Its output is the same on every run.
+regenerates just the ones named. Its output is the same on every run.
 
 What plays when:
 

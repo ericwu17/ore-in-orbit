@@ -500,9 +500,9 @@ void DrawBlueprintLibrary(const std::filesystem::path& dir);
 // ---------------------------------------------------------------------------
 
 // Plays `sound` for something the player just did (at `gain`, see
-// audio::Play). The frame then plays no generic click (see PlayFrameSounds
-// in ui.h), so a press that places a building sounds as a placing, not a
-// click as well.
+// audio::Play). The mouse press it came during (or ended) then plays no
+// generic click (see PlayFrameSounds in ui.h), so a button that does
+// something sounds as that, not a click as well.
 void PlayUi(audio::Sound sound, float gain = 1.0f);
 // ImGui::Checkbox, sounding the switch on or off.
 bool SoundCheckbox(const char* label, bool* v);
