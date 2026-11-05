@@ -217,7 +217,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
         const auto has = [&](int i) {
             return sectors[static_cast<std::size_t>(i)].yields[static_cast<std::size_t>(r)] > 0;
         };
-        if (std::none_of(next_door.begin(), next_door.end(), has)) {
+        if (!next_door.empty() && std::none_of(next_door.begin(), next_door.end(), has)) {
             const int nearest = *std::min_element(next_door.begin(), next_door.end());  // the index grows outward
             Sector& s = sectors[static_cast<std::size_t>(nearest)];
             s.yields[static_cast<std::size_t>(r)] = rich_yield(distance(s, home) / kMapRadius, rng);

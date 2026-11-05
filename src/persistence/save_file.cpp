@@ -211,10 +211,18 @@ struct SaveAccess {
         return j;
     }
 
-    static Progress load_progress_of(const Json& j) {
+    // `before_reserves`: a save from before resources ran out, made with the
+    // milestones as they were then (five of them, the same names in the
+    // same order, but asking for other things): one past the last of them
+    // is past every one now too, and what was delivered toward one that
+    // now asks for other things is dropped, rather than refused.
+    static Progress load_progress_of(const Json& j, bool before_reserves) {
         Progress progress;
         progress.current = static_cast<std::size_t>(
             load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
+        constexpr std::size_t kMilestonesBeforeReserves = 5;
+        if (before_reserves && progress.current >= kMilestonesBeforeReserves)
+            progress.current = all_milestones().size();
         const Json& delivered = j.at("delivered");
         if (!delivered.is_object())
             throw LoadError("expected an object of item counts, not " + delivered.dump());
@@ -226,6 +234,8 @@ struct SaveAccess {
             const ItemKind kind = *known;
             const bool asked = milestone && std::any_of(milestone->deliver.begin(), milestone->deliver.end(),
                                                         [&](const ItemStack& d) { return d.kind == kind; });
+            if (!asked && before_reserves)
+                continue;
             if (!asked)
                 throw LoadError(std::string(item_id(kind)) + " delivered, which the milestone doesn't ask for");
             progress.delivered[static_cast<std::size_t>(kind)] =
@@ -235,8 +245,11 @@ struct SaveAccess {
         // needs, so they can't all have.
         if (milestone && std::all_of(milestone->deliver.begin(), milestone->deliver.end(), [&](const ItemStack& d) {
                 return progress.delivered[static_cast<std::size_t>(d.kind)] >= d.count;
-            }))
-            throw LoadError("everything the milestone needs delivered, but not complete");
+            })) {
+            if (!before_reserves)
+                throw LoadError("everything the milestone needs delivered, but not complete");
+            progress.complete_current();  // what it asks for now was already there
+        }
         // The weapons found (none, without the list).
         if (const auto found = j.find("found_weapons"); found != j.end())
             for (const Json& w : load_array(*found, "found weapons")) {
@@ -591,10 +604,10 @@ struct SaveAccess {
 
     // `now`: the World's tick, which cargo in flight lands after; ships are
     // in one of `map`'s visited sectors.
-    static Fleet load_fleet(const Json& j, Tick now, const StarMap& map) {
+    static Fleet load_fleet(const Json& j, Tick now, const StarMap& map, bool before_reserves) {
         Fleet fleet;
         fleet.next_id = static_cast<int>(load_int(j.at("next_ship_id"), 2, 1'000'000));
-        *fleet.progress = load_progress_of(j.at("progress"));
+        *fleet.progress = load_progress_of(j.at("progress"), before_reserves);
         for (const Json& s : load_array(j.at("ships"), "ships")) {
             const int id = static_cast<int>(load_int(s.at("id"), 1, fleet.next_id - 1));
             if (fleet.find(id))
@@ -668,7 +681,10 @@ struct SaveAccess {
 
     // Checks the links: both ways, none to itself or twice, and every
     // sector reachable from home.
-    static StarMap load_map(const Json& j) {
+    // `before_reserves` is set for a save from before resources ran out
+    // (none of its sectors has any reserves saved).
+    static StarMap load_map(const Json& j, bool& before_reserves) {
+        before_reserves = true;
         StarMap map;
         const Json& sectors = load_array(j.at("sectors"), "sectors");
         if (sectors.empty() || sectors.size() > 1'000)
@@ -687,15 +703,24 @@ struct SaveAccess {
                     static_cast<int>(load_int(yields.at(item_id(kRawResources[r])), 0, 1'000));
             if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
                 throw LoadError("a yield for something that isn't a raw resource");
-            // Saves from before resources ran out: as much as a new map has.
+            // Saves from before resources ran out: as much as a new map has,
+            // and home, which had iridium then, has none now.
+            const bool home = map.sectors.empty();
             if (const auto reserves = js.find("reserves"); reserves != js.end()) {
-                for (int r = 0; r < kRawResourceCount; ++r)
-                    s.reserves[static_cast<std::size_t>(r)] =
-                        static_cast<int>(load_int(reserves->at(item_id(kRawResources[r])), 0, 100'000'000));
+                before_reserves = false;
+                for (int r = 0; r < kRawResourceCount; ++r) {
+                    const auto i = static_cast<std::size_t>(r);
+                    const Json& left = reserves->at(item_id(kRawResources[r]));
+                    s.reserves[i] = static_cast<int>(load_int(left, 0, 100'000'000));
+                    if (s.reserves[i] > 0 && s.yields[i] == 0)
+                        throw LoadError("reserves of a resource the sector has none of");
+                }
                 if (reserves->size() != static_cast<std::size_t>(kRawResourceCount))
                     throw LoadError("reserves of something that isn't a raw resource");
             } else {
-                s.reserves = starting_reserves(s, map.sectors.empty());
+                if (home)
+                    s.yields[static_cast<std::size_t>(*raw_resource_index(ItemKind::IridiumOre))] = 0;
+                s.reserves = starting_reserves(s, home);
             }
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
             if (const Json& enemy = js.at("enemy"); !enemy.is_null()) {
@@ -757,8 +782,9 @@ struct SaveAccess {
         if (!j.at("rng").is_number_unsigned())
             throw LoadError("expected the random number state, not " + j.at("rng").dump());
         world.rng.state = j.at("rng").get<std::uint64_t>();
-        world.map = load_map(j.at("star_map"));
-        world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map);
+        bool before_reserves = false;
+        world.map = load_map(j.at("star_map"), before_reserves);
+        world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map, before_reserves);
         for (const Json& e : load_array(j.at("engagements"), "fights")) {
             Engagement fight = load_engagement(e, world.current_tick, world.map, world.fleet);
             if (world.engagement_in(fight.sector))

@@ -119,8 +119,8 @@ greyed out, marked with the milestone that unlocks them.
 In order: First light, Heavy industry, Deep space, Escape velocity (fuel
 cells, to travel, and focus crystals, the first weapon's ammunition),
 Frontier and Starforge. Everything up to and including Frontier can be made
-from what home has; Starforge asks for iridium plates, and home has no
-iridium.
+from what home has; Escape velocity unlocks iridium plates and processors,
+and Starforge asks for them, but home has no iridium.
 
 ### The fleet
 
@@ -179,10 +179,11 @@ iridium ore), scaled by their yields, so the richer they are, the more.
 Home's amounts come from the sums in raw resources of what it takes to
 reach travel: the milestones up to Escape velocity, a factory of a fair size
 (around 20 asteroid collectors, 8 solar furnaces, 6 fabricators, 3
-refineries, 2 tractor arrays and 400 belts), a 25% margin for parts made
-and never used, the fuel for a first jump and a first fight's focus
-crystals. That comes to about 4,000 iron ore, 720 copper ore, 630 silica
-and 960 carbon, and home holds about 1.7 times as much. Played out in a
+refineries, 2 tractor arrays and 400 belts), a 25% margin on the
+milestones' parts for ones made and never used (none on buildings, which
+are refunded), the fuel for a first jump and a first fight's focus
+crystals. That comes to about 3,500 iron ore, 680 copper ore, 590 silica
+and 900 carbon, and home holds about 1.8 to 2 times as much. Played out in a
 model of a new game, a player with a fair-sized factory runs home's copper,
 silica and carbon dry a few minutes after Escape velocity, and has just
 enough in the bridge to make Frontier's fuel cells and focus crystals
@@ -285,8 +286,8 @@ weapon. Buildings mend slowly while no enemy is near.
 - **B**: the Blueprints window (saved blueprints, import and export).
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
-  nearly run the sector out (20 of each left), spawn or beat an enemy ship, give every weapon, complete the
-  milestone, and the Dear ImGui demo
+  nearly run the sector out (20 of each left), spawn or beat an enemy ship,
+  give every weapon, complete the milestone, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
 

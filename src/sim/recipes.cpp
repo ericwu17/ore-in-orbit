@@ -88,7 +88,7 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 8).in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).out(FabricatorMk2),
         R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(Steel).out(ExpressBelt),
 
-        // Late game (Deep space, Starforge).
+        // Late game (Deep space; the Mk3 fabricator, Starforge).
         R(Assemble, 15)
             .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10)
             .out(TractorArray).hand(),

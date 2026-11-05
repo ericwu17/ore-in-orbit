@@ -21,13 +21,13 @@ const std::vector<Milestone>& all_milestones() {
         // in other sectors, so the milestones that need it come after.
         {"Escape velocity",
          {{AdvancedCircuit, 40}, {StructuralFrame, 15}, {Glass, 60}},
-         {FuelCell, FocusCrystal, IridiumPlate}},
+         {FuelCell, FocusCrystal, IridiumPlate, Processor}},
         {"Frontier",
          {{FuelCell, 100}, {FocusCrystal, 30}},
          {ShieldProjector}},
         {"Starforge",
-         {{IridiumPlate, 40}},
-         {Processor, FabricatorMk3}},
+         {{IridiumPlate, 20}, {Processor, 20}},
+         {FabricatorMk3}},
     };
     return milestones;
 }

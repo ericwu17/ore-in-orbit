@@ -300,10 +300,12 @@ Json minimal() {
         "world": {"tick": 100, "rng": 7,
           "star_map": {"sectors": [
             {"name": "Home", "x": 0, "y": 0, "neighbors": [1],
-             "yields": {"IronOre": 100, "CopperOre": 100, "Silica": 100, "Carbon": 100, "IridiumOre": 100},
+             "yields": {"IronOre": 100, "CopperOre": 100, "Silica": 100, "Carbon": 100, "IridiumOre": 0},
+             "reserves": {"IronOre": 7000, "CopperOre": 1200, "Silica": 1100, "Carbon": 1700, "IridiumOre": 0},
              "threat": 0, "enemy": null, "beaten": false, "visited": true, "surveyed": true},
             {"name": "Next door", "x": 10, "y": -5.5, "neighbors": [0],
              "yields": {"IronOre": 0, "CopperOre": 150, "Silica": 100, "Carbon": 100, "IridiumOre": 0},
+             "reserves": {"IronOre": 0, "CopperOre": 2700, "Silica": 1650, "Carbon": 2550, "IridiumOre": 0},
              "threat": 1, "enemy": "Scout", "beaten": false, "visited": false, "surveyed": false}]},
           "fleet": {
             "next_ship_id": 2,
@@ -780,15 +782,34 @@ void test_reserves_round_trip() {
     assert(loaded->world.get_map().at(0).left(ItemKind::IronOre) == 42);
     assert(loaded->world.get_map().at(1).reserves == world.get_map().at(1).reserves);
 
-    const std::optional<LoadedSave> before = load_text(minimal().dump(), error);
+    // From before resources ran out: no reserves saved, iridium at home,
+    // and the milestones as they were (Escape velocity asked for processors).
+    Json old = minimal();
+    for (Json& s : sectors(old))
+        s.erase("reserves");
+    sectors(old)[0]["yields"]["IridiumOre"] = 100;
+    progress(old)["milestone"] = milestone_index("Escape velocity");
+    progress(old)["delivered"] = {{"Processor", 5}, {"Glass", 7}};
+    const std::optional<LoadedSave> before = load_text(old.dump(), error);
     assert(before && error.empty());
     const StarMap& map = before->world.get_map();
-    assert(map.at(0).reserves == kHomeReserves);
+    assert(map.at(0).reserves == kHomeReserves && map.at(0).yield(ItemKind::IridiumOre) == 0);
+    assert(!map.at(0).run_out(ItemKind::IridiumOre));
     assert(map.at(1).reserves == starting_reserves(map.at(1), false));
     assert(map.at(1).left(ItemKind::IronOre) == 0 && map.at(1).left(ItemKind::CopperOre) > 0);
+    const Progress& p = before->world.get_fleet().get_progress();
+    assert(p.current_index() == milestone_index("Escape velocity"));
+    assert(p.delivered_count(ItemKind::Processor) == 0 && p.delivered_count(ItemKind::Glass) == 7);
+    // Every old milestone done: every one now is too.
+    progress(old)["milestone"] = 5;
+    progress(old)["delivered"] = Json::object();
+    const std::optional<LoadedSave> done = load_text(old.dump(), error);
+    assert(done && done->world.get_fleet().get_progress().all_complete());
 
     Json save = minimal();
     sectors(save)[0]["reserves"] = {{"IronOre", 5}, {"CopperOre", 5}, {"Silica", 5}, {"Carbon", 5}};
+    assert(!load_text(save.dump(), error));
+    sectors(save)[0]["reserves"]["IridiumOre"] = 5;  // home has none of it
     assert(!load_text(save.dump(), error));
     sectors(save)[0]["reserves"]["IridiumOre"] = -1;
     assert(!load_text(save.dump(), error));
