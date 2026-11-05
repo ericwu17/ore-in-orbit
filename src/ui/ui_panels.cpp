@@ -400,6 +400,8 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         const WeaponSpec& spec = weapon->get_spec();
         ImGui::TextColored(theme::kTextDim, "%s", spec.blurb);
         if (spec.family == WeaponFamily::Beam)
+            ImGui::TextColored(theme::kTextDim, "Each shield layer up takes %d off each hit.", kBeamShieldReduction);
+        if (spec.family == WeaponFamily::Beam)
             ImGui::TextColored(theme::kTextDim, "%d damage to each building it crosses, every %.0f s", spec.damage,
                                static_cast<double>(spec.charge) / static_cast<double>(kTicksPerSecond));
         else
@@ -422,9 +424,10 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                                                 "while an enemy ship is in the sector.");
     }
     if (const auto* shield = dynamic_cast<const ShieldProjector*>(&b)) {
-        ImGui::TextColored(theme::kTextDim, "One shield layer round the ship: it stops a laser shot or flak "
-                                            "pellet, then recharges, one layer a second, in turn with the ship's "
-                                            "other projectors. Missiles go through.");
+        ImGui::TextColored(theme::kTextDim,
+                           "One shield layer round the ship: it stops a laser shot or flak pellet, then "
+                           "recharges in %.1f s, in turn with the ship's other projectors. Missiles go through.",
+                           static_cast<double>(kShieldRecharge) / static_cast<double>(kTicksPerSecond));
         if (shield->get_stun() > 0)
             ImGui::TextColored(theme::kBad, "Stunned by an ion hit: %d s", static_cast<int>((shield->get_stun() + kTicksPerSecond - 1) / kTicksPerSecond));
         else if (shield->up())

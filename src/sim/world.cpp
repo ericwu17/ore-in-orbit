@@ -72,12 +72,19 @@ void World::fight() {
         fleet.remove(id);
 }
 
+void World::stand_down(FleetShip& s) {
+    for (const GridPos p : s.ship.placement_order())
+        if (auto* w = dynamic_cast<Weapon*>(s.ship.building_anchored_at(p)))
+            w->discharge();
+    s.target.reset();
+}
+
 void World::collect(Salvage salvage) {
     Sector& sector = map.at(salvage.sector);
     sector.enemy.reset();
     sector.beaten = true;
     for (FleetShip* s : ships_in(salvage.sector))
-        s->target.reset();
+        stand_down(*s);
     if (FleetShip* s = fleet.find(salvage.ship))
         s->ship.inventory().add(salvage.items);
     for (const ItemStack& item : salvage.items)
@@ -137,7 +144,7 @@ bool World::spawn_enemy(int ship, EnemyClass enemy) {
         return false;
     std::erase_if(engagements, [&](const Engagement& e) { return e.sector == s->sector; });
     for (FleetShip* here : ships_in(s->sector))
-        here->target.reset();
+        stand_down(*here);
     Sector& sector = map.at(s->sector);
     sector.enemy = enemy;
     sector.beaten = false;
@@ -186,10 +193,7 @@ JumpResult World::jump(int ship, int sector) {
         return result;
     FleetShip& s = *fleet.find(ship);
     s.ship.burn_thrusters();
-    for (const GridPos p : s.ship.placement_order())
-        if (auto* w = dynamic_cast<Weapon*>(s.ship.building_anchored_at(p)))
-            w->discharge();
-    s.target.reset();
+    stand_down(s);
     s.sector = sector;
     s.ship.set_yields(map.at(sector).yields);
     map.visit(sector);

@@ -305,8 +305,11 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
     // The player's weapons.
     if (!enemy.bridge_destroyed())
         for (FleetShip* s : ships) {
-            if (s->target && !enemy.building_anchored_at(*s->target))
-                s->target.reset();  // shot to pieces
+            // Shot to pieces, or (an engine) knocked offline: nothing
+            // more to hit there, so pick again rather than waste rounds.
+            if (const Building* aimed = s->target ? enemy.building_anchored_at(*s->target) : nullptr;
+                s->target && (!aimed || aimed->get_hp() == 0))
+                s->target.reset();
             for (const GridPos p : s->ship.placement_order()) {
                 auto* w = dynamic_cast<Weapon*>(s->ship.building_anchored_at(p));
                 if (!w)

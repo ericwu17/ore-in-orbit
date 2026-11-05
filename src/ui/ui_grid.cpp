@@ -165,9 +165,6 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
     return plan;
 }
 
-// The build grid on a canvas filling `avail`: click / drag to build and
-// remove (or with the copy and paste tools, copy and paste), scroll to zoom,
-// middle drag (or hold Space and move) to pan.
 // A belt tunnel's underground stretch, from cell `a` to cell `b`.
 void DrawTunnelLink(ImDrawList* draw, GridPos a, GridPos b, ImVec2 origin, float cell) {
     const auto middle = [&](GridPos p) {

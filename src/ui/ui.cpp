@@ -177,6 +177,7 @@ void LeaveGame(Screen& screen) {
     g_map = {};
     g_banner = {};
     g_salvage.clear();
+    g_build.craft_in_fight = false;  // the next game's first fight opens on the enemy
     g_build.inspected.reset();
     g_build.inspected_building = nullptr;
     LeaveBlueprintTool();  // the clipboard stays, to paste into another game
@@ -452,19 +453,20 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     ImGui::SetCursorScreenPos(grid_min);
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
-    // In a fight, the enemy's panel at the right of the grid.
-    const Engagement* fight = world.engagement_in(shown.sector);
-    ImVec2 ship_avail = grid_avail;
+    // In a fight (the shown ship's), the enemy's panel in the right-hand
+    // column. Only when the column was laid out for one, so a frame where
+    // the strip switches ships doesn't squeeze it into the narrow width.
+    const Engagement* fight = in_fight ? world.engagement_in(shown.sector) : nullptr;
     if (g_map.shown) {
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), ship_avail);
+        DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), grid_avail);
     }
-    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, ship_avail);
-    const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, ship_avail);
-    DrawToast(grid_min, ship_avail, battle_h);
-    DrawSalvageWindow(world, grid_min, ship_avail);
+    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
+    const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, grid_avail);
+    DrawToast(grid_min, grid_avail, battle_h);
+    DrawSalvageWindow(world, grid_min, grid_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
     if (fight) {

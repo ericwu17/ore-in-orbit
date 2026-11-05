@@ -76,6 +76,9 @@ private:
     // A beaten enemy's salvage: into its ship's bridge, the weapons in it
     // found by the fleet, the sector cleared.
     void collect(Salvage salvage);
+    // A ship's fight is over (it jumped, or the enemy was beaten or
+    // replaced): its weapons lose their charge and it has no target.
+    void stand_down(FleetShip& s);
 
 public:
     // A new game on the map kDefaultMapSeed makes.

@@ -12,8 +12,6 @@ namespace ui {
 
 namespace {
 
-
-
 // The debug menu's item cheat: what to give, and how many.
 struct DebugGiveState {
     ItemKind kind = ItemKind::TransportBelt;
@@ -24,9 +22,9 @@ DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
 // give the bridge any items, reveal the map, charge the thrusters, spawn
-// or beat an enemy ship, give every weapon, and complete milestones. It is a developer tool, so it is
-// drawn in stock Dear ImGui (dark colors, default sizes), not the game's
-// theme.
+// or beat an enemy ship, give every weapon, and complete milestones. It is
+// a developer tool, so it is drawn in stock Dear ImGui (dark colors,
+// default sizes), not the game's theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
     // Swap the stock style in for this window (and the popups it opens),
     // keeping the theme's font size and DPI scale so the text stays legible.

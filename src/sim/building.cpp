@@ -318,7 +318,7 @@ const WeaponSpec& weapon_spec(ItemKind kind) {
     static const WeaponSpec beam_emitter{.family = WeaponFamily::Beam, .ammo = ItemKind::IridiumLens,
                                          .shots = 1, .damage = 180, .charge = 15 * s, .flight = s / 2, .spread = 10,
                                          .blurb = "Sweeps a beam across the ship, hitting every building on its line. "
-                                                  "Never misses; each shield layer up takes 40 off each hit."};
+                                                  "Never misses; each shield layer up weakens every hit."};
     switch (kind) {
     case ItemKind::BurstLaser:      return burst_laser;
     case ItemKind::HeavyLaser:      return heavy_laser;

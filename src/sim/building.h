@@ -710,7 +710,7 @@ public:
     // Fires the charged volley: burns a fuel cell and a round (unless
     // `free`), and starts charging the next.
     void fire(bool free);
-    // Loses its charge (a jump, or the fight over).
+    // Loses its charge (its ship's fight over: see World::stand_down).
     void discharge() { charge = 0; }
     void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
     void tick() override;
