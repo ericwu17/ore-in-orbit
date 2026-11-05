@@ -33,6 +33,7 @@
 #pragma once
 
 #include "sim/enemies.h"
+#include "sim/events.h"
 #include "sim/fleet.h"
 #include "sim/game_types.h"
 #include "sim/milestones.h"
@@ -40,6 +41,7 @@
 #include "sim/ship.h"
 
 #include <optional>
+#include <utility>
 #include <vector>
 
 // Every online engine dodges this much of what's fired at its ship...
@@ -94,6 +96,10 @@ struct Engagement {
     Ship ship;  // the enemy's
     std::vector<Shot> shots;
     std::vector<Impact> impacts;  // landed in the last kImpactTicks (not saved)
+    // Each side's shield layers up at the end of the last step, by the
+    // player's ship id (0: the enemy), to tell when they fall or come back
+    // (not saved: a reloaded fight just starts counting afresh).
+    std::vector<std::pair<int, int>> layers_seen;
 
     const EnemyDesign& design() const { return enemy_design(enemy); }
 };
@@ -132,6 +138,8 @@ const std::vector<TargetGroup>& default_player_priorities();
 // each already ticked this step) at World tick `now`: weapons charge and
 // fire, shots land. Returns the salvage once the enemy is beaten (its
 // bridge at 0), going to one of `ships`; `progress` says which weapons are
-// found already, and `threat` (the sector's) how rich it is.
+// found already, and `threat` (the sector's) how rich it is. What happens
+// (weapons firing, shots landing, buildings destroyed, shields falling and
+// coming back) goes into `events`.
 std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShip*>& ships, int threat,
-                                   const Progress& progress, Rng& rng, Tick now);
+                                   const Progress& progress, Rng& rng, Tick now, EventLog& events);

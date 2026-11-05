@@ -214,8 +214,8 @@ void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail) {
     if (target) {
         ImGui::TextColored(theme::kAccent, "Target: %s", target == &bridge ? "its bridge" : item_name(*target->item_kind()));
         ImGui::SameLine();
-        if (ImGui::SmallButton("Clear"))
-            world.set_target(shown.id, std::nullopt);
+        if (ImGui::SmallButton("Clear") && world.set_target(shown.id, std::nullopt))
+            PlayUi(audio::Sound::CombatTargetClear);
     } else {
         ImGui::TextColored(theme::kTextDim, "Click its buildings to pick a target. With none, your weapons fire at "
                                             "its shields, then its weapons, then its bridge.");
@@ -284,9 +284,11 @@ void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail) {
         draw->PopClipRect();
 
         if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            world.set_target(shown.id, *hovered);
+            if (world.set_target(shown.id, *hovered))
+                PlayUi(audio::Sound::CombatTargetSet);
         } else if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-            world.set_target(shown.id, std::nullopt);
+            if (shown.target && world.set_target(shown.id, std::nullopt))
+                PlayUi(audio::Sound::CombatTargetClear);
         }
         if (hovered) {
             const Building& b = *enemy.building_anchored_at(*hovered);

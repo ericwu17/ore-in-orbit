@@ -3,6 +3,7 @@
 #include "sim/world.h"
 
 #include <algorithm>
+#include <utility>
 
 const char* describe(JumpResult result) {
     switch (result) {
@@ -17,6 +18,18 @@ const char* describe(JumpResult result) {
     return "?";
 }
 
+namespace {
+
+// Every engine charged and online (and at least one): ready to jump.
+bool engines_ready(const Ship& ship) {
+    const std::vector<const Thruster*> thrusters = ship.thrusters();
+    return !thrusters.empty() && std::all_of(thrusters.begin(), thrusters.end(), [](const Thruster* t) {
+        return !t->offline() && t->charged();
+    });
+}
+
+}  // namespace
+
 World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {
     update_yields();
 }
@@ -30,7 +43,10 @@ void World::scan() {
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
         if (s->ship.has_building(ItemKind::SurveyScanner))
             for (const int n : map.at(s->sector).neighbors)
-                map.survey(n);
+                if (!map.at(n).surveyed) {
+                    map.survey(n);
+                    events.push({.kind = EventKind::SectorSurveyed, .ship = s->id, .sector = n});
+                }
 }
 
 std::vector<FleetShip*> World::ships_in(int sector) {
@@ -45,8 +61,10 @@ void World::fight() {
     // A fight wherever a ship meets an enemy.
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships()) {
         const Sector& sector = map.at(s->sector);
-        if (sector.enemy && !engagement_in(s->sector))
+        if (sector.enemy && !engagement_in(s->sector)) {
             engagements.push_back(make_engagement(s->sector, *sector.enemy, rng));
+            events.push({.kind = EventKind::EnemyEngaged, .ship = s->id, .sector = s->sector});
+        }
     }
     std::vector<Salvage> beaten;
     std::erase_if(engagements, [&](Engagement& e) {
@@ -55,7 +73,7 @@ void World::fight() {
             return true;  // left behind: the enemy waits as it was found
         const Sector& sector = map.at(e.sector);
         std::optional<Salvage> salvage =
-            combat_tick(e, here, sector.threat, fleet.get_progress(), rng, current_tick);
+            combat_tick(e, here, sector.threat, fleet.get_progress(), rng, current_tick, events);
         if (!salvage)
             return false;
         beaten.push_back(std::move(*salvage));
@@ -64,12 +82,30 @@ void World::fight() {
     for (Salvage& s : beaten)
         collect(std::move(s));
 
-    std::vector<int> lost;
+    std::vector<std::pair<int, int>> lost;  // (ship, sector)
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
         if (s->ship.bridge_destroyed())
-            lost.push_back(s->id);
-    for (const int id : lost)
+            lost.emplace_back(s->id, s->sector);
+    for (const auto& [id, sector] : lost) {
         fleet.remove(id);
+        events.push({.kind = fleet_lost() ? EventKind::FleetLost : EventKind::ShipLost, .ship = id, .sector = sector});
+    }
+}
+
+void World::report_engines() {
+    std::erase_if(ready_seen, [&](const std::pair<int, bool>& seen) { return !fleet.find(seen.first); });
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships()) {
+        const bool ready = engines_ready(s->ship);
+        const auto seen = std::find_if(ready_seen.begin(), ready_seen.end(),
+                                       [&](const std::pair<int, bool>& r) { return r.first == s->id; });
+        if (seen == ready_seen.end()) {
+            ready_seen.emplace_back(s->id, ready);
+            continue;
+        }
+        if (ready && !seen->second)
+            events.push({.kind = EventKind::ThrustersCharged, .ship = s->id, .sector = s->sector});
+        seen->second = ready;
+    }
 }
 
 void World::stand_down(FleetShip& s) {
@@ -87,6 +123,7 @@ void World::collect(Salvage salvage) {
         stand_down(*s);
     if (FleetShip* s = fleet.find(salvage.ship))
         s->ship.inventory().add(salvage.items);
+    events.push({.kind = EventKind::EnemyBeaten, .ship = salvage.ship, .sector = salvage.sector});
     for (const ItemStack& item : salvage.items)
         if (fleet.get_progress().add_found(item.kind))
             salvage.found.push_back(item.kind);
@@ -97,7 +134,15 @@ void World::advance_tick() {
     if (fleet_lost())
         return;
     ++current_tick;
-    fleet.tick(current_tick);
+
+    // A milestone completes as the fleet's ships tick (deliveries reach
+    // their bridges).
+    const std::size_t milestone = fleet.get_progress().current_index();
+    fleet.tick(current_tick, events);
+    if (fleet.get_progress().current_index() > milestone)
+        events.push({.kind = EventKind::MilestoneComplete});
+    report_engines();
+
     fight();
     if (current_tick % kTicksPerSecond == 0) {
         scan();
@@ -197,5 +242,6 @@ JumpResult World::jump(int ship, int sector) {
     s.sector = sector;
     s.ship.set_yields(map.at(sector).yields);
     map.visit(sector);
+    events.push({.kind = EventKind::Jumped, .ship = ship, .sector = sector});
     return JumpResult::Ok;
 }

@@ -99,10 +99,11 @@ FleetShip new_flagship() {
 std::optional<Salvage> fight(Engagement& e, FleetShip& player, Rng& rng, Tick& now, Tick ticks) {
     const std::vector<FleetShip*> ships{&player};
     const Progress progress;
+    EventLog events;
     for (Tick t = 0; t < ticks; ++t) {
         ++now;
         player.ship.tick();
-        if (std::optional<Salvage> s = combat_tick(e, ships, 1, progress, rng, now))
+        if (std::optional<Salvage> s = combat_tick(e, ships, 1, progress, rng, now, events))
             return s;
     }
     return std::nullopt;

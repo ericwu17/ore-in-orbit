@@ -204,7 +204,8 @@ weapon. Buildings mend slowly while no enemy is near.
   the game it first puts away the copy / paste tool, then closes what's
   open, one at a time (Send cargo, Build a new ship, the inspector, the keys
   overlay, the star map, the Blueprints window), and then opens the pause
-  menu, whose Main menu saves the game.
+  menu, whose Main menu saves the game. The pause menu also sets the
+  effects and music volumes.
 - **Left click / drag**: build the selected item on the grid. A quick drag
   leaves no gaps, and belts drawn by dragging face the way the drag goes,
   turning at corners. Belt tunnels go down one per click, showing what they
@@ -332,6 +333,62 @@ The current sprites are placeholders made by
 the sprites that are missing, so it never overwrites real art;
 `--force` regenerates them all.
 
+## Sounds
+
+`assets/sounds/` holds the game's sound effects and background music, as
+16-bit mono WAV, embedded into the executable like the sprites (add, change
+or delete one and run `make` again).
+
+- `sfx/<name>.wav` (44.1 kHz) — one per event that wants audio feedback,
+  named by group: `ui_*` (clicks, toggles, panels, errors), `build_*`
+  (placing, removing, rotating, can't-place, blueprints), `game_*` (crafting,
+  milestones, cargo pods, new ships, jumps, the star map, surveys, the enemy
+  klaxon, game over) and `combat_*` (each weapon firing, hits on hull and
+  shields, shields breaking and recharging, misses, buildings and ships
+  destroyed, targeting, salvage, weapons found).
+- `music/cold_orbit.wav` and `music/red_alert.wav` (32 kHz) — the
+  background track (40 seconds, A minor, 96 bpm, cold and calm) and the
+  fight's (29 seconds, D minor, 132 bpm, tense and driving). Each loops
+  seamlessly: play it from the start again the moment it ends.
+
+All of them are synthesized from scratch by `tools/make_sounds.py` (Python 3
+and NumPy), in the sprites' cold, hard, retro style: pulse and saw
+oscillators, chip noise, pitch sweeps, resonant filters and bit crushing.
+Effects are leveled by loudness, quieter for the ones heard constantly. Like
+the sprite script it only writes the files that are missing, so it never
+overwrites real audio; `--force` regenerates them all, and `--only NAME...`
+regenerates just the ones named. Its output is the same on every run.
+
+What plays when:
+
+- The background track loops on every screen. While the ship on screen is
+  in a fight, the fight's track takes over, crossfading over two seconds
+  each way. Over a lost fleet the music fades out, leaving the game-over
+  sound alone.
+- The player's own actions have their sounds: placing (belts more lightly),
+  removing and turning buildings, a click that can't build, pasting a
+  blueprint, opening the star map, switching ships, sending cargo, building
+  a ship, queueing a hand-craft, picking a target, taking salvage, the
+  pause menu, and any message saying something failed. Any other button or
+  widget pressed just clicks, and typing in a text field ticks.
+- What happens in the game is heard as it happens: a fight in the sector
+  of the ship on screen (each weapon firing, shots hitting, blocked by a
+  shield or dodged, shields falling and coming back, buildings destroyed,
+  engines knocked out); that ship's own business (cargo
+  landing, its engines charged, its jumps); and, wherever they happen, the
+  fleet's big moments (a milestone, an enemy met or beaten, a sector
+  surveyed, a ship lost, the game over).
+
+A sound started again within 45 ms is dropped, so a flak volley or a belt
+dragged across the grid sounds once rather than as a roar. The effects and
+music volumes (in the pause menu) are kept in `settings.json`, next to
+`saves/`. Without an audio device the game runs silent.
+
+To add a sound: add it to `tools/make_sounds.py`, run it, list it in
+`src/audio/sounds.h` (`make test` fails until the two agree), and play it
+with `ui::PlayUi()` for a player's action, or from `CueFor()` in
+`src/ui/ui_sound.cpp` for a new simulation event (`src/sim/events.h`).
+
 ## Code layout
 
 One directory per layer under `src/`; includes name their layer
@@ -384,6 +441,9 @@ One directory per layer under `src/`; includes name their layer
   - `world.h/.cpp` — `World`: owns all state (the star map, the fleet and
     the fights' random numbers), `advance_tick()` steps it; jumping between
     sectors, survey scanners, losing ships, and buildings mending.
+  - `events.h` — what just happened (`Event`: a weapon fired, cargo landed,
+    a milestone...), which `World` records in an `EventLog` each tick for
+    the UI to take (`take_events()`) and play sounds for.
 - `src/persistence/` — save files, also headless (the tests link it). The
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
@@ -401,6 +461,8 @@ One directory per layer under `src/`; includes name their layer
     directions and recipes by name, and checked reading.
   - `files.h/.cpp` — atomic writes, numbered file names and deleting, for
     both folders.
+  - `settings_file.h/.cpp` — the player's settings (the volumes), kept in
+    `settings.json`.
 - `src/ui/` — the only code that knows Dear ImGui exists.
   - `ui.h` — the `Screen` enum and the per-screen draw functions
     `main.cpp` calls each frame.
@@ -429,13 +491,26 @@ One directory per layer under `src/`; includes name their layer
     caps, collapsible headings). Every color comes from here.
   - `sprites.h/.cpp` — the embedded sprites (see Sprites), packed into
     one atlas texture at startup and looked up by item or building.
+  - `ui_sound.cpp` — what plays when (see Sounds): the player's actions'
+    sounds (`PlayUi`), the simulation's events as heard from the ship on
+    screen, the generic click, the music and the volume sliders.
+- `src/audio/` — playing sounds through SDL's audio device.
+  - `sounds.h` — every sound effect and music track, by name (header-only
+    and headless: the tests check each has its file).
+  - `audio.h/.cpp` — a small mixer: decoding the embedded WAVs, the music
+    (looping, crossfading between tracks) under any number of effects, the
+    volumes.
+  - `embedded_sounds.h/.cpp` — the embedded WAV files, by path (in their
+    own file: they're large).
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
   fixed-timestep loop, the game being played and when it is saved), the
   embedded app icon, and the macOS-only startup tweak.
 - `tests/` — the headless tests, one binary per `test_*.cpp` (`make
-  test`), linked against `src/sim/` and `src/persistence/` only.
-- `assets/` — the app icon (`logo.png`) and the sprites.
-- `tools/` — `make_placeholder_sprites.py` (see Sprites).
+  test`), linked against `src/sim/` and `src/persistence/` only (and the
+  header-only `src/audio/sounds.h`).
+- `assets/` — the app icon (`logo.png`), the sprites and the sounds.
+- `tools/` — `make_placeholder_sprites.py` (see Sprites) and
+  `make_sounds.py` (see Sounds).
 - `imgui/`, `implot/` — Dear ImGui and ImPlot, as git submodules.
-- `third_party/` — vendored single headers: nlohmann::json (saves and
-  blueprints) and stb_image (decoding the icon and sprites).
+- `third_party/` — vendored single headers: nlohmann::json (saves,
+  blueprints and settings) and stb_image (decoding the icon and sprites).

@@ -11,10 +11,14 @@
 // the game (fleet_lost). Beating it, its salvage goes to one of them, its
 // weapons found by the fleet, and the sector is cleared. Where no
 // enemy is, buildings mend, kRepairPercent of their health a second.
+//
+// What happens along the way (fights, cargo landing, milestones, jumps...)
+// is recorded as events (see events.h), for the UI to take each frame.
 #pragma once
 
 #include "sim/combat.h"
 #include "sim/enemies.h"
+#include "sim/events.h"
 #include "sim/fleet.h"
 #include "sim/game_types.h"
 #include "sim/rng.h"
@@ -23,6 +27,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 // How much of its health a damaged building mends a second, while no enemy
@@ -62,6 +67,12 @@ private:
     std::vector<Engagement> engagements;
     // What beaten enemies left, for the UI to announce (not saved).
     std::vector<Salvage> salvaged;
+    // What happened since the UI last looked (not saved).
+    EventLog events;
+    // Whether each ship's engines were ready to jump at the end of the last
+    // tick, by ship id, to report them becoming ready (not saved: a
+    // reloaded game starts watching afresh).
+    std::vector<std::pair<int, bool>> ready_seen;
 
     // Every ship's collectors gather at its sector's yields.
     void update_yields();
@@ -76,6 +87,8 @@ private:
     // A beaten enemy's salvage: into its ship's bridge, the weapons in it
     // found by the fleet, the sector cleared.
     void collect(Salvage salvage);
+    // Reports the ships whose engines just became ready to jump.
+    void report_engines();
     // A ship's fight is over (it jumped, or the enemy was beaten or
     // replaced): its weapons lose their charge and it has no target.
     void stand_down(FleetShip& s);
@@ -114,6 +127,10 @@ public:
     // What beaten enemies left since the last call, oldest first (for the
     // UI to announce).
     std::vector<Salvage> take_salvage();
+    // What happened since the last call, oldest first (see events.h).
+    std::vector<Event> take_events() { return events.take(); }
+    // The same, without taking them (the tests).
+    const std::vector<Event>& peek_events() const { return events.peek(); }
     // Puts an enemy of class `enemy` in ship `ship`'s sector, in place of
     // any there (the debug menu); false if there's no such ship.
     bool spawn_enemy(int ship, EnemyClass enemy);

@@ -59,10 +59,18 @@ FleetUiState g_fleet;
 
 MapUiState g_map;
 
+void ShowStarMap(bool shown) {
+    if (shown == g_map.shown)
+        return;
+    g_map.shown = shown;
+    PlayUi(shown ? audio::Sound::GameMapOpen : audio::Sound::UiPanelClose);
+}
+
 void SwitchToShip(int id) {
     FleetUiState& f = g_fleet;
     if (id == f.current)
         return;
+    PlayUi(audio::Sound::GameShipSwitch);
     f.cameras[f.current] = g_camera;
     g_camera = f.cameras[id];  // a ship not seen yet: centered on its bridge
     f.cameras.erase(id);
@@ -93,14 +101,26 @@ void ToggleSelected(ItemKind kind) {
         g_build.selected = kind;
 }
 
-void SetMessage(std::string message, ImVec4 color) {
+namespace {
+
+void ShowMessage(std::string message, ImVec4 color) {
     g_build.message = std::move(message);
     g_build.message_color = color;
     g_build.message_time = ImGui::GetTime();
 }
 
+}  // namespace
+
+void SetMessage(std::string message, ImVec4 color) {
+    const ImVec4 bad = theme::kBad;
+    if (color.x == bad.x && color.y == bad.y && color.z == bad.z && color.w == bad.w)
+        PlayUi(audio::Sound::UiError);
+    ShowMessage(std::move(message), color);
+}
+
 void SetBuildMessage(BuildResult result) {
-    SetMessage(describe(result));
+    PlayUi(audio::Sound::BuildInvalid);
+    ShowMessage(describe(result), theme::kBad);
 }
 
 std::optional<BuildingSettings> SettingsOf(const Building& b) {

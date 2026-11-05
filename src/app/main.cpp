@@ -5,7 +5,8 @@
 //   1. poll events          (SDL -> ImGui backends)
 //   2. advance simulation   (while playing; fixed timestep: exactly
 //                            kTicksPerSecond per second)
-//   3. build UI             (immediate mode: re-describe every frame)
+//   3. build UI             (immediate mode: re-describe every frame),
+//                            then play its sounds (ui.h, audio/audio.h)
 //   4. render               (ImGui draw data -> OpenGL)
 //
 // The game being played is saved to its file (persistence/save_slots.h)
@@ -27,7 +28,9 @@
 #include "implot.h"
 
 #include "app/app_icon.h"
+#include "audio/audio.h"
 #include "persistence/save_slots.h"
+#include "persistence/settings_file.h"
 #include "sim/game_types.h"
 #include "sim/world.h"
 #include "ui/sprites.h"
@@ -65,6 +68,17 @@ static void step_world(World& world, float delta_time, float& tick_accumulator)
         world.advance_tick();
         tick_accumulator -= kSecondsPerTick;
     }
+}
+
+// The volumes the settings file holds, and back.
+static audio::Volumes volumes_of(const Settings& settings)
+{
+    return {.effects = settings.effects_volume, .music = settings.music_volume};
+}
+
+static Settings settings_of(const audio::Volumes& volumes)
+{
+    return {.effects_volume = volumes.effects, .music_volume = volumes.music};
 }
 
 // Seconds of play between autosaves.
@@ -180,7 +194,8 @@ int main(int, char**)
     SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(1);  // enable vsync
 
-    // Persistence: the window layout (imgui.ini), the saves/ folder and the
+    // Persistence: the window layout (imgui.ini), the settings (settings.json:
+    // the volumes), the saves/ folder and the
     // blueprints/ folder (the blueprint library, shared by every game) live
     // in SDL's per-user app-data directory (SDL_GetPrefPath takes an org and
     // an app name — created if needed):
@@ -194,6 +209,12 @@ int main(int, char**)
     const std::string ini_path = pref_dir + "imgui.ini";  // must outlive the ImGui context
     const std::filesystem::path saves_dir = std::filesystem::path(pref_dir) / "saves";
     const std::filesystem::path blueprints_dir = std::filesystem::path(pref_dir) / "blueprints";
+    const std::filesystem::path settings_path = std::filesystem::path(pref_dir) / "settings.json";
+
+    // Sound (audio/audio.h): without a device the game just runs silent.
+    audio::Init();
+    audio::SetVolumes(volumes_of(read_settings_file(settings_path)));
+    audio::Volumes saved_volumes = audio::GetVolumes();
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -281,6 +302,17 @@ int main(int, char**)
         case Screen::Credits:  DrawCredits(screen); break;
         }
         DrawDevWindows(screen, session.world, debug);
+        PlayFrameSounds(screen, session.world);
+        // The volumes changed (in the pause menu): saved once the slider is
+        // let go, not on every step of the drag.
+        if (const audio::Volumes v = audio::GetVolumes();
+            (v.effects != saved_volumes.effects || v.music != saved_volumes.music) && !ImGui::IsAnyItemActive())
+        {
+            std::string error;
+            if (!write_settings_file(settings_path, settings_of(v), error))
+                printf("Error: saving the settings: %s\n", error.c_str());
+            saved_volumes = v;
+        }
         if (previous_screen == Screen::Playing && screen != Screen::Playing)
         {
             save_session(session);
@@ -308,6 +340,7 @@ int main(int, char**)
     ui::sprites::Unload();  // after the renderer freed its texture
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
+    audio::Shutdown();
 
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);

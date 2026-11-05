@@ -390,14 +390,16 @@ void Fleet::dispatch(Tick now) {
     partial_since = std::move(still_partial);
 }
 
-void Fleet::tick(Tick now) {
+void Fleet::tick(Tick now, EventLog& events) {
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick();
     std::erase_if(transfers, [&](const Transfer& t) {
         if (t.arrives > now)
             return false;
-        if (FleetShip* target = find(t.to))
+        if (FleetShip* target = find(t.to)) {
             target->ship.inventory().add(t.items);
+            events.push({.kind = EventKind::CargoLanded, .ship = t.to, .sector = target->sector});
+        }
         return true;
     });
     if (now % kDispatchInterval == 0)

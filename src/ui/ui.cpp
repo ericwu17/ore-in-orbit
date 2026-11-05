@@ -133,8 +133,10 @@ void DrawSalvageWindow(World& world, ImVec2 grid_min, ImVec2 grid_size) {
         ImGui::Separator();
         if (g_salvage.size() > 1)
             ImGui::TextColored(theme::kTextDim, "%zu more salvaged after this", g_salvage.size() - 1);
-        if (theme::PrimaryButton("Take it", ImVec2(fh * 6.0f, 0.0f)))
+        if (theme::PrimaryButton("Take it", ImVec2(fh * 6.0f, 0.0f))) {
+            PlayUi(s.found.empty() ? audio::Sound::CombatSalvage : audio::Sound::CombatWeaponFound);
             g_salvage.pop_front();
+        }
     }
     ImGui::End();
 }
@@ -339,6 +341,7 @@ void DrawFleetLost(Screen& screen) {
 using namespace ui;
 
 void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir) {
+    PlayEventSounds(world);
     if (world.fleet_lost()) {
         paused = false;
         DrawFleetLost(screen);
@@ -353,9 +356,10 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     static bool popup_was_open = false;
     BlueprintUiState& bp = g_blueprints;
     if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {
-        if (paused)
+        if (paused) {
             paused = false;
-        else if (bp.tool != Tool::Build)
+            PlayUi(audio::Sound::UiPanelClose);
+        } else if (bp.tool != Tool::Build)
             LeaveBlueprintTool();
         else if (g_fleet.show_send)
             g_fleet.show_send = false;
@@ -367,11 +371,13 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         } else if (g_build.show_keys)
             g_build.show_keys = false;
         else if (g_map.shown)
-            g_map.shown = false;
+            ShowStarMap(false);
         else if (bp.show_library)
             bp.show_library = false;
-        else
+        else {
             paused = true;
+            PlayUi(audio::Sound::UiPanelOpen);
+        }
     }
 
     FleetShip& current = CurrentShip(world.get_fleet());
@@ -382,7 +388,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         if (ShortcutPressed(ImGuiKey_RightBracket))
             CycleShip(world.get_fleet(), 1);
         if (ShortcutPressed(ImGuiKey_M))
-            g_map.shown = !g_map.shown;
+            ShowStarMap(!g_map.shown);
         const std::vector<ItemKind> list = BuildList(ship);
         for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
             if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
@@ -416,6 +422,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
                 for (int turns = back ? 3 : 1; turns > 0; --turns)
                     bp.held = rotated_cw(*bp.held);
             }
+            PlayUi(audio::Sound::BuildRotate);
         }
         if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
             LeaveBlueprintTool();
@@ -472,11 +479,15 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     if (fight) {
         // The right-hand column: the enemy, or (picked) the craft panel.
         const float half = (craft_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-        if (theme::SegmentedButton("Enemy", !g_build.craft_in_fight, ImVec2(half, 0.0f)))
+        if (theme::SegmentedButton("Enemy", !g_build.craft_in_fight, ImVec2(half, 0.0f))) {
             g_build.craft_in_fight = false;
+            PlayUi(audio::Sound::UiTabSwitch);
+        }
         ImGui::SameLine();
-        if (theme::SegmentedButton("Ship", g_build.craft_in_fight, ImVec2(half, 0.0f)))
+        if (theme::SegmentedButton("Ship", g_build.craft_in_fight, ImVec2(half, 0.0f))) {
             g_build.craft_in_fight = true;
+            PlayUi(audio::Sound::UiTabSwitch);
+        }
         ImGui::SetItemTooltip("The milestone, fleet, craft queue and hand-crafting");
         ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y + strip_h));
         if (g_build.craft_in_fight)
@@ -505,12 +516,17 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     if (ImGui::BeginPopupModal(kPausePopup, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
-        if (theme::PrimaryButton("Resume", button_size))
+        if (theme::PrimaryButton("Resume", button_size)) {
             paused = false;
+            PlayUi(audio::Sound::UiPanelClose);
+        }
         if (ImGui::Button("Main menu", button_size)) {
             paused = false;
             LeaveGame(screen);
         }
+        ImGui::Spacing();
+        ImGui::TextColored(theme::kTextDim, "Volume");
+        VolumeSliders(button_size.x - ImGui::CalcTextSize("Effects").x - ImGui::GetStyle().ItemInnerSpacing.x);
         if (!paused)
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
