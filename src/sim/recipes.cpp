@@ -104,13 +104,15 @@ std::vector<Recipe> make_recipes() {
 
         // Ammunition and shields. Weapons have no recipes: they are found
         // (see milestones.h). Focus crystals and the shield projector come
-        // with milestones; the rest of the ammunition with its weapon.
-        R(Assemble, 1).in(Glass, 2).in(CopperPlate).out(FocusCrystal, 2),
+        // with milestones; the rest of the ammunition with its weapon. A
+        // round is dear, a volley's worth of refined parts, so firing has
+        // to be paid for by the factory.
+        R(Assemble, 4).in(Glass, 4).in(CopperPlate, 4).in(Circuit, 2).out(FocusCrystal),
         R(Assemble, 8).in(StructuralFrame, 6).in(AdvancedCircuit, 6).in(CopperPlate, 20).out(ShieldProjector),
-        R(Assemble, 2).in(Steel).in(Plastic).in(FuelCell).out(Missile),
-        R(Assemble, 1).in(CopperPlate, 2).in(Silicon).out(IonCell),
-        R(Assemble, 1).in(IronPlate, 3).in(Steel).out(FlakShell),
-        R(Assemble, 3).in(IridiumPlate, 2).in(Glass, 2).in(AdvancedCircuit).out(IridiumLens),
+        R(Assemble, 6).in(Steel, 4).in(Plastic, 4).in(FuelCell, 2).in(AdvancedCircuit).out(Missile),
+        R(Assemble, 5).in(CopperPlate, 6).in(Silicon, 4).in(FuelCell).in(AdvancedCircuit).out(IonCell),
+        R(Assemble, 5).in(Steel, 4).in(Gear, 4).in(Plastic, 2).out(FlakShell),
+        R(Assemble, 10).in(IridiumPlate, 6).in(Glass, 6).in(Processor).out(IridiumLens),
     };
 }
 

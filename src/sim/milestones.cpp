@@ -22,7 +22,7 @@ const std::vector<Milestone>& all_milestones() {
          {{Processor, 20}},
          {FabricatorMk3, FuelCell, FocusCrystal}},
         {"Frontier",
-         {{FuelCell, 100}, {FocusCrystal, 100}},
+         {{FuelCell, 100}, {FocusCrystal, 30}},
          {ShieldProjector}},
     };
     return milestones;

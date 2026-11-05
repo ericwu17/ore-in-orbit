@@ -169,20 +169,21 @@ pick its shields, then its weapons, then its bridge.
 
 Weapons are the only buildings that need power: each charges while it holds
 fuel cells and ammunition (delivered by belt), then fires a volley, burning
-one of each. Weapons can't be made: they are found, salvaged from beaten
-enemy ships, and finding one unlocks its ammunition's recipe. A new game
-starts with a burst laser, which fires focus crystals (from "Escape
-velocity"); the others are the heavy laser (focus crystals too), the missile launcher (through shields),
-the ion blaster (knocks shields down and stuns what it hits), the flak cannon
-(a spread of pellets) and the beam emitter (sweeps a line, weakened by every
+one of each. Ammunition is dear, each round a volley's worth of refined
+parts, so a ship's guns need a factory behind them. Weapons can't be made:
+they are found, salvaged from beaten enemy ships, and finding one unlocks
+its ammunition's recipe. A new game starts with a burst laser, which fires
+focus crystals (from "Escape velocity"); the others are the heavy laser
+(focus crystals too), the missile launcher (through shields), the ion
+blaster (knocks shields down and stuns what it hits), the flak cannon (a
+spread of pellets) and the beam emitter (sweeps a line, weakened by every
 shield layer up). Shield projectors (from "Frontier") each put up a layer
 that stops one laser shot or flak pellet, then recharges: a ship puts its
 layers back one at a time, a second each, so a volley can still break
-through; ion thrusters
-dodge 5% of shots each, up to 30%. Each ship layout has a fixed number of
-weapon ports and shield ports, one taken by each weapon or shield projector
-built: the skiff has 2 and 1, the hauler 2 and 2, the frigate 3 and 2 and
-the carrier 4 and 3.
+through; ion thrusters dodge 5% of shots each, up to 30%. Each ship layout
+has a fixed number of weapon ports and shield ports, one taken by each
+weapon or shield projector built: the skiff has 2 and 1, the hauler 2 and 2,
+the frigate 3 and 2 and the carrier 4 and 3.
 
 Enemy weapons shoot at your buildings by their design's priorities (its
 weapons, its shields, its engines, its bridge...), now and then at anything.
