@@ -466,9 +466,8 @@ struct SaveAccess {
             }
 
         if (const std::optional<ItemKind> kind = b->item_kind())
-            if (const std::optional<Port> port = port_of(*kind); port && ship.ports_taken(*port) >= ship.ports(*port))
-                throw LoadError(std::string("more ") + port_name(*port) + "s than the layout has " + port_name(*port) +
-                                " ports");
+            if (const BuildResult ports = ship.check_ports(*kind, p, size); ports != BuildResult::Ok)
+                throw LoadError(std::string("a ") + item_id(*kind) + " not where the ports allow: " + describe(ports));
 
         load_state(j, *b);
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))

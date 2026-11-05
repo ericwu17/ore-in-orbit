@@ -33,8 +33,10 @@ const char* describe(BuildResult result) {
     case BuildResult::NoneInInventory:  return "None left in the bridge inventory";
     case BuildResult::NothingThere:     return "Nothing to remove there";
     case BuildResult::NotRemovable:     return "Part of the ship's layout: it can't be removed";
-    case BuildResult::NoWeaponPort:     return "Every weapon port on this ship is taken";
-    case BuildResult::NoShieldPort:     return "Every shield port on this ship is taken";
+    case BuildResult::NoWeaponPort:     return "Weapons go over a free weapon port (the marked tiles)";
+    case BuildResult::NoShieldPort:     return "Shield projectors go over a free shield port (the marked tiles)";
+    case BuildResult::OnWeaponPort:     return "That's a weapon port: only a weapon goes over it";
+    case BuildResult::OnShieldPort:     return "That's a shield port: only a shield projector goes over it";
     }
     return "?";
 }
@@ -254,24 +256,48 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing, const Pl
         for (int x = p.x; x < p.x + size.w; ++x)
             if (occupied({x, y}))
                 return BuildResult::Occupied;
-    if (const std::optional<Port> port = port_of(kind);
-        port && ports_taken(*port) + planned.ports[static_cast<std::size_t>(*port)] >= ports(*port))
-        return *port == Port::Weapon ? BuildResult::NoWeaponPort : BuildResult::NoShieldPort;
+    if (const BuildResult ports_ok = check_ports(kind, p, size); ports_ok != BuildResult::Ok)
+        return ports_ok;
     if (planned.inventory.count(kind) <= 0)
         return BuildResult::NoneInInventory;
     return BuildResult::Ok;
 }
 
 int Ship::ports(Port port) const {
-    return layout ? layout_ports(*layout, port) : 0;
+    return layout ? static_cast<int>(layout_ports(*layout, port).size()) : 0;
 }
 
 int Ship::ports_taken(Port port) const {
     int n = 0;
-    for (const GridPos p : placed)
-        if (const std::optional<ItemKind> kind = at(buildings, p)->item_kind(); kind && port_of(*kind) == port)
-            ++n;
+    if (layout)
+        for (const GridPos q : layout_ports(*layout, port))
+            n += anchor_of(layout_to_grid(*layout, q)) ? 1 : 0;
     return n;
+}
+
+std::optional<Port> Ship::port_at(GridPos p) const {
+    if (!layout)
+        return std::nullopt;
+    for (const Port port : {Port::Weapon, Port::Shield})
+        for (const GridPos q : layout_ports(*layout, port))
+            if (layout_to_grid(*layout, q) == p)
+                return port;
+    return std::nullopt;
+}
+
+BuildResult Ship::check_ports(ItemKind kind, GridPos p, GridSize size) const {
+    const std::optional<Port> needs = port_of(kind);
+    bool over = false;
+    for (int y = p.y; y < p.y + size.h; ++y)
+        for (int x = p.x; x < p.x + size.w; ++x)
+            if (const std::optional<Port> port = port_at({x, y})) {
+                if (port != needs)
+                    return *port == Port::Weapon ? BuildResult::OnWeaponPort : BuildResult::OnShieldPort;
+                over = true;
+            }
+    if (needs && !over)
+        return *needs == Port::Weapon ? BuildResult::NoWeaponPort : BuildResult::NoShieldPort;
+    return BuildResult::Ok;
 }
 
 BuildResult Ship::place(ItemKind kind, GridPos p, Direction facing) {

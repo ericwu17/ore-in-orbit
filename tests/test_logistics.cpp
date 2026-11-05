@@ -11,6 +11,7 @@
 #include "sim/world.h"
 
 #include <cassert>
+#include <memory>
 #include <cstdio>
 
 namespace {
@@ -968,11 +969,20 @@ void test_unloader_filter() {
 // for something the weapon doesn't take moves nothing; with none, the
 // kinds it won't take are passed over.
 void test_unloader_from_bridge() {
-    World world;
-    Ship& ship = world.flagship();
-    ship.inventory().add({{ItemKind::Unloader, 1}, {ItemKind::BurstLaser, 1}, {ItemKind::FocusCrystal, 20}});
     const GridPos unloader{b1 + 1, c};
     const GridPos turret_at{b1 + 2, c};
+    // The starter layout with a weapon port right there, by the bridge.
+    static const ShipLayout layout = [&] {
+        ShipLayout l = starter_layout();
+        const GridPos origin = layout_origin(l);
+        l.weapon_ports.push_back({turret_at.x - origin.x, turret_at.y - origin.y});
+        return l;
+    }();
+    World world;
+    Ship& ship = world.flagship();
+    ship = Ship::from_layout(layout);
+    ship.get_bridge().share_progress(std::make_shared<Progress>());
+    ship.inventory().add({{ItemKind::Unloader, 1}, {ItemKind::BurstLaser, 1}, {ItemKind::FocusCrystal, 20}});
     assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::BurstLaser, turret_at) == BuildResult::Ok);
     assert(ship.unload_source(unloader) == &ship.get_bridge());

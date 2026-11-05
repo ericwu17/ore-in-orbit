@@ -20,6 +20,24 @@ void DrawHull(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ImU32 hull) 
         draw->AddRectFilled(min, max, hull);
 }
 
+// A port's tile from `min`, `cell` across: tinted its kind's color, with a
+// crosshair (a weapon port) or a ring (a shield port).
+void DrawPort(ImDrawList* draw, ImVec2 min, float cell, Port port) {
+    const ImVec4 color = port == Port::Weapon ? theme::kTileWeaponPort : theme::kTileShieldPort;
+    const ImVec2 max(min.x + cell, min.y + cell);
+    draw->AddRectFilled(min, max, theme::U32(color, 0.45f));
+    draw->AddRect(min, max, theme::U32(color), 0.0f, 0, std::max(1.0f, cell * 0.08f));
+    const ImVec2 c(min.x + cell * 0.5f, min.y + cell * 0.5f);
+    const float r = cell * 0.28f;
+    const float t = std::max(1.0f, cell * 0.08f);
+    const ImU32 glyph = theme::U32(theme::kTileGlyph);
+    if (port == Port::Weapon) {
+        draw->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), glyph, t);
+        draw->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), glyph, t);
+    }
+    draw->AddCircle(c, r * 0.75f, glyph, 0, t);
+}
+
 // Amber brackets round the corners of `min`..`max`, marking the building
 // being inspected.
 void DrawCornerBrackets(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 color, float cell) {
@@ -442,6 +460,12 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
             }
         }
     }
+    // The ports, over the hull (buildings over them hide them): a tile of
+    // their color with a crosshair.
+    if (const ShipLayout* layout = ship.get_layout())
+        for (const Port port : {Port::Weapon, Port::Shield})
+            for (const GridPos q : layout_ports(*layout, port))
+                DrawPort(draw, CellMin(origin, cell, layout_to_grid(*layout, q)), cell, port);
     // Buildings after all the hull, since larger ones overlap later cells.
     // Ones anchored up to kMaxFootprint - 1 cells above / left of the view
     // still reach into it.

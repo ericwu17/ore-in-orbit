@@ -204,7 +204,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
 namespace {
 
 // A small picture of `layout` filling `size` from the cursor: its hull, its
-// bridge and its engines.
+// bridge, its engines and its ports.
 void DrawLayoutPreview(const ShipLayout& layout, ImVec2 size) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(size);
@@ -224,6 +224,10 @@ void DrawLayoutPreview(const ShipLayout& layout, ImVec2 size) {
     box(layout.bridge, {kBridgeSize, kBridgeSize}, theme::kTileBridge);
     for (const GridPos e : layout.engines)
         box(e, footprint_of(ItemKind::IonThruster), theme::kTileSystem);
+    for (const GridPos p : layout.weapon_ports)
+        box(p, {1, 1}, theme::kTileWeaponPort);
+    for (const GridPos p : layout.shield_ports)
+        box(p, {1, 1}, theme::kTileShieldPort);
 }
 
 }  // namespace
@@ -268,7 +272,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
     ImGui::PopTextWrapPos();
     ImGui::Text("%dx%d, %d hull tiles, %zu ion thrusters", bounds.w, bounds.h, layout_hull_count(layout),
                 layout.engines.size());
-    ImGui::Text("%d weapon ports, %d shield ports", layout.weapon_ports, layout.shield_ports);
+    ImGui::Text("%zu weapon ports, %zu shield ports", layout.weapon_ports.size(), layout.shield_ports.size());
 
     // What it costs, against what this bridge has.
     const Inventory& inv = current.ship.inventory();

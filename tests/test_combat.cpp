@@ -19,17 +19,21 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <set>
 
 namespace {
 
-// East of the bridge, on the starting hull: room for a 2x2 or 3x3 building
-// at each.
-constexpr GridPos kGun{72, 64};
-constexpr GridPos kGun2{72, 68};
-constexpr GridPos kGun3{76, 64};
-// West of the bridge.
-constexpr GridPos kShield{52, 64};
+// The starting hull's ports, on the grid: building anchored at one covers
+// it, with room for a 2x2 or 3x3.
+GridPos port_cell(Port port, std::size_t i) {
+    return layout_to_grid(starter_layout(), layout_ports(starter_layout(), port)[i]);
+}
+const GridPos kGun = port_cell(Port::Weapon, 0);
+const GridPos kGun2 = port_cell(Port::Weapon, 1);
+const GridPos kShield = port_cell(Port::Shield, 0);
+// Bare hull east of the bridge, away from any port.
+constexpr GridPos kNoPort{76, 64};
 
 // Feeds the building at `p` up to `n` of `kind`, from the cell above it as
 // from a belt.
@@ -158,46 +162,77 @@ void test_enemies_built() {
         }
 }
 
-// A ship holds no more weapons or shield projectors than its layout has
-// ports for, placed one at a time or pasted from a blueprint; each layout
-// has some, more the bigger it is.
-void test_ports() {
-    int weapons = 0;
+// Ports are 1x1 tiles of a layout's hull, apart from each other and from
+// the bridge and engines, each with room round it for any weapon (3x3 at
+// most); every layout has some, more the bigger it is, and every enemy's
+// design fits its layout's.
+void test_port_layouts() {
+    std::vector<const ShipLayout*> layouts;
+    for (const ShipLayout& l : all_layouts())
+        layouts.push_back(&l);
+    for (const ShipLayout& l : enemy_layouts())
+        layouts.push_back(&l);
+    std::size_t weapons = 0;
     for (const ShipLayout& l : all_layouts()) {
-        assert(l.weapon_ports >= weapons && l.shield_ports >= 1);
-        weapons = l.weapon_ports;
+        assert(l.weapon_ports.size() >= weapons && !l.shield_ports.empty());
+        weapons = l.weapon_ports.size();
+    }
+    for (const ShipLayout* l : layouts) {
+        const Ship ship = Ship::from_layout(*l);
+        std::vector<GridPos> all = l->weapon_ports;
+        all.insert(all.end(), l->shield_ports.begin(), l->shield_ports.end());
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            const GridPos p = layout_to_grid(*l, all[i]);
+            assert(ship.has_hull(p) && !ship.anchor_of(p));
+            // A 3x3 round it fits on free hull.
+            for (int y = p.y - 1; y <= p.y + 1; ++y)
+                for (int x = p.x - 1; x <= p.x + 1; ++x)
+                    assert(ship.has_hull({x, y}) && !ship.anchor_of({x, y}));
+            for (std::size_t j = i + 1; j < all.size(); ++j)
+                assert(std::max(std::abs(all[i].x - all[j].x), std::abs(all[i].y - all[j].y)) >= kPortSpacing);
+        }
     }
     for (int i = 0; i < kEnemyClassCount; ++i) {
         const EnemyDesign& d = enemy_design(static_cast<EnemyClass>(i));
         const ShipLayout& l = *find_layout(d.layout);
-        assert(static_cast<int>(d.weapons.size()) <= l.weapon_ports && d.shields <= l.shield_ports);
+        assert(d.weapons.size() <= l.weapon_ports.size() && static_cast<std::size_t>(d.shields) <= l.shield_ports.size());
     }
     assert(port_of(ItemKind::BeamEmitter) == Port::Weapon && port_of(ItemKind::ShieldProjector) == Port::Shield);
     assert(!port_of(ItemKind::CargoHold) && !port_of(ItemKind::FocusCrystal));
+}
 
+// Weapons and shield projectors go only over a free port of their own kind,
+// and nothing else over a port, placed one at a time or pasted from a
+// blueprint.
+void test_ports() {
     World world;
     Ship& ship = world.flagship();
     assert(ship.ports(Port::Weapon) == 2 && ship.ports(Port::Shield) == 1);
-    place_weapon(ship, ItemKind::BurstLaser, kGun, 0, 0);
-    place_weapon(ship, ItemKind::BurstLaser, kGun2, 0, 0);
-    assert(ship.ports_taken(Port::Weapon) == 2);
-    ship.inventory().add(ItemKind::BurstLaser);
-    assert(ship.place(ItemKind::BurstLaser, kGun3) == BuildResult::NoWeaponPort);
-    ship.inventory().add(ItemKind::ShieldProjector, 2);
+    assert(ship.port_at(kGun) == Port::Weapon && ship.port_at(kShield) == Port::Shield && !ship.port_at(kNoPort));
+    ship.inventory().add({{ItemKind::BurstLaser, 3}, {ItemKind::FlakCannon, 1}, {ItemKind::ShieldProjector, 2},
+                          {ItemKind::CargoHold, 1}});
+    // Off a port, or over the other kind.
+    assert(ship.can_place(ItemKind::BurstLaser, kNoPort) == BuildResult::NoWeaponPort);
+    assert(ship.can_place(ItemKind::BurstLaser, kShield) == BuildResult::OnShieldPort);
+    assert(ship.can_place(ItemKind::ShieldProjector, kNoPort) == BuildResult::NoShieldPort);
+    assert(ship.can_place(ItemKind::ShieldProjector, kGun) == BuildResult::OnWeaponPort);
+    assert(ship.can_place(ItemKind::CargoHold, kGun) == BuildResult::OnWeaponPort);
+    assert(ship.can_place(ItemKind::CargoHold, kNoPort) == BuildResult::Ok);
+    // Covering the port from any of its footprint's cells will do.
+    assert(ship.can_place(ItemKind::BurstLaser, {kGun.x - 1, kGun.y - 1}) == BuildResult::Ok);
+    assert(ship.can_place(ItemKind::FlakCannon, {kGun.x - 2, kGun.y - 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BurstLaser, kGun) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BurstLaser, kGun2) == BuildResult::Ok);
     assert(ship.place(ItemKind::ShieldProjector, kShield) == BuildResult::Ok);
-    assert(ship.place(ItemKind::ShieldProjector, {kShield.x, kShield.y + 4}) == BuildResult::NoShieldPort);
-    // Removing one frees its port.
+    assert(ship.ports_taken(Port::Weapon) == 2 && ship.ports_taken(Port::Shield) == 1);
+    // Every port taken: the next has nowhere to go.
+    assert(ship.can_place(ItemKind::BurstLaser, kNoPort) == BuildResult::NoWeaponPort);
     assert(ship.remove_building(kGun2) == BuildResult::Ok && ship.ports_taken(Port::Weapon) == 1);
-    assert(ship.can_place(ItemKind::BurstLaser, kGun3) == BuildResult::Ok);
-    // Two weapons pasted where one port is free: the second doesn't fit.
-    const std::optional<Blueprint> pair = copy_region(ship, kGun, {kGun.x + 1, kGun.y + 1});
-    assert(pair && pair->buildings.size() == 1);
-    Blueprint two = *pair;
-    two.buildings.push_back(two.buildings[0]);
-    two.buildings[1].offset = {0, 2};
-    two.size = {2, 4};
-    const PastePlan plan = plan_paste(ship, two, kGun3);
-    assert(plan.blocked == 1 && plan.entries[1].result == BuildResult::NoWeaponPort);
+    // A pasted weapon off any port doesn't fit; one on the free port does.
+    const std::optional<Blueprint> one = copy_region(ship, kGun, {kGun.x + 1, kGun.y + 1});
+    assert(one && one->buildings.size() == 1);
+    assert(plan_paste(ship, *one, kNoPort).entries[0].result == BuildResult::NoWeaponPort);
+    assert(plan_paste(ship, *one, kGun2).ok());
 }
 
 // A weapon takes fuel cells and its own ammunition, up to what it holds,
@@ -399,7 +434,7 @@ void test_priorities() {
     Ship ship = Ship::new_game();
     place_weapon(ship, ItemKind::BurstLaser, kGun, 0, 0);
     ship.inventory().add(ItemKind::AsteroidCollector);
-    assert(ship.place(ItemKind::AsteroidCollector, kShield) == BuildResult::Ok);
+    assert(ship.place(ItemKind::AsteroidCollector, kNoPort) == BuildResult::Ok);
     const std::vector<TargetGroup>& raider = enemy_design(EnemyClass::Raider).priorities;
     Rng rng{7};
     for (int i = 0; i < 20; ++i)
@@ -416,7 +451,7 @@ void test_priorities() {
         const GridPos p = *pick_target(ship, raider, 0.5f, rng);
         picked.insert({p.x, p.y});
     }
-    assert(picked.contains({kShield.x, kShield.y}));
+    assert(picked.contains({kNoPort.x, kNoPort.y}));
 }
 
 // Weapons are found, never made: none has a recipe, and finding one
@@ -545,8 +580,10 @@ void test_deterministic() {
         World world{42};
         FleetShip& flagship = world.get_fleet().flagship();
         place_weapon(flagship.ship, ItemKind::BurstLaser, kGun, 5, 10);
-        place_weapon(flagship.ship, ItemKind::FlakCannon, kGun3, 5, 10);
+        place_weapon(flagship.ship, ItemKind::FlakCannon, kGun2, 5, 10);
         world.spawn_enemy(flagship.id, EnemyClass::Raider);
+        world.advance_tick();
+        assert(world.set_target(flagship.id, bridge_of(world.engagement_in(0)->ship)));
         for (int i = 0; i < 40 * static_cast<int>(kTicksPerSecond); ++i)
             world.advance_tick();
         const Engagement* e = world.engagement_in(0);
@@ -573,6 +610,7 @@ int main() {
     test_evasion();
     test_priorities();
     test_found_weapons();
+    test_port_layouts();
     test_ports();
     test_beating_an_enemy();
     test_salvaged_weapon();

@@ -27,6 +27,8 @@ namespace {
 // of it, on the starting hull, with room for a 10x13 patch.
 constexpr int c = kShipGridSize / 2;
 const int x0 = layout_to_grid(starter_layout(), starter_layout().bridge).x + kBridgeSize + 3;
+// The starting ship's first weapon port.
+const GridPos kGun = layout_to_grid(starter_layout(), starter_layout().weapon_ports[0]);
 // The starting ship's first engine.
 const GridPos kEngine = layout_to_grid(starter_layout(), starter_layout().engines.front());
 
@@ -89,10 +91,10 @@ World busy_world() {
     assert(ship.place(ItemKind::SurveyScanner, {x0 + 8, c - 6}) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i)
         assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
-    assert(ship.place(ItemKind::BurstLaser, {x0 + 2, c}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BurstLaser, kGun) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i) {
-        assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::FocusCrystal));
-        assert(ship.insert_item({x0 + 2, c}, {x0 + 2, c - 1}, ItemKind::FuelCell));
+        assert(ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::FocusCrystal));
+        assert(ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::FuelCell));
     }
 
     assert(ship.place(ItemKind::TransportBelt, {x0 + 2, c - 2}, Direction::East) == BuildResult::Ok);
@@ -207,7 +209,7 @@ void test_round_trip() {
     assert(router && router->get_held() == ItemKind::Gear && router->get_came_from() == Direction::East);
     const auto* thruster = dynamic_cast<const Thruster*>(copy.building_at({kEngine.x + 1, kEngine.y + 2}));
     assert(thruster && thruster->get_fuel() == 3);
-    const auto* weapon = dynamic_cast<const Weapon*>(copy.building_at({x0 + 3, c + 1}));
+    const auto* weapon = dynamic_cast<const Weapon*>(copy.building_at({kGun.x + 1, kGun.y + 1}));
     assert(weapon && weapon->get_ammo() == 3 && weapon->get_fuel() == 3);
     assert(copy.building_at({x0 + 5, c - 6})->get_hp() == max_hp_of(ItemKind::CargoHold) - 30);
     // The fight, with its shots in flight and the target.
@@ -608,10 +610,10 @@ void test_machine_refused() {
     // A weapon's fuel, ammunition and charge, and a shield projector.
     Json armed = minimal();
     buildings(armed).push_back(Json::parse(R"({
-        "kind": "BurstLaser", "x": 70, "y": 58, "facing": "North", "output_side": 0,
+        "kind": "BurstLaser", "x": 60, "y": 48, "facing": "North", "output_side": 0,
         "fuel": 2, "ammo": 4, "charge": 300, "stun": 0})"));
     buildings(armed).push_back(Json::parse(R"({
-        "kind": "ShieldProjector", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+        "kind": "ShieldProjector", "x": 64, "y": 52, "facing": "North", "output_side": 0,
         "recharge": 60, "stun": 0})"));
     assert(loads(armed.dump()));
     auto weapon = [](Json& j) -> Json& { return buildings(j)[buildings(j).size() - 2]; };
@@ -621,17 +623,24 @@ void test_machine_refused() {
     refused_after(armed, "past a full charge", [&](Json& j) { weapon(j)["charge"] = 1e9; });
     refused_after(armed, "a weapon stunned for ages", [&](Json& j) { weapon(j)["stun"] = 1e6; });
     refused_after(armed, "a shield recharging too long", [&](Json& j) { shield(j)["recharge"] = 1e6; });
-    // No more of them than the layout has ports for (the starter's: two
-    // weapon ports, one shield port).
+    // Only over the layout's ports (the starter's: two weapon ports, one
+    // shield port), and nothing else over them.
+    assert(starter_layout().weapon_ports[0] == (GridPos{16, 2}) && starter_layout().weapon_ports[1] == (GridPos{23, 2}) &&
+           starter_layout().shield_ports[0] == (GridPos{20, 6}));
     Json two_guns = armed;
     Json gun = weapon(two_guns);
-    gun["x"] = 74;
+    gun["x"] = 67;
     buildings(two_guns).push_back(gun);
     assert(loads(two_guns.dump()));
-    refused_after(armed, "more shields than ports", [&](Json& j) {
+    refused_after(armed, "a weapon off its port", [&](Json& j) { weapon(j)["x"] = 74; });
+    refused_after(armed, "a shield off its port", [&](Json& j) {
         Json second = shield(j);
         second["x"] = 74;
         buildings(j).push_back(second);
+    });
+    refused_after(armed, "a cargo hold over a weapon port", [&](Json& j) {
+        weapon(j) = Json::parse(R"({"kind": "CargoHold", "x": 60, "y": 48, "facing": "North", "output_side": 0,
+                                    "stored": {}})");
     });
 }
 

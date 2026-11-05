@@ -26,7 +26,6 @@
 #include "sim/sector.h"
 #include "sim/ship_layout.h"
 
-#include <array>
 #include <memory>
 #include <optional>
 #include <unordered_set>
@@ -45,8 +44,10 @@ enum class BuildResult {
     NoneInInventory,
     NothingThere,      // no building to remove on that cell
     NotRemovable,      // the bridge or an engine: part of the layout
-    NoWeaponPort,      // every weapon port of the ship's layout is taken
-    NoShieldPort,      // every shield port of the ship's layout is taken
+    NoWeaponPort,      // a weapon needs a weapon port under it
+    NoShieldPort,      // a shield projector needs a shield port under it
+    OnWeaponPort,      // only a weapon goes over a weapon port
+    OnShieldPort,      // only a shield projector goes over a shield port
 };
 
 // A short player-facing explanation ("Needs hull under every tile", ...).
@@ -58,8 +59,6 @@ const char* describe(BuildResult result);
 struct PlannedChanges {
     std::unordered_set<int> occupied;
     Inventory inventory;
-    // Ports to be taken, by Port.
-    std::array<int, kPortKindCount> ports{};
 
     static constexpr int cell_key(GridPos p) { return p.y * kShipGridSize + p.x; }
 };
@@ -155,9 +154,15 @@ public:
     // The layout it was built in (null only for an empty Ship()).
     const ShipLayout* get_layout() const { return layout; }
     // How many of its layout's ports of kind `port` it has, and how many
-    // are taken (by the weapons, or shield projectors, built).
+    // are taken (by the weapons, or shield projectors, built over them).
     int ports(Port port) const;
     int ports_taken(Port port) const;
+    // The kind of port on cell `p`, if any.
+    std::optional<Port> port_at(GridPos p) const;
+    // Whether a `kind` with footprint `size` at `p` would sit right with
+    // the ports: over one of its own kind if it takes one, and over none
+    // of another kind (Ok, or why not).
+    BuildResult check_ports(ItemKind kind, GridPos p, GridSize size) const;
     // The top-left cell of the building covering `p`, if any.
     std::optional<GridPos> anchor_of(GridPos p) const;
     // The building covering `p` (any cell of its footprint), or null.
