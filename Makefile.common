@@ -15,7 +15,7 @@
 #
 # Layout mirrors imgui/examples/example_sdl2_opengl3/Makefile, with our own
 # sources under src/ (one subdirectory per layer: sim/, persistence/, ui/,
-# app/) and all object files under $(BUILD_DIR), mirroring that tree
+# audio/, app/) and all object files under $(BUILD_DIR), mirroring that tree
 # (keeping the imgui submodule pristine).
 
 IMGUI_DIR = imgui
@@ -39,7 +39,7 @@ CXXFLAGS += $(PLATFORM_CXXFLAGS)
 CXXFLAGS += -DJSON_DISABLE_ENUM_SERIALIZATION=1
 CXXFLAGS += -MMD -MP   # header dependency tracking
 # Build-time generated headers (logo_png.h, roboto_ttf.h, cousine_ttf.h,
-# sprites_png.h: see the embed rules below).
+# sprites_png.h, sounds_wav.h: see the embed rules below).
 GENERATED_DIR = $(BUILD_DIR)/generated
 CXXFLAGS += -I$(GENERATED_DIR)
 
@@ -59,11 +59,14 @@ WARNINGS += -Wsign-conversion   # int<->unsigned too; clang's -Wconversion has i
 SIM_SOURCES         = $(wildcard src/sim/*.cpp)
 PERSISTENCE_SOURCES = $(wildcard src/persistence/*.cpp)
 UI_SOURCES          = $(wildcard src/ui/*.cpp)
+# Playing sounds through SDL (src/audio/sounds.h alone is headless: the
+# tests include it).
+AUDIO_SOURCES       = $(wildcard src/audio/*.cpp)
 # src/app/'s .cpp files are shared by all platforms; platform-only files (the
 # macOS .mm) come in through PLATFORM_SOURCES.
 MAIN_SOURCES        = $(wildcard src/app/*.cpp) $(PLATFORM_SOURCES)
 HEADLESS_SOURCES    = $(SIM_SOURCES) $(PERSISTENCE_SOURCES)
-APP_SOURCES         = $(HEADLESS_SOURCES) $(UI_SOURCES) $(MAIN_SOURCES)
+APP_SOURCES         = $(HEADLESS_SOURCES) $(UI_SOURCES) $(AUDIO_SOURCES) $(MAIN_SOURCES)
 # One headless test binary per tests/test_*.cpp file (see the test rules below).
 TEST_SOURCES := $(wildcard tests/*.cpp)
 TEST_EXES    := $(patsubst tests/%.cpp,$(BUILD_DIR)/%,$(TEST_SOURCES))
@@ -160,37 +163,64 @@ $(MONO_FONT_HEADER): $(IMGUI_DIR)/misc/fonts/Cousine-Regular.ttf
 
 $(BUILD_DIR)/src/ui/ui_theme.o: $(FONT_HEADER) $(MONO_FONT_HEADER)
 
+# Writes the header $@ embedding the files $(2) from the folder $(1): one
+# array per file ($(3)0, $(3)1...), then $(5)[], the table of them as
+# struct $(4) {path under $(1), data, size}, ended by a null entry. Used for
+# the sprites and the sounds.
+define embed_folder
+	@mkdir -p $(dir $@)
+	@{ echo '// Generated from $(1)/ by the makefile. Do not edit.'; \
+	  n=0; for f in $(2); do \
+	    echo "static const unsigned char $(3)$$n[] = {"; \
+	    od -An -v -tx1 "$$f" | sed 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
+	    echo '};'; n=$$((n + 1)); \
+	  done; \
+	  echo 'struct $(4) { const char* path; const unsigned char* data; std::size_t size; };'; \
+	  echo 'static const $(4) $(5)[] = {'; \
+	  n=0; for f in $(2); do \
+	    echo "    {\"$${f#$(1)/}\", $(3)$$n, sizeof($(3)$$n)},"; n=$$((n + 1)); \
+	  done; \
+	  echo '    {nullptr, nullptr, 0},'; \
+	  echo '};'; } > $@
+	@echo "Embedded $(words $(2)) files from $(1) into $@"
+endef
+
+# Writes $@, the list of files $(1), only when it changed: a header made
+# from a folder depends on its list, so adding or deleting a file
+# regenerates it too (the wildcard alone wouldn't).
+define write_file_list
+	@mkdir -p $(dir $@)
+	@echo '$(1)' | cmp -s - $@ || echo '$(1)' > $@
+endef
+
 # Embed every sprite under assets/sprites/ (see src/ui/sprites.h) the same
-# way: one array per PNG, plus kEmbeddedSprites[], the table of them by path
-# ("items/IronPlate.png"), ended by a null entry. sprite_list.txt holds the
-# list of files and is only rewritten when it changes, so adding or deleting
-# a sprite regenerates the header too (the wildcard alone wouldn't).
+# way as the logo: kEmbeddedSprites[], by path ("items/IronPlate.png").
 SPRITES_DIR    = assets/sprites
 SPRITE_PNGS   := $(sort $(wildcard $(SPRITES_DIR)/*/*.png))
 SPRITE_LIST    = $(GENERATED_DIR)/sprite_list.txt
 SPRITES_HEADER = $(GENERATED_DIR)/sprites_png.h
 $(SPRITE_LIST): FORCE
-	@mkdir -p $(dir $@)
-	@echo '$(SPRITE_PNGS)' | cmp -s - $@ || echo '$(SPRITE_PNGS)' > $@
+	$(call write_file_list,$(SPRITE_PNGS))
 
 $(SPRITES_HEADER): $(SPRITE_LIST) $(SPRITE_PNGS)
-	@mkdir -p $(dir $@)
-	@{ echo '// Generated from $(SPRITES_DIR)/ by the makefile. Do not edit.'; \
-	  n=0; for f in $(SPRITE_PNGS); do \
-	    echo "static const unsigned char kSprite$$n[] = {"; \
-	    od -An -v -tx1 "$$f" | sed 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
-	    echo '};'; n=$$((n + 1)); \
-	  done; \
-	  echo 'struct EmbeddedSprite { const char* path; const unsigned char* data; std::size_t size; };'; \
-	  echo 'static const EmbeddedSprite kEmbeddedSprites[] = {'; \
-	  n=0; for f in $(SPRITE_PNGS); do \
-	    echo "    {\"$${f#$(SPRITES_DIR)/}\", kSprite$$n, sizeof(kSprite$$n)},"; n=$$((n + 1)); \
-	  done; \
-	  echo '    {nullptr, nullptr, 0},'; \
-	  echo '};'; } > $@
-	@echo "Embedded $(words $(SPRITE_PNGS)) sprites into $@"
+	$(call embed_folder,$(SPRITES_DIR),$(SPRITE_PNGS),kSprite,EmbeddedSprite,kEmbeddedSprites)
 
 $(BUILD_DIR)/src/ui/sprites.o: $(SPRITES_HEADER)
+
+# And every sound under assets/sounds/ (see src/audio/sounds.h):
+# kEmbeddedSounds[], by path ("sfx/ui_click.wav"). Only
+# src/audio/embedded_sounds.cpp includes it: it's large.
+SOUNDS_DIR    = assets/sounds
+SOUND_WAVS   := $(sort $(wildcard $(SOUNDS_DIR)/*/*.wav))
+SOUND_LIST    = $(GENERATED_DIR)/sound_list.txt
+SOUNDS_HEADER = $(GENERATED_DIR)/sounds_wav.h
+$(SOUND_LIST): FORCE
+	$(call write_file_list,$(SOUND_WAVS))
+
+$(SOUNDS_HEADER): $(SOUND_LIST) $(SOUND_WAVS)
+	$(call embed_folder,$(SOUNDS_DIR),$(SOUND_WAVS),kSound,EmbeddedSoundFile,kEmbeddedSounds)
+
+$(BUILD_DIR)/src/audio/embedded_sounds.o: $(SOUNDS_HEADER)
 
 clean:
 	rm -rf $(BUILD_DIR) $(EXE)

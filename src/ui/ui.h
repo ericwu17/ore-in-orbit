@@ -58,6 +58,12 @@ struct DebugControls {
     int ticks_to_step = 0;    // step this many ticks next frame, paused or not
 };
 
+// The frame's own sounds (ui_sound.cpp): the music for `screen` (none once
+// the fleet of `world`, the game being played, is lost), a click for a
+// press on any widget that played no sound of its own, and typing ticks.
+// Call once a frame, after drawing the screen.
+void PlayFrameSounds(Screen screen, const World& world);
+
 // The developer windows, on any screen: F1 toggles the debug menu (shown
 // while playing: pause and single-step the simulation, give yourself items,
 // reveal the map, charge the thrusters, spawn or beat an enemy ship, complete

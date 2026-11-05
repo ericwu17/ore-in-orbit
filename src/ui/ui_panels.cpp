@@ -97,7 +97,9 @@ void DrawBuildPalette(Ship& ship, float width) {
             int queued = 0;
             while (queued < n && bridge.queue_craft(*hand))
                 ++queued;
-            if (queued == 0)
+            if (queued > 0)
+                PlayUi(audio::Sound::UiConfirm);
+            else
                 SetMessage(std::string("Can't hand-craft ") + item_name(kind) + " now: see its recipe");
         }
         if (ImGui::BeginItemTooltip()) {
@@ -244,8 +246,11 @@ void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
                        {locked.empty() ? nullptr : locked.c_str(), makes > 1 ? badge.c_str() : nullptr},
                        locked.empty() ? 1.0f : 0.35f)) {
             const int n = ImGui::GetIO().KeyShift ? 5 : 1;
-            for (int k = 0; k < n && bridge.queue_craft(r); ++k) {
-            }
+            int queued = 0;
+            while (queued < n && bridge.queue_craft(r))
+                ++queued;
+            if (queued > 0)
+                PlayUi(audio::Sound::UiConfirm);
         }
         ImGui::EndDisabled();
         const std::string hint = LockedHint(bridge.get_progress(), r);
@@ -515,7 +520,7 @@ void DrawOnRequest(Ship& ship, const Building& b) {
     if (!collector && !machine)
         return;
     bool on = collector ? collector->get_only_when_requested() : machine->get_only_when_requested();
-    if (ImGui::Checkbox("Only while the bridge requests it", &on))
+    if (SoundCheckbox("Only while the bridge requests it", &on))
         ship.set_only_when_requested(*g_build.inspected, on);
     ImGui::SetItemTooltip("Runs only while the bridge has fewer of what it makes than\nit requests (click the bridge to request items)");
     const std::optional<ItemKind> product = product_of(b);
@@ -548,7 +553,7 @@ bool HasSettings(const Building& b) {
 void DrawProvider(Fleet& fleet, const FleetShip& shown) {
     ImGui::SeparatorText("Provider");
     bool provides = shown.provides;
-    if (ImGui::Checkbox("Provide to ships in this sector", &provides))
+    if (SoundCheckbox("Provide to ships in this sector", &provides))
         fleet.set_provides(shown.id, provides);
     ImGui::SetItemTooltip("Send other ships in this sector what their bridges request, from what this\n"
                           "bridge holds beyond its own requests, in cargo pods (%d items a pod)",

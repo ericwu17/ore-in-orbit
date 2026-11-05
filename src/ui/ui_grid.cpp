@@ -268,6 +268,7 @@ void BuildDrag(Ship& ship, GridPos cell) {
         if (result == BuildResult::Ok) {
             build.drag_placed.push_back(p);
             ApplyLastSettings(ship, p, kind);
+            PlayUi(DragTurns(kind) ? audio::Sound::BuildPlaceBelt : audio::Sound::BuildPlace);
         }
         prev = p;
     }
@@ -386,6 +387,7 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                 if (const std::optional<Blueprint> copy = copy_region(ship, *bp.copy_start, nearest_cell)) {
                     bp.clipboard = copy;
                     HoldBlueprint(*copy);
+                    PlayUi(audio::Sound::UiConfirm);
                     SetMessage("Copied " + BlueprintSummary(*copy), theme::kGood);
                 } else {
                     bp.copy_start.reset();
@@ -394,9 +396,11 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
             }
         } else if (paste_at && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             const PasteResult result = paste(ship, *bp.held, *paste_at);
-            if (!result.pasted)
+            if (result.pasted)
+                PlayUi(audio::Sound::BuildBlueprintPlace);
+            else
                 SetMessage(describe(result.plan));
-            else if (result.settings_skipped > 0)
+            if (result.pasted && result.settings_skipped > 0)
                 SetMessage(std::to_string(result.settings_skipped) +
                                " recipe(s) not unlocked yet: those machines have none",
                            theme::kWarnText);
@@ -409,7 +413,9 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
             const bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
             const BuildResult r = ship.remove_building(*hover_cell);
-            if (r != BuildResult::Ok && clicked)
+            if (r == BuildResult::Ok)
+                PlayUi(audio::Sound::BuildRemove);
+            else if (clicked)
                 SetBuildMessage(r);
         }
     }

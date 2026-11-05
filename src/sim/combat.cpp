@@ -96,16 +96,32 @@ ShieldProjector* shield_up(Ship& ship) {
 
 // `damage` to the building anchored at `p` on `ship`: destroyed at 0,
 // unless it's part of the layout (the bridge, its ship lost or beaten; an
-// engine, knocked offline).
-void damage_building(Ship& ship, GridPos p, int damage, Tick now) {
+// engine, knocked offline). A building destroyed or an engine knocked
+// offline is reported in `events`, as `what` says (which ship, which side).
+void damage_building(Ship& ship, GridPos p, int damage, Tick now, Event what, EventLog& events) {
     Building& b = *ship.building_anchored_at(p);
     b.hit_at = now;
-    if (b.take_damage(damage) && &b != &ship.get_bridge() && b.removable())
+    const bool standing = b.get_hp() > 0;
+    if (!b.take_damage(damage) || !standing || &b == &ship.get_bridge())
+        return;
+    if (b.removable()) {
         ship.destroy_building(p);
+        what.kind = EventKind::BuildingDestroyed;
+    } else {
+        what.kind = EventKind::EngineOffline;
+    }
+    events.push(what);
 }
 
-// `shot` landing on `ship` (its target).
-Impact land(const Shot& shot, Ship& ship, Rng& rng) {
+// `shot` landing on `ship` (its target), in the fight in sector `sector`.
+// Anything it destroys or knocks offline goes into `events` (how it landed
+// is the caller's to report: see landed()).
+Impact land(const Shot& shot, Ship& ship, int sector, Rng& rng, EventLog& events) {
+    const Event what{.kind = EventKind::ShotHit,
+                     .ship = shot.ship,
+                     .sector = sector,
+                     .enemy = shot.at_enemy,
+                     .item = shot.weapon};
     const WeaponSpec& spec = weapon_spec(shot.weapon);
     Impact impact{.on_enemy = shot.at_enemy,
                   .ship = shot.ship,
@@ -129,7 +145,7 @@ Impact land(const Shot& shot, Ship& ship, Rng& rng) {
                 hit.push_back(*a);
         for (const GridPos a : hit)
             if (ship.building_anchored_at(a))  // not destroyed by an earlier step
-                damage_building(ship, a, damage, shot.lands);
+                damage_building(ship, a, damage, shot.lands, what, events);
         return impact;
     }
     if (spec.family != WeaponFamily::Missile)
@@ -154,8 +170,47 @@ Impact land(const Shot& shot, Ship& ship, Rng& rng) {
         else if (auto* shield = dynamic_cast<ShieldProjector*>(b))
             shield->stun_for(spec.stun);
     }
-    damage_building(ship, *a, spec.damage, shot.lands);
+    damage_building(ship, *a, spec.damage, shot.lands, what, events);
     return impact;
+}
+
+// The event for `impact`, landed in the fight in sector `sector`.
+Event landed(const Impact& impact, int sector) {
+    Event e{.kind = EventKind::ShotHit,
+            .ship = impact.ship,
+            .sector = sector,
+            .enemy = impact.on_enemy,
+            .item = impact.weapon};
+    switch (impact.kind) {
+    case ImpactKind::Hit:     e.kind = EventKind::ShotHit; break;
+    case ImpactKind::Blocked: e.kind = EventKind::ShotBlocked; break;
+    case ImpactKind::Missed:  e.kind = EventKind::ShotMissed; break;
+    }
+    return e;
+}
+
+// Reports each side's shields falling (the last layer knocked down) or
+// coming back (a layer more up) since the last step of `fight`, and notes
+// them for the next.
+void report_shields(Engagement& fight, const std::vector<FleetShip*>& ships, EventLog& events) {
+    const auto check = [&](int id, const Ship& ship) {
+        const int now = shield_layers(ship);
+        const auto seen = std::find_if(fight.layers_seen.begin(), fight.layers_seen.end(),
+                                       [&](const std::pair<int, int>& s) { return s.first == id; });
+        if (seen == fight.layers_seen.end()) {
+            fight.layers_seen.emplace_back(id, now);
+            return;
+        }
+        Event e{.kind = EventKind::ShieldUp, .ship = id, .sector = fight.sector, .enemy = id == 0};
+        if (now == 0 && seen->second > 0)
+            e.kind = EventKind::ShieldsDown;
+        if (now > seen->second || e.kind == EventKind::ShieldsDown)
+            events.push(e);
+        seen->second = now;
+    };
+    check(0, fight.ship);
+    for (const FleetShip* s : ships)
+        check(s->id, s->ship);
 }
 
 // Scales `n` by 75% to 125%, at least 1.
@@ -218,7 +273,7 @@ Engagement make_engagement(int sector, EnemyClass enemy, Rng& rng) {
     const EnemyDesign& design = enemy_design(enemy);
     const ShipLayout* layout = find_layout(design.layout);
     assert(layout && "make_engagement: the design's layout is missing");
-    Engagement fight{.sector = sector, .enemy = enemy, .ship = Ship::from_layout(*layout), .shots = {}, .impacts = {}};
+    Engagement fight{.sector = sector, .enemy = enemy, .ship = Ship::from_layout(*layout), .shots = {}, .impacts = {}, .layers_seen = {}};
     Ship& ship = fight.ship;
     ship.get_bridge().set_max_hp(design.hull);
     for (const ItemKind w : design.weapons)
@@ -296,7 +351,7 @@ const std::vector<TargetGroup>& default_player_priorities() {
 }
 
 std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShip*>& ships, int threat,
-                                   const Progress& progress, Rng& rng, Tick now) {
+                                   const Progress& progress, Rng& rng, Tick now, EventLog& events) {
     Ship& enemy = fight.ship;
     const EnemyDesign& design = fight.design();
     enemy.tick();  // shields recharging, stuns wearing off
@@ -323,6 +378,11 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
                     continue;
                 w->fire(false);
                 fire_volley(fight.shots, enemy, *w->item_kind(), *target, true, s->id, rng, now);
+                events.push({.kind = EventKind::WeaponFired,
+                             .ship = s->id,
+                             .sector = fight.sector,
+                             .enemy = false,
+                             .item = *w->item_kind()});
             }
         }
     // The enemy's, each at one of the player's ships there.
@@ -344,6 +404,11 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
                 continue;
             w->fire(true);
             fire_volley(fight.shots, at.ship, *w->item_kind(), *target, false, at.id, rng, now);
+            events.push({.kind = EventKind::WeaponFired,
+                         .ship = at.id,
+                         .sector = fight.sector,
+                         .enemy = true,
+                         .item = *w->item_kind()});
         }
 
     // Shots landing, in the order they were fired.
@@ -361,11 +426,13 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
         }
         if (!on || on->bridge_destroyed())
             continue;  // gone, or lost already
-        fight.impacts.push_back(land(shot, *on, rng));
+        fight.impacts.push_back(land(shot, *on, fight.sector, rng, events));
+        events.push(landed(fight.impacts.back(), fight.sector));
         if (shot.at_enemy && enemy.bridge_destroyed() && last_hit_by == 0)
             last_hit_by = shot.ship;
     }
     std::erase_if(fight.shots, [&](const Shot& s) { return s.lands <= now; });
+    report_shields(fight, ships, events);
 
     if (!enemy.bridge_destroyed())
         return std::nullopt;

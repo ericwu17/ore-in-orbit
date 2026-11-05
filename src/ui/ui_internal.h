@@ -16,10 +16,14 @@
 //   ui_blueprints.cpp  the Blueprints window (the library)
 //   ui_menus.cpp       the main menu, the save list and the credits
 //   ui_debug.cpp       the developer windows (F1 / F2)
+//   ui_sound.cpp       the sounds of the player's actions and of the
+//                      simulation's events, and the music
 #pragma once
 
 #include "ui/sprites.h"
 #include "ui/ui_theme.h"
+
+#include "audio/sounds.h"
 
 #include "sim/blueprint.h"
 #include "sim/building.h"
@@ -185,6 +189,8 @@ struct MapUiState {
     bool dragged = false;         // the press on the map became a pan, not a click
 };
 extern MapUiState g_map;
+// Shows or hides the star map, with a sound when that changes it.
+void ShowStarMap(bool shown);
 
 // The building in the inspector, or null (forgetting it if it was removed).
 const Building* InspectedBuilding(const Ship& ship);
@@ -196,14 +202,16 @@ void HoldBlueprint(const Blueprint& blueprint);
 // Pick `kind` to build, or put it away if it is already picked.
 void ToggleSelected(ItemKind kind);
 
-// Shows ship `id` (its own camera, nothing inspected).
+// Shows ship `id` (its own camera, nothing inspected), with a sound.
 void SwitchToShip(int id);
 // The ship the game screen shows: the one picked, or the flagship.
 FleetShip& CurrentShip(Fleet& fleet);
 
-// Shows `message` over the grid for kMessageSeconds.
+// Shows `message` over the grid for kMessageSeconds. One in theme::kBad
+// (the default) says something failed, and buzzes (audio::Sound::UiError).
 void SetMessage(std::string message, ImVec4 color = theme::kBad);
-// SetMessage() with why a build or removal didn't happen.
+// SetMessage() with why a build or removal didn't happen, and its own buzz
+// (audio::Sound::BuildInvalid).
 void SetBuildMessage(BuildResult result);
 
 // What the building `b` is set to do, if it has settings (a machine, a
@@ -486,5 +494,23 @@ void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail);
 // saved in `dir`, to paste, rename, delete or copy as text, and saving the
 // clipboard into it or importing a blueprint copied as text.
 void DrawBlueprintLibrary(const std::filesystem::path& dir);
+
+// ---------------------------------------------------------------------------
+// Sounds (ui_sound.cpp)
+// ---------------------------------------------------------------------------
+
+// Plays `sound` for something the player just did (at `gain`, see
+// audio::Play). The frame then plays no generic click (see PlayFrameSounds
+// in ui.h), so a press that places a building sounds as a placing, not a
+// click as well.
+void PlayUi(audio::Sound sound, float gain = 1.0f);
+// ImGui::Checkbox, sounding the switch on or off.
+bool SoundCheckbox(const char* label, bool* v);
+// The effects and music volume sliders, `width` wide (the pause menu).
+void VolumeSliders(float width);
+// Plays the sounds of what happened in `world` since the last frame (its
+// events, taken), as heard from the ship on screen. Call once a frame while
+// playing, the game over or not.
+void PlayEventSounds(World& world);
 
 }  // namespace ui

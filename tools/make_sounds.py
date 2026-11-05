@@ -15,7 +15,8 @@ readme's "Sounds" section), as 16-bit mono WAV:
                          its start
 
 Without --force, files that already exist are left alone, so real audio is
-never overwritten. Everything is made from scratch here, with nothing
+never overwritten. The game plays every file it lists in src/audio/sounds.h
+(tests/test_sounds.cpp checks the two agree), so a new sound goes there too. Everything is made from scratch here, with nothing
 sampled: pulse, saw and triangle oscillators, noise, pitch sweeps, filters,
 bit crushing and echoes. The style follows the sprites': cold, hard and
 retro, so effects are short, dry and mechanical (clicks of relays, thumps of

@@ -28,6 +28,7 @@
 #pragma once
 
 #include "sim/building.h"
+#include "sim/events.h"
 #include "sim/game_types.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
@@ -169,7 +170,7 @@ public:
     void remove(int id);
 
     // One simulation step at tick `now`: every ship ticks, then the cargo
-    // due by `now` lands, then (every kDispatchInterval) providers send
-    // what is requested.
-    void tick(Tick now);
+    // due by `now` lands (each landing reported in `events`), then (every
+    // kDispatchInterval) providers send what is requested.
+    void tick(Tick now, EventLog& events);
 };

@@ -13,7 +13,7 @@ void DrawFleetStrip(World& world) {
     Fleet& fleet = world.get_fleet();
     FleetUiState& f = g_fleet;
     if (theme::SegmentedButton("Map", g_map.shown))
-        g_map.shown = !g_map.shown;
+        ShowStarMap(!g_map.shown);
     ImGui::SetItemTooltip("The star map (M): sectors, and jumping between them");
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
@@ -192,6 +192,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
     ImGui::BeginDisabled(result != FleetResult::Ok);
     if (theme::PrimaryButton("Send", ImVec2(-1.0f, 0.0f))) {
         fleet.send(current.id, to->id, f.cargo, world.get_tick());
+        PlayUi(audio::Sound::GameCargoLaunch);
         SetMessage("Cargo on its way to " + to->name, theme::kGood);
         f.cargo.clear();
     }
@@ -289,6 +290,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
     if (theme::PrimaryButton("Build", ImVec2(-1.0f, 0.0f))) {
         int id = 0;
         if (fleet.launch(current.id, layout, &id) == FleetResult::Ok) {
+            PlayUi(audio::Sound::GameShipBuilt);
             SetMessage("Built " + fleet.find(id)->name + ", a " + layout.name + ": its tab is above the grid",
                        theme::kGood);
             f.show_build = false;
