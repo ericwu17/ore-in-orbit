@@ -19,6 +19,7 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::FabricatorMk1, 1},
     {ItemKind::IronPlate, 20},
     {ItemKind::CopperPlate, 10},
+    {ItemKind::BurstLaser, 1},
 };
 
 }  // namespace
@@ -32,6 +33,10 @@ const char* describe(BuildResult result) {
     case BuildResult::NoneInInventory:  return "None left in the bridge inventory";
     case BuildResult::NothingThere:     return "Nothing to remove there";
     case BuildResult::NotRemovable:     return "Part of the ship's layout: it can't be removed";
+    case BuildResult::NoWeaponPort:     return "Weapons go over a free weapon port (the marked tiles)";
+    case BuildResult::NoShieldPort:     return "Shield projectors go over a free shield port (the marked tiles)";
+    case BuildResult::OnWeaponPort:     return "That's a weapon port: only a weapon goes over it";
+    case BuildResult::OnShieldPort:     return "That's a shield port: only a shield projector goes over it";
     }
     return "?";
 }
@@ -251,8 +256,47 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing, const Pl
         for (int x = p.x; x < p.x + size.w; ++x)
             if (occupied({x, y}))
                 return BuildResult::Occupied;
+    if (const BuildResult ports_ok = check_ports(kind, p, size); ports_ok != BuildResult::Ok)
+        return ports_ok;
     if (planned.inventory.count(kind) <= 0)
         return BuildResult::NoneInInventory;
+    return BuildResult::Ok;
+}
+
+int Ship::ports(Port port) const {
+    return layout ? static_cast<int>(layout_ports(*layout, port).size()) : 0;
+}
+
+int Ship::ports_taken(Port port) const {
+    int n = 0;
+    if (layout)
+        for (const GridPos q : layout_ports(*layout, port))
+            n += anchor_of(layout_to_grid(*layout, q)) ? 1 : 0;
+    return n;
+}
+
+std::optional<Port> Ship::port_at(GridPos p) const {
+    if (!layout)
+        return std::nullopt;
+    for (const Port port : {Port::Weapon, Port::Shield})
+        for (const GridPos q : layout_ports(*layout, port))
+            if (layout_to_grid(*layout, q) == p)
+                return port;
+    return std::nullopt;
+}
+
+BuildResult Ship::check_ports(ItemKind kind, GridPos p, GridSize size) const {
+    const std::optional<Port> needs = port_of(kind);
+    bool over = false;
+    for (int y = p.y; y < p.y + size.h; ++y)
+        for (int x = p.x; x < p.x + size.w; ++x)
+            if (const std::optional<Port> port = port_at({x, y})) {
+                if (port != needs)
+                    return *port == Port::Weapon ? BuildResult::OnWeaponPort : BuildResult::OnShieldPort;
+                over = true;
+            }
+    if (needs && !over)
+        return *needs == Port::Weapon ? BuildResult::NoWeaponPort : BuildResult::NoShieldPort;
     return BuildResult::Ok;
 }
 
@@ -549,6 +593,17 @@ void Ship::unload(GridPos p, Unloader& unloader) {
             return;
 }
 
+void Ship::recharge_shields() {
+    // The layer furthest along, so one started is finished first.
+    ShieldProjector* next = nullptr;
+    for (const GridPos p : placed)
+        if (auto* shield = dynamic_cast<ShieldProjector*>(at(buildings, p).get());
+            shield && shield->can_recharge() && (!next || shield->get_recharge() < next->get_recharge()))
+            next = shield;
+    if (next)
+        next->recharge_step();
+}
+
 void Ship::tick() {
     for (const GridPos p : placed) {
         Building& b = *at(buildings, p);
@@ -563,6 +618,7 @@ void Ship::tick() {
     }
     for (const GridPos p : placed)
         at(buildings, p)->tick();
+    recharge_shields();
     for (const GridPos p : placed)
         pass_on(p, *at(buildings, p));
     for (const GridPos p : placed) {

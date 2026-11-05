@@ -8,6 +8,12 @@
 // buildings go on it, and the bridge and engines stay where the layout puts
 // them. Bigger layouts unlock with the milestones.
 //
+// A layout also has ports: 1x1 tiles of its hull, weapon ports and shield
+// ports. A weapon is built only over a weapon port, a shield projector only
+// over a shield port, and nothing else over either, so a ship holds no more
+// of them than its layout has ports, however much hull it has. Ports are at
+// least kPortSpacing apart, so no building covers two.
+//
 // A layout is drawn in its own coordinates, from its top-left corner (0, 0);
 // a ship centers it on the build grid (layout_origin).
 #pragma once
@@ -36,13 +42,30 @@ struct ShipLayout {
     std::vector<GridPos> engines;          // each ion thruster's top-left cell (facing North)
     std::vector<ItemStack> cost;           // on top of one ship starter pack
     std::optional<std::size_t> milestone;  // unlocked once this one is complete; nullopt: from the start
+    std::vector<GridPos> weapon_ports;     // each weapon port's cell
+    std::vector<GridPos> shield_ports;     // each shield port's cell
 };
+
+// How far apart (in x or y) any two ports of a layout are, at least: more
+// than the biggest building is across, less one.
+constexpr int kPortSpacing = 3;
+
+// The two kinds of port: what a weapon or a shield projector takes.
+enum class Port { Weapon, Shield };
+// The port a building of kind `kind` takes, if any.
+std::optional<Port> port_of(ItemKind kind);
+// The cells of `layout`'s ports of kind `port` (layout coordinates).
+const std::vector<GridPos>& layout_ports(const ShipLayout& layout, Port port);
+// "weapon" or "shield".
+const char* port_name(Port port);
 
 // Every layout, smallest first.
 const std::vector<ShipLayout>& all_layouts();
 // The layout a new game's flagship has: the smallest.
 const ShipLayout& starter_layout();
-// The layout with id `id`, or null.
+// The enemy ships' layouts (see enemies.h), never the player's to build.
+const std::vector<ShipLayout>& enemy_layouts();
+// The layout with id `id` (the player's or an enemy's), or null.
 const ShipLayout* find_layout(std::string_view id);
 
 // The size of the smallest box holding all its hull (from (0, 0)).

@@ -104,11 +104,17 @@ void DrawBuildPalette(Ship& ship, float width) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
             ImGui::TextColored(theme::kTextDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
+            if (const std::optional<Port> port = port_of(kind))
+                ImGui::TextColored(ship.ports_taken(*port) < ship.ports(*port) ? theme::kTextDim : theme::kBad,
+                                   "%d of %d %s ports taken", ship.ports_taken(*port), ship.ports(*port),
+                                   port_name(*port));
             if (i < 9)
                 ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
             if (hand) {
                 ImGui::TextColored(theme::kTextDim, "Right click: hand-craft 1 (Shift: 5)");
                 RecipeDetails(*hand, &bridge.get_inventory());
+            } else if (is_weapon(kind)) {
+                ImGui::TextColored(theme::kTextDim, "Found on beaten enemy ships, never made");
             } else {
                 ImGui::TextColored(theme::kTextDim, "Made in machines");
             }
@@ -200,6 +206,9 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
 std::string LockedHint(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
+    if (const std::optional<ItemKind> w = weapon_unlocking(recipe.outputs.front().kind))
+        return std::string("Unlocks once the fleet finds a ") + item_name(*w) +
+               ": salvage one from a beaten enemy ship";
     const std::size_t i = *milestone_unlocking(recipe.outputs.front().kind);
     return "Unlocks with milestone " + std::to_string(i + 1) + ": " + all_milestones()[i].name;
 }
@@ -208,6 +217,8 @@ std::string LockedHint(const Progress& progress, const Recipe& recipe) {
 std::string LockedBadge(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
+    if (weapon_unlocking(recipe.outputs.front().kind))
+        return "W";
     return "M" + std::to_string(*milestone_unlocking(recipe.outputs.front().kind) + 1);
 }
 
@@ -385,17 +396,45 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     }
     if (kind == ItemKind::SurveyScanner)
         ImGui::TextColored(theme::kTextDim, "Surveys the sectors next to the ship's");
-    if (const auto* turret = dynamic_cast<const Turret*>(&b)) {
-        const TurretSpec& spec = turret->get_spec();
-        ImGui::TextColored(theme::kTextDim, "%d damage, %.1f shots / s, range %.0f", spec.damage,
-                           static_cast<double>(kTicksPerSecond) / static_cast<double>(spec.interval),
-                           static_cast<double>(spec.range));
-        const std::string held = Fraction(turret->get_ammo(), kTurretAmmoCapacity);
-        AmountLine(ItemIcon(spec.ammo), held, turret->get_ammo() > 0 ? theme::kText : theme::kBad, in_tooltip);
-        if (turret->shots_left() == 0)
-            ImGui::TextColored(theme::kBad, "Out of ammunition: belt %s into it", item_name(spec.ammo));
+    if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {
+        const WeaponSpec& spec = weapon->get_spec();
+        ImGui::TextColored(theme::kTextDim, "%s", spec.blurb);
+        if (spec.family == WeaponFamily::Beam)
+            ImGui::TextColored(theme::kTextDim, "Each shield layer up takes %d off each hit.", kBeamShieldReduction);
+        if (spec.family == WeaponFamily::Beam)
+            ImGui::TextColored(theme::kTextDim, "%d damage to each building it crosses, every %.0f s", spec.damage,
+                               static_cast<double>(spec.charge) / static_cast<double>(kTicksPerSecond));
         else
-            ImGui::TextColored(theme::kTextDim, "%d shots left", turret->shots_left());
+            ImGui::TextColored(theme::kTextDim, "%d x %d damage, every %.0f s", spec.shots, spec.damage,
+                               static_cast<double>(spec.charge) / static_cast<double>(kTicksPerSecond));
+        AmountLine(ItemIcon(ItemKind::FuelCell), Fraction(weapon->get_fuel(), kWeaponFuelCapacity),
+                   weapon->get_fuel() > 0 ? theme::kText : theme::kBad, in_tooltip, " power");
+        AmountLine(ItemIcon(spec.ammo), Fraction(weapon->get_ammo(), kWeaponAmmoCapacity),
+                   weapon->get_ammo() > 0 ? theme::kText : theme::kBad, in_tooltip, " ammo");
+        const std::string charge = std::to_string(static_cast<int>(weapon->charge_fraction() * 100.0f)) + "% charged";
+        ImGui::ProgressBar(weapon->charge_fraction(), ImVec2(bar_w, 0.0f), charge.c_str());
+        if (weapon->get_stun() > 0)
+            ImGui::TextColored(theme::kBad, "Stunned by an ion hit: %d s", static_cast<int>((weapon->get_stun() + kTicksPerSecond - 1) / kTicksPerSecond));
+        else if (weapon->get_fuel() == 0)
+            ImGui::TextColored(theme::kBad, "No power: belt fuel cells into it");
+        else if (weapon->get_ammo() == 0)
+            ImGui::TextColored(theme::kBad, "No ammunition: belt %s into it", item_name(spec.ammo));
+        else
+            ImGui::TextColored(theme::kTextDim, "Each volley burns a fuel cell and a round. It charges and fires "
+                                                "while an enemy ship is in the sector.");
+    }
+    if (const auto* shield = dynamic_cast<const ShieldProjector*>(&b)) {
+        ImGui::TextColored(theme::kTextDim,
+                           "One shield layer round the ship: it stops a laser shot or flak pellet, then "
+                           "recharges in %.1f s, in turn with the ship's other projectors. Missiles go through.",
+                           static_cast<double>(kShieldRecharge) / static_cast<double>(kTicksPerSecond));
+        if (shield->get_stun() > 0)
+            ImGui::TextColored(theme::kBad, "Stunned by an ion hit: %d s", static_cast<int>((shield->get_stun() + kTicksPerSecond - 1) / kTicksPerSecond));
+        else if (shield->up())
+            ImGui::TextColored(theme::kGood, "Layer up");
+        else
+            ImGui::TextColored(theme::kWarnText, "Down: %d%% recharged",
+                               static_cast<int>(100 * (kShieldRecharge - shield->get_recharge()) / kShieldRecharge));
     }
     if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
         ImGui::Text("Stored: %d / %d", hold->get_stored().total(), kCargoCapacity);

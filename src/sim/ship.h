@@ -44,6 +44,10 @@ enum class BuildResult {
     NoneInInventory,
     NothingThere,      // no building to remove on that cell
     NotRemovable,      // the bridge or an engine: part of the layout
+    NoWeaponPort,      // a weapon needs a weapon port under it
+    NoShieldPort,      // a shield projector needs a shield port under it
+    OnWeaponPort,      // only a weapon goes over a weapon port
+    OnShieldPort,      // only a shield projector goes over a shield port
 };
 
 // A short player-facing explanation ("Needs hull under every tile", ...).
@@ -129,6 +133,10 @@ private:
     // bridge or engines (loading adds them from the save).
     void set_hull(const ShipLayout& ship_layout);
 
+    // One tick of recharging for the shield projector furthest along of
+    // those that can: one layer comes back at a time.
+    void recharge_shields();
+
 public:
     // An empty grid (no hull, no bridge). Games start from new_game().
     Ship();
@@ -137,7 +145,7 @@ public:
     // place, and nothing in the inventory.
     static Ship from_layout(const ShipLayout& ship_layout);
     // The starting ship: the starter layout, with the bridge inventory
-    // stocked.
+    // stocked (a burst laser among it).
     static Ship new_game();
 
     int size() const { return kShipGridSize; }
@@ -145,6 +153,16 @@ public:
     bool has_hull(GridPos p) const;
     // The layout it was built in (null only for an empty Ship()).
     const ShipLayout* get_layout() const { return layout; }
+    // How many of its layout's ports of kind `port` it has, and how many
+    // are taken (by the weapons, or shield projectors, built over them).
+    int ports(Port port) const;
+    int ports_taken(Port port) const;
+    // The kind of port on cell `p`, if any.
+    std::optional<Port> port_at(GridPos p) const;
+    // Whether a `kind` with footprint `size` at `p` would sit right with
+    // the ports: over one of its own kind if it takes one, and over none
+    // of another kind (Ok, or why not).
+    BuildResult check_ports(ItemKind kind, GridPos p, GridSize size) const;
     // The top-left cell of the building covering `p`, if any.
     std::optional<GridPos> anchor_of(GridPos p) const;
     // The building covering `p` (any cell of its footprint), or null.
@@ -247,6 +265,7 @@ public:
     // moving), then junctions and routers pass on what's ready, then each
     // belt's front item goes to what it points at (a tunnel's, to its exit),
     // then each building puts one item of output out to a neighbor, and
-    // each ready unloader takes one out of storage.
+    // each ready unloader takes one out of storage. One shield layer down
+    // (if any) recharges.
     void tick();
 };

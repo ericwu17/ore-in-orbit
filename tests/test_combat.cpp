@@ -1,323 +1,655 @@
-// test_combat.cpp — headless tests for combat: turrets firing what's fed to
-// them (and nothing without it), enemies closing in on the nearest building
-// and wearing it down, buildings destroyed for nothing, mending while no
-// enemy is near, waves and clearing a sector, losing ships and the fleet,
-// and the same seed fighting the same fight.
+// test_combat.cpp — headless tests for ship-to-ship combat: weapons fed
+// fuel cells and ammunition (and silent without), charging and firing
+// volleys, shields stopping lasers but not missiles, ion stuns, beams,
+// evasion, the enemy's target priorities, beating an enemy for its salvage
+// and the weapons it carries, leaving a fight, losing the fleet, and the same seed
+// fighting the same fight.
+#include "sim/blueprint.h"
 #include "sim/building.h"
 #include "sim/combat.h"
+#include "sim/enemies.h"
 #include "sim/fleet.h"
+#include "sim/milestones.h"
+#include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 #include "sim/world.h"
 
+#include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <set>
 
 namespace {
 
-// East of the bridge, on the starting hull: a 2x2 turret, and its middle.
-constexpr GridPos kTurret{72, 64};
-constexpr float kTurretX = 73.0f;
-constexpr float kTurretY = 65.0f;
+// The starting hull's ports, on the grid: building anchored at one covers
+// it, with room for a 2x2 or 3x3.
+GridPos port_cell(Port port, std::size_t i) {
+    return layout_to_grid(starter_layout(), layout_ports(starter_layout(), port)[i]);
+}
+const GridPos kGun = port_cell(Port::Weapon, 0);
+const GridPos kGun2 = port_cell(Port::Weapon, 1);
+const GridPos kShield = port_cell(Port::Shield, 0);
+// Bare hull east of the bridge, away from any port.
+constexpr GridPos kNoPort{76, 64};
 
-Enemy drone_at(float x, float y) {
-    Enemy e;
-    e.kind = EnemyKind::Drone;
-    e.x = x;
-    e.y = y;
-    e.hp = enemy_spec(EnemyKind::Drone).hp;
-    return e;
+// Feeds the building at `p` up to `n` of `kind`, from the cell above it as
+// from a belt.
+void feed(Ship& ship, GridPos p, ItemKind kind, int n) {
+    for (int i = 0; i < n; ++i)
+        if (!ship.insert_item(p, {p.x, p.y - 1}, kind))
+            return;
 }
 
-// A safe sector: no waves of its own.
-Sector calm() {
-    Sector s;
-    s.yields.fill(100);
-    return s;
+// A `kind` weapon placed at `at` on `ship`, fed `fuel` fuel cells and
+// `ammo` rounds.
+Weapon& place_weapon(Ship& ship, ItemKind kind, GridPos at, int fuel, int ammo) {
+    ship.inventory().add(kind);
+    const BuildResult placed = ship.place(kind, at);
+    assert(placed == BuildResult::Ok);
+    (void)placed;
+    feed(ship, at, ItemKind::FuelCell, fuel);
+    feed(ship, at, weapon_spec(kind).ammo, ammo);
+    return *dynamic_cast<Weapon*>(ship.building_anchored_at(at));
 }
 
-void fight(Ship& ship, Battle& battle, Sector& sector, Rng& rng, Tick& now, Tick ticks) {
+// Keeps every weapon on `ship` full.
+void top_up(Ship& ship) {
+    for (const GridPos p : ship.placement_order())
+        if (const auto* w = dynamic_cast<const Weapon*>(ship.building_anchored_at(p))) {
+            feed(ship, p, ItemKind::FuelCell, kWeaponFuelCapacity);
+            feed(ship, p, w->get_spec().ammo, kWeaponAmmoCapacity);
+        }
+}
+
+// Knocks every engine on `ship` offline: nothing it's fired at misses.
+void ground(Ship& ship) {
+    for (const GridPos p : ship.placement_order())
+        if (auto* t = dynamic_cast<Thruster*>(ship.building_anchored_at(p)))
+            t->take_damage(t->get_hp());
+}
+
+// Destroys every weapon on `ship`.
+void disarm(Ship& ship) {
+    std::vector<GridPos> weapons;
+    for (const GridPos p : ship.placement_order())
+        if (dynamic_cast<const Weapon*>(ship.building_anchored_at(p)))
+            weapons.push_back(p);
+    for (const GridPos p : weapons)
+        ship.destroy_building(p);
+}
+
+// Where the bridge of `ship` is (its top-left cell).
+GridPos bridge_of(const Ship& ship) {
+    for (const GridPos p : ship.placement_order())
+        if (ship.building_anchored_at(p) == &ship.get_bridge())
+            return p;
+    assert(false);
+    return {};
+}
+
+FleetShip new_flagship() {
+    return FleetShip{1, "Flagship", Ship::new_game(), 0, std::nullopt};
+}
+
+// Steps the fight `ticks` times: the player's ship, then the fight. Returns
+// the salvage, if the enemy was beaten.
+std::optional<Salvage> fight(Engagement& e, FleetShip& player, Rng& rng, Tick& now, Tick ticks) {
+    const std::vector<FleetShip*> ships{&player};
+    const Progress progress;
     for (Tick t = 0; t < ticks; ++t) {
         ++now;
-        ship.tick();
-        combat_tick(ship, battle, sector, rng, now);
+        player.ship.tick();
+        if (std::optional<Salvage> s = combat_tick(e, ships, 1, progress, rng, now))
+            return s;
     }
+    return std::nullopt;
 }
 
-Turret& place_autocannon(Ship& ship, int magazines) {
-    ship.inventory().add(ItemKind::Autocannon);
-    assert(ship.place(ItemKind::Autocannon, kTurret) == BuildResult::Ok);
-    for (int i = 0; i < magazines; ++i)
-        assert(ship.insert_item(kTurret, {kTurret.x, kTurret.y - 1}, ItemKind::SlugMagazine));
-    return *dynamic_cast<Turret*>(ship.building_anchored_at(kTurret));
+int count_weapons(const Ship& ship) {
+    int n = 0;
+    for (const GridPos p : ship.placement_order())
+        n += dynamic_cast<const Weapon*>(ship.building_anchored_at(p)) ? 1 : 0;
+    return n;
 }
 
-void test_turret_needs_ammo() {
-    Ship ship = Ship::new_game();
-    Sector sector = calm();
-    Rng rng{1};
-    Tick now = 0;
-    Turret& turret = place_autocannon(ship, 0);
-    assert(!ship.insert_item(kTurret, {kTurret.x, kTurret.y - 1}, ItemKind::RailSlug));  // the wrong kind
-    Battle battle;
-    battle.enemies.push_back(drone_at(kTurretX + 5.0f, kTurretY));
-    fight(ship, battle, sector, rng, now, 2 * kTicksPerSecond);
-    assert(battle.enemies.size() == 1 && battle.enemies[0].hp == enemy_spec(EnemyKind::Drone).hp);
-    assert(turret.fired_at == 0);
-}
-
-// A drone takes four autocannon shots; the magazine they came from keeps the
-// rest.
-void test_turret_kills() {
-    Ship ship = Ship::new_game();
-    Sector sector = calm();
-    Rng rng{1};
-    Tick now = 0;
-    Turret& turret = place_autocannon(ship, 2);
-    const TurretSpec& spec = turret.get_spec();
-    assert(turret.shots_left() == 2 * spec.shots_per_ammo);
-    Battle battle;
-    battle.enemies.push_back(drone_at(kTurretX + 5.0f, kTurretY));
-    // Out of range: it waits.
-    battle.enemies.push_back(drone_at(kTurretX - 40.0f, kTurretY - 40.0f));
-    fight(ship, battle, sector, rng, now, 3 * spec.interval + 1);
-    assert(battle.enemies.size() == 1);
-    const int shots = (enemy_spec(EnemyKind::Drone).hp + spec.damage - 1) / spec.damage;
-    assert(turret.get_ammo() == 1 && turret.get_shots() == spec.shots_per_ammo - shots);
-    assert(turret.fired_at > 0);
-}
-
-// An enemy makes for the nearest building, shoots it once in range, and
-// destroys it: nothing comes back, neither it nor what it held. Then it
-// moves on to the next.
-void test_enemy_attacks() {
-    Ship ship = Ship::new_game();
-    Sector sector = calm();
-    Rng rng{1};
-    Tick now = 0;
-    const GridPos belt{80, 66};
-    assert(ship.place(ItemKind::TransportBelt, belt, Direction::West) == BuildResult::Ok);
-    assert(ship.insert_item(belt, {81, 66}, ItemKind::Gear));
-    const int belts = ship.inventory().count(ItemKind::TransportBelt);
-    const int gears = ship.inventory().count(ItemKind::Gear);
-
-    Battle battle;
-    battle.enemies.push_back(drone_at(100.0f, 66.5f));
-    // It closes in: 20 cells at its speed, then within range.
-    fight(ship, battle, sector, rng, now, kTicksPerSecond);
-    assert(battle.enemies[0].x < 100.0f && battle.enemies[0].target == belt);
-    for (Tick t = 0; t < 30 * kTicksPerSecond && ship.building_at(belt); ++t)
-        fight(ship, battle, sector, rng, now, 1);
-    assert(!ship.building_at(belt));
-    assert(ship.inventory().count(ItemKind::TransportBelt) == belts);
-    assert(ship.inventory().count(ItemKind::Gear) == gears);
-
-    // Next: the nearest of what's left, the layout's own parts (the bridge
-    // or an engine), which aren't destroyed.
-    fight(ship, battle, sector, rng, now, 10 * kTicksPerSecond);
-    assert(battle.enemies[0].target);
-    const Building* next = ship.building_anchored_at(*battle.enemies[0].target);
-    assert(next && !next->removable() && next->damaged());
-}
-
-// An engine shot down isn't destroyed: it goes offline, enemies leave it be,
-// and it comes back as it mends.
-void test_engine_knocked_offline() {
-    Ship ship = Ship::new_game();
-    Sector sector = calm();
-    Rng rng{1};
-    Tick now = 0;
-    const GridPos at = layout_to_grid(starter_layout(), starter_layout().engines.front());
-    const auto* engine = dynamic_cast<const Thruster*>(ship.building_anchored_at(at));
-    assert(engine);
-
-    // Just below it, off the stern: the engine is the nearest building.
-    Battle battle;
-    battle.enemies.push_back(drone_at(static_cast<float>(at.x) + 1.0f, static_cast<float>(at.y) + 6.0f));
-    fight(ship, battle, sector, rng, now, 1);
-    assert(battle.enemies[0].target == at);
-    for (Tick t = 0; t < 300 * kTicksPerSecond && !engine->offline(); ++t)
-        fight(ship, battle, sector, rng, now, 1);
-    assert(engine->offline());
-    assert(ship.building_anchored_at(at) == engine);
-    // On to something else.
-    fight(ship, battle, sector, rng, now, 1);
-    assert(battle.enemies[0].target != at);
-
-    battle.enemies.clear();
-    ship.repair_all(kRepairPercent);
-    assert(!engine->offline());
-}
-
-// Buildings mend while no enemy is on their ship's grid.
-void test_repair() {
-    World world;
-    Ship& ship = world.flagship();
-    Bridge& bridge = ship.get_bridge();
-    const int max = bridge.max_hp();
-    assert(!bridge.take_damage(500));
-    for (Tick t = 0; t < kTicksPerSecond; ++t)
-        world.advance_tick();
-    assert(bridge.get_hp() == max - 500 + max * kRepairPercent / 100);
-
-    // Not while enemies are there.
-    FleetShip& flagship = world.get_fleet().flagship();
-    flagship.battle.enemies.push_back(drone_at(-30.0f, -30.0f));  // far off: it won't arrive yet
-    const int hp = bridge.get_hp();
-    for (Tick t = 0; t < kTicksPerSecond; ++t)
-        world.advance_tick();
-    assert(bridge.get_hp() == hp);
-}
-
-// A hostile sector's waves: the first kFirstWaveDelay after arriving, then
-// one every kWaveInterval, until it has sent them all and is cleared.
-void test_waves() {
-    Ship ship = Ship::new_game();
-    Sector sector = calm();
-    sector.threat = 1;
-    sector.waves_left = 2;
-    assert(sector.hostile() && !sector.cleared());
-    Rng rng{1};
-    Tick now = 0;
-    Battle battle;
-    fight(ship, battle, sector, rng, now, 1);
-    assert(battle.next_wave == now + kFirstWaveDelay);
-    fight(ship, battle, sector, rng, now, kFirstWaveDelay - 1);
-    assert(battle.enemies.empty());
-    fight(ship, battle, sector, rng, now, 1);
-    // Threat 1: drones only, all coming from one side, outside the hull.
-    assert(!battle.enemies.empty() && sector.waves_left == 1);
-    const std::size_t first = battle.enemies.size();
-    for (const Enemy& e : battle.enemies) {
-        assert(e.kind == EnemyKind::Drone);
-        const float d = std::hypot(e.x - 64.0f, e.y - 64.0f);
-        assert(d > static_cast<float>(layout_bounds(starter_layout()).h) * 0.5f);
-    }
-    assert(battle.next_wave == now + kWaveInterval);
-    battle.enemies.clear();
-    fight(ship, battle, sector, rng, now, kWaveInterval);
-    // The second is bigger, and the last.
-    assert(battle.enemies.size() > first);
-    assert(sector.waves_left == 0 && !battle.next_wave);
-    assert(!sector.hostile() && sector.cleared());
-}
-
-// Heavier sectors send heavier ships.
-void test_wave_mix() {
-    const Ship ship = Ship::new_game();
-    Rng rng{3};
-    bool gunship = false;
-    bool dreadnought = false;
-    for (int i = 0; i < 20; ++i) {
-        Battle battle;
-        spawn_wave(ship, battle, kMaxThreat, 6, rng);
-        for (const Enemy& e : battle.enemies) {
-            gunship = gunship || e.kind == EnemyKind::Gunship;
-            dreadnought = dreadnought || e.kind == EnemyKind::Dreadnought;
-        }
-    }
-    assert(gunship && dreadnought);
-    for (int i = 0; i < 20; ++i) {
-        Battle battle;
-        spawn_wave(ship, battle, 1, 3, rng);
-        for (const Enemy& e : battle.enemies)
-            assert(e.kind == EnemyKind::Drone);
-    }
-}
-
-// A ship whose bridge falls is lost, cargo on its way to it too; with the
-// last one, the fleet, and the World stops.
-void test_losing() {
-    World world;
-    Fleet& fleet = world.get_fleet();
-    world.flagship().inventory().add({{ItemKind::ShipStarterPack, 1}, {ItemKind::CargoPod, 1}, {ItemKind::Gear, 5}});
-    world.flagship().inventory().add(starter_layout().cost);
-    int second = 0;
-    assert(fleet.launch(fleet.flagship().id, starter_layout(), &second) == FleetResult::Ok);
-    const int first = fleet.flagship().id;
-
-    FleetShip& doomed = *fleet.find(second);
-    assert(fleet.send(first, second, {{ItemKind::Gear, 5}}, world.get_tick()) == FleetResult::Ok);
-    assert(!doomed.ship.get_bridge().take_damage(doomed.ship.get_bridge().max_hp() - 1));
-    doomed.battle.enemies.push_back(drone_at(68.0f, 64.0f));  // right beside it
-    for (int t = 0; t < 2 * static_cast<int>(kTicksPerSecond) && fleet.find(second); ++t)
-        world.advance_tick();
-    assert(!fleet.find(second) && fleet.get_ships().size() == 1);
-    for (Tick t = 0; t < kTransferTicks; ++t)
-        world.advance_tick();
-    assert(fleet.in_flight().empty());
-    assert(!world.fleet_lost());
-
-    Ship& last = world.flagship();
-    assert(!last.get_bridge().take_damage(last.get_bridge().max_hp() - 1));
-    fleet.flagship().battle.enemies.push_back(drone_at(68.0f, 64.0f));
-    for (int t = 0; t < 2 * static_cast<int>(kTicksPerSecond) && !world.fleet_lost(); ++t)
-        world.advance_tick();
-    assert(world.fleet_lost());
-    const Tick end = world.get_tick();
-    world.advance_tick();
-    assert(world.get_tick() == end);
-}
-
-// Jumping away leaves the enemies behind.
-void test_retreat() {
-    World world;
-    Ship& ship = world.flagship();
-    const int id = world.get_fleet().flagship().id;
-    assert(world.send_wave(id));
-    assert(world.get_fleet().flagship().battle.under_attack());
-    // Its layout's engines, charged.
-    for (const GridPos e : starter_layout().engines) {
-        const GridPos p = layout_to_grid(starter_layout(), e);
-        while (ship.insert_item(p, {p.x, p.y - 1}, ItemKind::FuelCell)) {
-        }
-    }
-    assert(world.jump(id, world.get_map().at(0).neighbors.front()) == JumpResult::Ok);
-    assert(!world.get_fleet().flagship().battle.under_attack());
-}
-
-// The same seed, the same fight.
-void test_deterministic() {
-    World a(42);
-    World b(42);
-    for (World* w : {&a, &b}) {
-        assert(w->send_wave(w->get_fleet().flagship().id));
-        for (Tick t = 0; t < 20 * kTicksPerSecond; ++t)
-            w->advance_tick();
-    }
-    const std::vector<Enemy>& ea = a.get_fleet().flagship().battle.enemies;
-    const std::vector<Enemy>& eb = b.get_fleet().flagship().battle.enemies;
-    assert(!ea.empty() && ea.size() == eb.size());
-    for (std::size_t i = 0; i < ea.size(); ++i)
-        assert(ea[i].x == eb[i].x && ea[i].y == eb[i].y && ea[i].hp == eb[i].hp);
-    assert(a.flagship().get_bridge().get_hp() == b.flagship().get_bridge().get_hp());
+int count_shields(const Ship& ship) {
+    int n = 0;
+    for (const GridPos p : ship.placement_order())
+        n += dynamic_cast<const ShieldProjector*>(ship.building_anchored_at(p)) ? 1 : 0;
+    return n;
 }
 
 void test_ids() {
-    for (int i = 0; i < kEnemyKindCount; ++i) {
-        const EnemyKind kind = static_cast<EnemyKind>(i);
-        assert(enemy_from_id(enemy_id(kind)) == kind);
-        assert(enemy_spec(kind).hp > 0 && enemy_spec(kind).cost > 0);
+    for (int i = 0; i < kEnemyClassCount; ++i) {
+        const EnemyClass c = static_cast<EnemyClass>(i);
+        assert(enemy_from_id(enemy_id(c)) == c);
+        const EnemyDesign& d = enemy_design(c);
+        // Its layout is an enemy's, never the player's to build.
+        const ShipLayout* layout = find_layout(d.layout);
+        assert(layout && layout->milestone == std::nullopt);
+        for (const ShipLayout& l : all_layouts())
+            assert(std::string_view(l.id) != d.layout);
+        assert(!d.weapons.empty() && d.hull > 0 && d.hull <= max_hp_of(std::nullopt));
+        for (const ItemKind w : d.weapons)
+            assert(is_weapon(w));
+        for (const ItemKind w : d.loot)
+            assert(is_weapon(w));
     }
     assert(!enemy_from_id("Kraken"));
-    assert(waves_for_threat(0) == 0 && waves_for_threat(1) > 0);
+    assert(enemies_for_threat(0).empty());
+    for (int t = 1; t <= kMaxThreat; ++t)
+        assert(!enemies_for_threat(t).empty());
+    // Next to home, only the lightest.
+    assert(enemies_for_threat(1) == std::vector<EnemyClass>{EnemyClass::Scout});
+}
+
+// Every design's buildings fit its layout, whatever the seed.
+void test_enemies_built() {
+    for (int i = 0; i < kEnemyClassCount; ++i)
+        for (std::uint64_t seed = 1; seed <= 30; ++seed) {
+            Rng rng{seed};
+            const EnemyClass c = static_cast<EnemyClass>(i);
+            const Engagement e = make_engagement(3, c, rng);
+            const EnemyDesign& d = enemy_design(c);
+            assert(e.sector == 3 && e.enemy == c);
+            assert(count_weapons(e.ship) == static_cast<int>(d.weapons.size()));
+            assert(count_shields(e.ship) == d.shields);
+            assert(e.ship.get_bridge().get_hp() == d.hull && e.ship.get_bridge().max_hp() == d.hull);
+            assert(shield_layers(e.ship) == d.shields);
+        }
+}
+
+// Ports are 1x1 tiles of a layout's hull, apart from each other and from
+// the bridge and engines, each with room round it for any weapon (3x3 at
+// most); every layout has some, more the bigger it is, and every enemy's
+// design fits its layout's.
+void test_port_layouts() {
+    std::vector<const ShipLayout*> layouts;
+    for (const ShipLayout& l : all_layouts())
+        layouts.push_back(&l);
+    for (const ShipLayout& l : enemy_layouts())
+        layouts.push_back(&l);
+    std::size_t weapons = 0;
+    for (const ShipLayout& l : all_layouts()) {
+        assert(l.weapon_ports.size() >= weapons && !l.shield_ports.empty());
+        weapons = l.weapon_ports.size();
+    }
+    for (const ShipLayout* l : layouts) {
+        const Ship ship = Ship::from_layout(*l);
+        std::vector<GridPos> all = l->weapon_ports;
+        all.insert(all.end(), l->shield_ports.begin(), l->shield_ports.end());
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            const GridPos p = layout_to_grid(*l, all[i]);
+            assert(ship.has_hull(p) && !ship.anchor_of(p));
+            // A 3x3 round it fits on free hull.
+            for (int y = p.y - 1; y <= p.y + 1; ++y)
+                for (int x = p.x - 1; x <= p.x + 1; ++x)
+                    assert(ship.has_hull({x, y}) && !ship.anchor_of({x, y}));
+            for (std::size_t j = i + 1; j < all.size(); ++j)
+                assert(std::max(std::abs(all[i].x - all[j].x), std::abs(all[i].y - all[j].y)) >= kPortSpacing);
+        }
+    }
+    for (int i = 0; i < kEnemyClassCount; ++i) {
+        const EnemyDesign& d = enemy_design(static_cast<EnemyClass>(i));
+        const ShipLayout& l = *find_layout(d.layout);
+        assert(d.weapons.size() <= l.weapon_ports.size() && static_cast<std::size_t>(d.shields) <= l.shield_ports.size());
+    }
+    assert(port_of(ItemKind::BeamEmitter) == Port::Weapon && port_of(ItemKind::ShieldProjector) == Port::Shield);
+    assert(!port_of(ItemKind::CargoHold) && !port_of(ItemKind::FocusCrystal));
+}
+
+// Weapons and shield projectors go only over a free port of their own kind,
+// and nothing else over a port, placed one at a time or pasted from a
+// blueprint.
+void test_ports() {
+    World world;
+    Ship& ship = world.flagship();
+    assert(ship.ports(Port::Weapon) == 2 && ship.ports(Port::Shield) == 1);
+    assert(ship.port_at(kGun) == Port::Weapon && ship.port_at(kShield) == Port::Shield && !ship.port_at(kNoPort));
+    ship.inventory().add({{ItemKind::BurstLaser, 3}, {ItemKind::FlakCannon, 1}, {ItemKind::ShieldProjector, 2},
+                          {ItemKind::CargoHold, 1}});
+    // Off a port, or over the other kind.
+    assert(ship.can_place(ItemKind::BurstLaser, kNoPort) == BuildResult::NoWeaponPort);
+    assert(ship.can_place(ItemKind::BurstLaser, kShield) == BuildResult::OnShieldPort);
+    assert(ship.can_place(ItemKind::ShieldProjector, kNoPort) == BuildResult::NoShieldPort);
+    assert(ship.can_place(ItemKind::ShieldProjector, kGun) == BuildResult::OnWeaponPort);
+    assert(ship.can_place(ItemKind::CargoHold, kGun) == BuildResult::OnWeaponPort);
+    assert(ship.can_place(ItemKind::CargoHold, kNoPort) == BuildResult::Ok);
+    // Covering the port from any of its footprint's cells will do.
+    assert(ship.can_place(ItemKind::BurstLaser, {kGun.x - 1, kGun.y - 1}) == BuildResult::Ok);
+    assert(ship.can_place(ItemKind::FlakCannon, {kGun.x - 2, kGun.y - 1}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BurstLaser, kGun) == BuildResult::Ok);
+    assert(ship.place(ItemKind::BurstLaser, kGun2) == BuildResult::Ok);
+    assert(ship.place(ItemKind::ShieldProjector, kShield) == BuildResult::Ok);
+    assert(ship.ports_taken(Port::Weapon) == 2 && ship.ports_taken(Port::Shield) == 1);
+    // Every port taken: the next has nowhere to go.
+    assert(ship.can_place(ItemKind::BurstLaser, kNoPort) == BuildResult::NoWeaponPort);
+    assert(ship.remove_building(kGun2) == BuildResult::Ok && ship.ports_taken(Port::Weapon) == 1);
+    // A pasted weapon off any port doesn't fit; one on the free port does.
+    const std::optional<Blueprint> one = copy_region(ship, kGun, {kGun.x + 1, kGun.y + 1});
+    assert(one && one->buildings.size() == 1);
+    assert(plan_paste(ship, *one, kNoPort).entries[0].result == BuildResult::NoWeaponPort);
+    assert(plan_paste(ship, *one, kGun2).ok());
+}
+
+// A weapon takes fuel cells and its own ammunition, up to what it holds,
+// and gives them back when removed.
+void test_weapon_feeding() {
+    Ship ship = Ship::new_game();
+    Weapon& w = place_weapon(ship, ItemKind::MissileLauncher, kGun, 0, 0);
+    assert(!ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::FocusCrystal));  // another weapon's
+    assert(!ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::IronPlate));
+    feed(ship, kGun, ItemKind::FuelCell, 100);
+    feed(ship, kGun, ItemKind::Missile, 100);
+    assert(w.get_fuel() == kWeaponFuelCapacity && w.get_ammo() == kWeaponAmmoCapacity);
+    assert(w.powered());
+    const int cells = ship.inventory().count(ItemKind::FuelCell);
+    assert(ship.remove_building(kGun) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::FuelCell) == cells + kWeaponFuelCapacity);
+    assert(ship.inventory().count(ItemKind::Missile) == kWeaponAmmoCapacity);
+}
+
+// A weapon charges only with both fuel and ammunition; a volley burns one of
+// each and fires all its shots.
+void test_needs_power() {
+    for (const auto& [fuel, ammo] : {std::pair{0, 5}, std::pair{5, 0}}) {
+        FleetShip player = new_flagship();
+        Weapon& w = place_weapon(player.ship, ItemKind::BurstLaser, kGun, fuel, ammo);
+        Rng rng{1};
+        Tick now = 0;
+        Engagement e = make_engagement(0, EnemyClass::Scout, rng);
+        fight(e, player, rng, now, 2 * w.get_spec().charge);
+        assert(w.charge_fraction() == 0.0f);
+        for (const Shot& s : e.shots)
+            assert(!s.at_enemy);
+    }
+    FleetShip player = new_flagship();
+    Weapon& w = place_weapon(player.ship, ItemKind::BurstLaser, kGun, 2, 2);
+    Rng rng{1};
+    Tick now = 0;
+    Engagement e = make_engagement(0, EnemyClass::Scout, rng);
+    fight(e, player, rng, now, w.get_spec().charge - 1);
+    assert(w.charge_fraction() > 0.9f && w.get_fuel() == 2);
+    fight(e, player, rng, now, 1);
+    assert(w.get_fuel() == 1 && w.get_ammo() == 1 && w.charge_fraction() == 0.0f);
+    int shots = 0;
+    for (const Shot& s : e.shots)
+        shots += s.at_enemy ? 1 : 0;
+    assert(shots == w.get_spec().shots);
+}
+
+// Without an enemy, weapons don't charge (World: no fight).
+void test_no_fight_no_charge() {
+    World world;
+    Ship& ship = world.flagship();
+    Weapon& w = place_weapon(ship, ItemKind::BurstLaser, kGun, 5, 5);
+    for (int i = 0; i < 20 * static_cast<int>(kTicksPerSecond); ++i)
+        world.advance_tick();
+    assert(w.charge_fraction() == 0.0f && w.get_fuel() == 5);
+    assert(!world.engagement_in(0));
+}
+
+// A laser volley at a shielded enemy: the first shot knocks its one layer
+// down, the rest hit; the layer comes back after kShieldRecharge.
+void test_shields_stop_lasers() {
+    FleetShip player = new_flagship();
+    Weapon& w = place_weapon(player.ship, ItemKind::BurstLaser, kGun, 5, 5);
+    Rng rng{2};
+    Tick now = 0;
+    Engagement e = make_engagement(0, EnemyClass::Raider, rng);
+    ground(e.ship);
+    player.target = bridge_of(e.ship);
+    const WeaponSpec& spec = w.get_spec();
+    assert(shield_layers(e.ship) == 1);
+    fight(e, player, rng, now, spec.charge + spec.flight + kTicksPerSecond / 2);
+    assert(shield_layers(e.ship) == 0);
+    assert(e.ship.get_bridge().get_hp() == enemy_design(EnemyClass::Raider).hull - (spec.shots - 1) * spec.damage);
+    // Back up once it has recharged (before the next volley lands).
+    fight(e, player, rng, now, kShieldRecharge);
+    assert(shield_layers(e.ship) == 1);
+}
+
+// Shield layers come back one at a time: two knocked down, one is up
+// after kShieldRecharge and both after twice that; a stunned projector
+// waits, while the other recharges.
+void test_shields_one_at_a_time() {
+    Rng rng{4};
+    Engagement e = make_engagement(0, EnemyClass::Corsair, rng);
+    std::vector<ShieldProjector*> shields;
+    for (const GridPos p : e.ship.placement_order())
+        if (auto* s = dynamic_cast<ShieldProjector*>(e.ship.building_anchored_at(p)))
+            shields.push_back(s);
+    const int all = static_cast<int>(shields.size());
+    assert(all >= 2 && shield_layers(e.ship) == all);
+    const auto run = [&](Tick ticks) {
+        for (Tick t = 0; t < ticks; ++t)
+            e.ship.tick();
+    };
+    shields[0]->knock_down();
+    shields[1]->knock_down();
+    assert(shield_layers(e.ship) == all - 2);
+    run(kShieldRecharge - 1);
+    assert(shield_layers(e.ship) == all - 2);
+    run(1);
+    assert(shield_layers(e.ship) == all - 1);
+    run(kShieldRecharge);
+    assert(shield_layers(e.ship) == all);
+    // One stunned: the other comes back first.
+    shields[0]->knock_down();
+    shields[1]->knock_down();
+    shields[0]->stun_for(3 * kShieldRecharge);
+    run(kShieldRecharge);
+    assert(!shields[0]->up() && shields[1]->up());
+    run(kShieldRecharge);
+    assert(!shields[0]->up());
+    run(2 * kShieldRecharge);
+    assert(shields[0]->up());
+}
+
+// Missiles fly through shields; ion bolts knock a layer down and stun its
+// projector, so it stays down past kShieldRecharge.
+void test_missiles_and_ion() {
+    {
+        FleetShip player = new_flagship();
+        Weapon& w = place_weapon(player.ship, ItemKind::MissileLauncher, kGun, 5, 5);
+        Rng rng{3};
+        Tick now = 0;
+        Engagement e = make_engagement(0, EnemyClass::Gunship, rng);
+        ground(e.ship);
+        disarm(e.ship);  // or it shoots the launcher down first
+        player.target = bridge_of(e.ship);
+        fight(e, player, rng, now, w.get_spec().charge + w.get_spec().flight + 1);
+        assert(shield_layers(e.ship) == 1);
+        assert(e.ship.get_bridge().get_hp() == enemy_design(EnemyClass::Gunship).hull - w.get_spec().damage);
+    }
+    FleetShip player = new_flagship();
+    Weapon& w = place_weapon(player.ship, ItemKind::IonBlaster, kGun, 1, 1);
+    Rng rng{4};
+    Tick now = 0;
+    Engagement e = make_engagement(0, EnemyClass::Raider, rng);
+    ground(e.ship);
+    player.target = bridge_of(e.ship);
+    fight(e, player, rng, now, w.get_spec().charge + w.get_spec().flight + 1);
+    assert(shield_layers(e.ship) == 0);
+    assert(e.ship.get_bridge().get_hp() == enemy_design(EnemyClass::Raider).hull);  // stopped by the shield
+    fight(e, player, rng, now, kShieldRecharge + kTicksPerSecond);
+    assert(shield_layers(e.ship) == 0);  // stunned: not recharging
+    fight(e, player, rng, now, w.get_spec().stun);
+    assert(shield_layers(e.ship) == 1);
+}
+
+// An ion bolt that gets through stuns the weapon it hits: it stops charging.
+void test_ion_stuns_weapons() {
+    FleetShip player = new_flagship();
+    Weapon& w = place_weapon(player.ship, ItemKind::IonBlaster, kGun, 5, 5);
+    Rng rng{5};
+    Tick now = 0;
+    Engagement e = make_engagement(0, EnemyClass::Scout, rng);
+    ground(e.ship);
+    std::optional<GridPos> gun;
+    for (const GridPos p : e.ship.placement_order())
+        if (dynamic_cast<const Weapon*>(e.ship.building_anchored_at(p)))
+            gun = p;
+    player.target = gun;
+    fight(e, player, rng, now, w.get_spec().charge + w.get_spec().flight + 1);
+    const auto& theirs = dynamic_cast<const Weapon&>(*e.ship.building_anchored_at(*gun));
+    assert(theirs.get_stun() > 0);
+    const float charge = theirs.charge_fraction();
+    fight(e, player, rng, now, kTicksPerSecond);
+    assert(theirs.charge_fraction() == charge);
+}
+
+// A beam never misses, hits every building on its line once, and each
+// shield layer up takes kBeamShieldReduction off.
+void test_beam() {
+    for (const EnemyClass c : {EnemyClass::Scout, EnemyClass::Raider}) {
+        FleetShip player = new_flagship();
+        Weapon& w = place_weapon(player.ship, ItemKind::BeamEmitter, kGun, 5, 5);
+        Rng rng{6};
+        Tick now = 0;
+        Engagement e = make_engagement(0, c, rng);  // engines online: it still hits
+        player.target = bridge_of(e.ship);
+        fight(e, player, rng, now, w.get_spec().charge + w.get_spec().flight + 1);
+        const int layers = enemy_design(c).shields;
+        assert(shield_layers(e.ship) == layers);  // not knocked down
+        assert(e.ship.get_bridge().get_hp() ==
+               enemy_design(c).hull - (w.get_spec().damage - kBeamShieldReduction * layers));
+    }
+}
+
+// Every online engine dodges kEvasionPerEngine; offline ones don't.
+void test_evasion() {
+    Ship ship = Ship::new_game();
+    assert(evasion(ship) == kEvasionPerEngine * static_cast<float>(ship.thrusters().size()));
+    ground(ship);
+    assert(evasion(ship) == 0.0f);
+}
+
+// Down an enemy's priorities: a Raider shoots engines, then weapons, then
+// the bridge.
+void test_priorities() {
+    Ship ship = Ship::new_game();
+    place_weapon(ship, ItemKind::BurstLaser, kGun, 0, 0);
+    ship.inventory().add(ItemKind::AsteroidCollector);
+    assert(ship.place(ItemKind::AsteroidCollector, kNoPort) == BuildResult::Ok);
+    const std::vector<TargetGroup>& raider = enemy_design(EnemyClass::Raider).priorities;
+    Rng rng{7};
+    for (int i = 0; i < 20; ++i)
+        assert(in_target_group(ship, *pick_target(ship, raider, 0.0f, rng), TargetGroup::Engines));
+    ground(ship);
+    for (int i = 0; i < 20; ++i)
+        assert(*pick_target(ship, raider, 0.0f, rng) == kGun);
+    ship.destroy_building(kGun);
+    for (int i = 0; i < 20; ++i)
+        assert(*pick_target(ship, raider, 0.0f, rng) == bridge_of(ship));
+    // Now and then, anything at all.
+    std::set<std::pair<int, int>> picked;
+    for (int i = 0; i < 200; ++i) {
+        const GridPos p = *pick_target(ship, raider, 0.5f, rng);
+        picked.insert({p.x, p.y});
+    }
+    assert(picked.contains({kNoPort.x, kNoPort.y}));
+}
+
+// Weapons are found, never made: none has a recipe, and finding one
+// unlocks its own ammunition, once. A new game has found the burst laser.
+void test_found_weapons() {
+    Progress progress;
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (const ItemKind kind = static_cast<ItemKind>(i); is_weapon(kind)) {
+            assert(!recipe_for(kind) && !milestone_unlocking(kind) && !progress.unlocked(kind));
+            // Its ammunition comes with it, or with a milestone (focus
+            // crystals, which the lasers share).
+            const ItemKind ammo = weapon_spec(kind).ammo;
+            assert(recipe_for(ammo));
+            assert(weapon_unlocking(ammo) == kind || milestone_unlocking(ammo));
+        }
+    assert(!progress.unlocked(ItemKind::Missile));
+    assert(progress.add_found(ItemKind::MissileLauncher));
+    assert(!progress.add_found(ItemKind::MissileLauncher));
+    assert(!progress.add_found(ItemKind::Missile));  // no weapon
+    assert(progress.unlocked(ItemKind::MissileLauncher) && progress.unlocked(ItemKind::Missile));
+    assert(!progress.unlocked(ItemKind::HeavyLaser) && !progress.unlocked(ItemKind::IonCell));
+    assert(milestone_unlocking(ItemKind::FocusCrystal) && milestone_unlocking(ItemKind::ShieldProjector));
+
+    World world;
+    assert(world.get_fleet().get_progress().found_weapons() == std::vector<ItemKind>{ItemKind::BurstLaser});
+    assert(world.flagship().inventory().count(ItemKind::BurstLaser) == 1);
+}
+
+// The flagship, armed, beats a Scout: its salvage lands in the bridge, the
+// sector is cleared and the fight is over, and buildings mend again.
+void test_beating_an_enemy() {
+    World world;
+    FleetShip& flagship = world.get_fleet().flagship();
+    Ship& ship = flagship.ship;
+    place_weapon(ship, ItemKind::BurstLaser, kGun, 5, 10);
+    place_weapon(ship, ItemKind::BurstLaser, kGun2, 5, 10);
+    assert(world.spawn_enemy(flagship.id, EnemyClass::Scout));
+    world.advance_tick();
+    assert(world.engagement_in(0) && world.get_map().at(0).hostile());
+    std::vector<Salvage> salvage;
+    const int cells = ship.inventory().count(ItemKind::FuelCell);
+    for (int i = 0; i < 300 * static_cast<int>(kTicksPerSecond) && salvage.empty(); ++i) {
+        top_up(ship);
+        world.advance_tick();
+        salvage = world.take_salvage();
+    }
+    assert(salvage.size() == 1 && salvage[0].enemy == EnemyClass::Scout && salvage[0].ship == flagship.id);
+    assert(!world.engagement_in(0));
+    assert(world.get_map().at(0).cleared() && !world.get_map().at(0).hostile());
+    assert(ship.inventory().count(ItemKind::FuelCell) > cells);
+    for (const ItemKind w : salvage[0].found)
+        assert(is_weapon(w) && world.get_fleet().get_progress().has_found(w));
+    // Mending again.
+    ship.get_bridge().take_damage(500);
+    const int hp = ship.get_bridge().get_hp();
+    for (int i = 0; i < 2 * static_cast<int>(kTicksPerSecond); ++i)
+        world.advance_tick();
+    assert(ship.get_bridge().get_hp() > hp);
+}
+
+// A beaten Dreadnought always carries a weapon in its hold, one the fleet
+// hasn't found, with ammunition for it: found when it's salvaged.
+void test_salvaged_weapon() {
+    World world;
+    const int id = world.get_fleet().flagship().id;
+    Progress& progress = world.get_fleet().get_progress();
+    for (const ItemKind found : {ItemKind::BeamEmitter, ItemKind::FlakCannon})
+        progress.add_found(found);
+    const int ion_blasters = world.flagship().inventory().count(ItemKind::IonBlaster);
+    world.spawn_enemy(id, EnemyClass::Dreadnought);
+    world.advance_tick();
+    assert(world.defeat_enemy(id));
+    world.advance_tick();
+    const std::vector<Salvage> salvage = world.take_salvage();
+    assert(salvage.size() == 1);
+    assert(std::find(salvage[0].found.begin(), salvage[0].found.end(), ItemKind::IonBlaster) != salvage[0].found.end());
+    assert(world.flagship().inventory().count(ItemKind::IonBlaster) == ion_blasters + 1);
+    assert(progress.has_found(ItemKind::IonBlaster) && progress.unlocked(ItemKind::IonCell));
+    assert(world.flagship().inventory().count(ItemKind::IonCell) > 0);
+    // Its own weapons' ammunition comes too.
+    assert(world.flagship().inventory().count(ItemKind::IridiumLens) > 0);
+}
+
+// No damage mends while the fight is on.
+void test_no_repair_in_a_fight() {
+    World world;
+    const int id = world.get_fleet().flagship().id;
+    world.spawn_enemy(id, EnemyClass::Scout);
+    world.advance_tick();
+    Bridge& bridge = world.flagship().get_bridge();
+    bridge.take_damage(100);
+    for (int i = 0; i < 3 * static_cast<int>(kTicksPerSecond); ++i)
+        world.advance_tick();
+    assert(bridge.get_hp() <= max_hp_of(std::nullopt) - 100);
+}
+
+// Jumping away ends the fight: the enemy stays, to fight afresh.
+void test_leaving() {
+    World world;
+    FleetShip& flagship = world.get_fleet().flagship();
+    world.spawn_enemy(flagship.id, EnemyClass::Raider);
+    world.advance_tick();
+    assert(world.engagement_in(0));
+    for (const GridPos p : flagship.ship.placement_order())
+        if (dynamic_cast<const Thruster*>(flagship.ship.building_anchored_at(p)))
+            feed(flagship.ship, p, ItemKind::FuelCell, kThrusterCharge);
+    const int to = world.get_map().at(0).neighbors.front();
+    assert(world.jump(flagship.id, to) == JumpResult::Ok);
+    world.advance_tick();
+    assert(!world.engagement_in(0));
+    assert(world.get_map().at(0).enemy == EnemyClass::Raider);
+}
+
+// With no weapons, a Gunship wears the flagship down: the fleet is lost.
+void test_losing() {
+    World world;
+    world.spawn_enemy(world.get_fleet().flagship().id, EnemyClass::Gunship);
+    for (int i = 0; i < 30 * 60 * static_cast<int>(kTicksPerSecond) && !world.fleet_lost(); ++i)
+        world.advance_tick();
+    assert(world.fleet_lost());
+}
+
+// A target knocked out (an engine offline, at 0) is dropped, so the
+// weapons pick again rather than fire rounds at it for nothing; and a
+// fight won leaves no weapon charged for the next one.
+void test_targets_and_standing_down() {
+    {
+        FleetShip player = new_flagship();
+        place_weapon(player.ship, ItemKind::BurstLaser, kGun, 5, 5);
+        Rng rng{5};
+        Tick now = 0;
+        Engagement e = make_engagement(0, EnemyClass::Scout, rng);
+        const Thruster* engine = e.ship.thrusters().front();
+        for (const GridPos p : e.ship.placement_order())
+            if (e.ship.building_anchored_at(p) == engine)
+                player.target = p;
+        assert(player.target);
+        ground(e.ship);
+        fight(e, player, rng, now, 1);
+        assert(!player.target);
+    }
+    World world;
+    FleetShip& flagship = world.get_fleet().flagship();
+    Weapon& w = place_weapon(flagship.ship, ItemKind::BurstLaser, kGun, 5, 5);
+    assert(world.spawn_enemy(flagship.id, EnemyClass::Scout));
+    for (int i = 0; i < 2 * static_cast<int>(kTicksPerSecond); ++i)
+        world.advance_tick();
+    assert(w.charge_fraction() > 0.0f);
+    assert(world.defeat_enemy(flagship.id));
+    world.advance_tick();
+    assert(!world.take_salvage().empty());
+    assert(w.charge_fraction() == 0.0f);
+}
+
+// The same seed fights the same fight.
+void test_deterministic() {
+    const auto run = [] {
+        World world{42};
+        FleetShip& flagship = world.get_fleet().flagship();
+        place_weapon(flagship.ship, ItemKind::BurstLaser, kGun, 5, 10);
+        place_weapon(flagship.ship, ItemKind::FlakCannon, kGun2, 5, 10);
+        world.spawn_enemy(flagship.id, EnemyClass::Raider);
+        world.advance_tick();
+        assert(world.set_target(flagship.id, bridge_of(world.engagement_in(0)->ship)));
+        for (int i = 0; i < 40 * static_cast<int>(kTicksPerSecond); ++i)
+            world.advance_tick();
+        const Engagement* e = world.engagement_in(0);
+        return std::pair{e ? e->ship.get_bridge().get_hp() : -1, world.flagship().get_bridge().get_hp()};
+    };
+    const auto a = run();
+    assert(a.first < enemy_design(EnemyClass::Raider).hull);
+    assert(a == run());
 }
 
 }  // namespace
 
 int main() {
     test_ids();
-    test_turret_needs_ammo();
-    test_turret_kills();
-    test_enemy_attacks();
-    test_engine_knocked_offline();
-    test_repair();
-    test_waves();
-    test_wave_mix();
+    test_enemies_built();
+    test_weapon_feeding();
+    test_needs_power();
+    test_no_fight_no_charge();
+    test_shields_stop_lasers();
+    test_shields_one_at_a_time();
+    test_missiles_and_ion();
+    test_ion_stuns_weapons();
+    test_beam();
+    test_evasion();
+    test_priorities();
+    test_found_weapons();
+    test_port_layouts();
+    test_ports();
+    test_beating_an_enemy();
+    test_salvaged_weapon();
+    test_no_repair_in_a_fight();
+    test_leaving();
     test_losing();
-    test_retreat();
+    test_targets_and_standing_down();
     test_deterministic();
     std::puts("test_combat: all passed");
     return 0;

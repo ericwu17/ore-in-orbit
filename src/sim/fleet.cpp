@@ -30,6 +30,9 @@ int pods_needed(int items) {
 Fleet Fleet::new_game() {
     Fleet fleet;
     fleet.add("Flagship", Ship::new_game(), 0);
+    // The flagship's burst laser (see Ship::new_game) is the one weapon
+    // the fleet starts with; the rest it finds.
+    fleet.progress->add_found(ItemKind::BurstLaser);
     return fleet;
 }
 

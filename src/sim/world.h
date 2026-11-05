@@ -6,12 +6,15 @@
 // jump burns all their fuel.
 // Survey scanners survey the sectors next to the ship's, once a second.
 //
-// Combat (see combat.h): every ship in a hostile sector fights the waves it
-// sends; a ship whose bridge is destroyed is lost, and with the last one,
-// the game (fleet_lost). Where no enemy is, buildings mend, kRepairPercent
-// of their health a second.
+// Combat (see combat.h): the player's ships in a sector with an enemy ship
+// fight it; a ship whose bridge is destroyed is lost, and with the last one,
+// the game (fleet_lost). Beating it, its salvage goes to one of them, its
+// weapons found by the fleet, and the sector is cleared. Where no
+// enemy is, buildings mend, kRepairPercent of their health a second.
 #pragma once
 
+#include "sim/combat.h"
+#include "sim/enemies.h"
 #include "sim/fleet.h"
 #include "sim/game_types.h"
 #include "sim/rng.h"
@@ -19,6 +22,8 @@
 #include "sim/ship.h"
 
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 // How much of its health a damaged building mends a second, while no enemy
 // is on its ship's grid.
@@ -51,15 +56,29 @@ private:
     Tick current_tick = 0;
     StarMap map;
     Fleet fleet = Fleet::new_game();
-    Rng rng;  // the fights' (enemy waves')
+    Rng rng;  // the fights' (enemy ships, where shots land)
+    // The fights going on: one per sector with an enemy and any of the
+    // fleet's ships.
+    std::vector<Engagement> engagements;
+    // What beaten enemies left, for the UI to announce (not saved).
+    std::vector<Salvage> salvaged;
 
     // Every ship's collectors gather at its sector's yields.
     void update_yields();
     // Ships with a survey scanner survey the sectors next to theirs.
     void scan();
-    // Every ship fights the enemies on its grid; those whose bridge falls
-    // are lost.
+    // The fleet's ships in sector `sector`.
+    std::vector<FleetShip*> ships_in(int sector);
+    // Starts a fight wherever a ship of the fleet meets an enemy, ends
+    // those it has left, and steps the rest; ships whose bridge falls are
+    // lost.
     void fight();
+    // A beaten enemy's salvage: into its ship's bridge, the weapons in it
+    // found by the fleet, the sector cleared.
+    void collect(Salvage salvage);
+    // A ship's fight is over (it jumped, or the enemy was beaten or
+    // replaced): its weapons lose their charge and it has no target.
+    void stand_down(FleetShip& s);
 
 public:
     // A new game on the map kDefaultMapSeed makes.
@@ -84,16 +103,29 @@ public:
     const StarMap& get_map() const { return map; }
     // Surveys every sector at once (the debug menu).
     void reveal_map();
-    // Sends the next wave of its sector (as at threat 1 or more) at ship
-    // `ship` now (the debug menu); false if there's no such ship.
-    bool send_wave(int ship);
-    // Clears every enemy off ship `ship`'s grid (the debug menu).
-    void clear_enemies(int ship);
+    // The fight in sector `sector`, or null if there's none.
+    const Engagement* engagement_in(int sector) const;
+    // Every fight going on.
+    const std::vector<Engagement>& get_engagements() const { return engagements; }
+    // Sets what ship `ship`'s weapons fire at: the building covering `cell`
+    // on the enemy in its sector (nullopt: none, they pick). False if
+    // there's no such ship, no fight there or no building on that cell.
+    bool set_target(int ship, std::optional<GridPos> cell);
+    // What beaten enemies left since the last call, oldest first (for the
+    // UI to announce).
+    std::vector<Salvage> take_salvage();
+    // Puts an enemy of class `enemy` in ship `ship`'s sector, in place of
+    // any there (the debug menu); false if there's no such ship.
+    bool spawn_enemy(int ship, EnemyClass enemy);
+    // Beats the enemy in ship `ship`'s sector at once, as if its bridge
+    // were shot down (the debug menu); false if there's no fight there.
+    bool defeat_enemy(int ship);
 
     // Whether jump(ship, sector) would succeed.
     JumpResult can_jump(int ship, int sector) const;
     // Moves ship `ship` (an id) to `sector`, burning all its thrusters'
-    // fuel; the sector is visited from now on. The enemies on its grid stay
-    // behind, and the new sector's waves start coming.
+    // fuel, and its weapons lose their charge; the sector is visited from
+    // now on. A fight it leaves goes on without it (or ends, with no ship
+    // of the fleet left there); one in the new sector starts.
     JumpResult jump(int ship, int sector);
 };

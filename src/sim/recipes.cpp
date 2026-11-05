@@ -102,13 +102,17 @@ std::vector<Recipe> make_recipes() {
             .out(ShipStarterPack),
         R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
 
-        // Defense: turrets, and the ammunition belts feed them.
-        R(Assemble, 6).in(Steel, 10).in(Gear, 10).in(Circuit, 5).out(Autocannon),
-        R(Assemble, 1).in(IronPlate, 2).in(Steel).out(SlugMagazine, 2),
-        R(Assemble, 15)
-            .in(StructuralFrame, 10).in(AdvancedCircuit, 10).in(IridiumPlate, 10).in(Processor, 2)
-            .out(Railgun),
-        R(Assemble, 3).in(IridiumPlate).in(Steel, 2).in(Circuit).out(RailSlug),
+        // Ammunition and shields. Weapons have no recipes: they are found
+        // (see milestones.h). Focus crystals and the shield projector come
+        // with milestones; the rest of the ammunition with its weapon. A
+        // round is dear, a volley's worth of refined parts, so firing has
+        // to be paid for by the factory.
+        R(Assemble, 4).in(Glass, 4).in(CopperPlate, 4).in(Circuit, 2).out(FocusCrystal),
+        R(Assemble, 8).in(StructuralFrame, 6).in(AdvancedCircuit, 6).in(CopperPlate, 20).out(ShieldProjector),
+        R(Assemble, 6).in(Steel, 4).in(Plastic, 4).in(FuelCell, 2).in(AdvancedCircuit).out(Missile),
+        R(Assemble, 5).in(CopperPlate, 6).in(Silicon, 4).in(FuelCell).in(AdvancedCircuit).out(IonCell),
+        R(Assemble, 5).in(Steel, 4).in(Gear, 4).in(Plastic, 2).out(FlakShell),
+        R(Assemble, 10).in(IridiumPlate, 6).in(Glass, 6).in(Processor).out(IridiumLens),
     };
 }
 

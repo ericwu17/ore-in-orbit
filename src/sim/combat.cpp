@@ -1,212 +1,385 @@
-// combat.cpp — enemy specs, waves and the fight on a ship's grid (see
+// combat.cpp — enemy ships, weapons firing, shots landing and salvage (see
 // combat.h).
 #include "sim/combat.h"
 
 #include "sim/building.h"
+#include "sim/ship_layout.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
-const EnemySpec& enemy_spec(EnemyKind kind) {
-    constexpr float kPerSecond = 1.0f / static_cast<float>(kTicksPerSecond);
-    static const EnemySpec specs[kEnemyKindCount] = {
-        {.name = "Drone",
-         .hp = 30,
-         .speed = 3.0f * kPerSecond,
-         .range = 1.5f,
-         .damage = 6,
-         .interval = kTicksPerSecond,
-         .cost = 1,
-         .min_threat = 1},
-        {.name = "Gunship",
-         .hp = 160,
-         .speed = 1.5f * kPerSecond,
-         .range = 7.0f,
-         .damage = 20,
-         .interval = 2 * kTicksPerSecond,
-         .cost = 4,
-         .min_threat = 2},
-        {.name = "Dreadnought",
-         .hp = 1200,
-         .speed = 0.6f * kPerSecond,
-         .range = 12.0f,
-         .damage = 80,
-         .interval = 3 * kTicksPerSecond,
-         .cost = 15,
-         .min_threat = 4},
-    };
-    return specs[static_cast<std::size_t>(kind)];
-}
-
-// No default case, so a new EnemyKind without an id is a -Wswitch error.
-const char* enemy_id(EnemyKind kind) {
-    switch (kind) {
-    case EnemyKind::Drone:       return "Drone";
-    case EnemyKind::Gunship:     return "Gunship";
-    case EnemyKind::Dreadnought: return "Dreadnought";
-    case EnemyKind::Count:       break;
-    }
-    return "?";
-}
-
-std::optional<EnemyKind> enemy_from_id(std::string_view id) {
-    for (int i = 0; i < kEnemyKindCount; ++i)
-        if (id == enemy_id(static_cast<EnemyKind>(i)))
-            return static_cast<EnemyKind>(i);
-    return std::nullopt;
-}
-
 namespace {
 
-// How far (x, y) is from the box `min`..`min + size`: 0 inside it.
-float distance_to_box(float x, float y, GridPos min, GridSize size) {
-    const float dx = std::max({static_cast<float>(min.x) - x, 0.0f, x - static_cast<float>(min.x + size.w)});
-    const float dy = std::max({static_cast<float>(min.y) - y, 0.0f, y - static_cast<float>(min.y + size.h)});
-    return std::hypot(dx, dy);
+// Places one `kind` (added to its inventory) somewhere on `ship`'s hull that
+// it fits, trying the hull's cells in an order `rng` shuffles; false if it
+// fits nowhere.
+bool place_anywhere(Ship& ship, ItemKind kind, Rng& rng) {
+    const auto [corner, extent] = ship.hull_bounds();
+    std::vector<GridPos> cells;
+    for (int y = corner.y; y < corner.y + extent.h; ++y)
+        for (int x = corner.x; x < corner.x + extent.w; ++x)
+            cells.push_back({x, y});
+    for (std::size_t i = cells.size(); i > 1; --i)
+        std::swap(cells[i - 1], cells[static_cast<std::size_t>(rng.range(0, static_cast<int>(i) - 1))]);
+    ship.inventory().add(kind);
+    for (const GridPos p : cells)
+        if (ship.place(kind, p) == BuildResult::Ok)
+            return true;
+    ship.inventory().take(kind);
+    return false;
 }
 
-// The middle of the building at `p`, `size` big.
-void middle(GridPos p, GridSize size, float& x, float& y) {
-    x = static_cast<float>(p.x) + static_cast<float>(size.w) * 0.5f;
-    y = static_cast<float>(p.y) + static_cast<float>(size.h) * 0.5f;
+// A cell of the building anchored at `p` on `ship`, picked by `rng`.
+GridPos cell_of(const Ship& ship, GridPos p, Rng& rng) {
+    const GridSize size = ship.building_anchored_at(p)->footprint();
+    return {p.x + rng.range(0, size.w - 1), p.y + rng.range(0, size.h - 1)};
 }
 
-// The top-left cell of the building nearest (x, y), if there's any.
-std::optional<GridPos> nearest_building(const Ship& ship, float x, float y) {
-    std::optional<GridPos> best;
-    float best_d = 0.0f;
-    for (const GridPos p : ship.placement_order()) {
-        const Building& b = *ship.building_anchored_at(p);
-        if (b.get_hp() == 0)
-            continue;  // an engine knocked offline: nothing left to shoot
-        const float d = distance_to_box(x, y, p, b.footprint());
-        if (!best || d < best_d) {
-            best = p;
-            best_d = d;
+// The volley of `weapon` (just fired), aimed at the building anchored at
+// `target` on the ship `on`: its shots, on their way.
+void fire_volley(std::vector<Shot>& shots, const Ship& on, ItemKind weapon, GridPos target, bool at_enemy, int ship,
+                 Rng& rng, Tick now) {
+    const WeaponSpec& spec = weapon_spec(weapon);
+    Shot shot;
+    shot.at_enemy = at_enemy;
+    shot.ship = ship;
+    shot.weapon = weapon;
+    shot.fired = now;
+    switch (spec.family) {
+    case WeaponFamily::Beam: {
+        // Across the target: starting half its length before it.
+        shot.sweep = static_cast<Direction>(rng.range(0, 3));
+        GridPos start = cell_of(on, target, rng);
+        const Direction back = rotated_cw(rotated_cw(shot.sweep));
+        for (int i = 0; i < spec.spread / 2; ++i) {
+            const GridPos next = neighbor(start, back);
+            if (!on.in_bounds(next))
+                break;
+            start = next;
         }
+        shot.cell = start;
+        shot.lands = now + spec.flight;
+        shots.push_back(shot);
+        return;
     }
-    return best;
+    case WeaponFamily::Flak:
+        // Pellets all round the aim.
+        for (int i = 0; i < spec.shots; ++i) {
+            const GridPos aim = cell_of(on, target, rng);
+            shot.cell = {std::clamp(aim.x + rng.range(-spec.spread, spec.spread), 0, on.size() - 1),
+                         std::clamp(aim.y + rng.range(-spec.spread, spec.spread), 0, on.size() - 1)};
+            shot.lands = now + spec.flight + static_cast<Tick>(rng.range(0, 6));
+            shots.push_back(shot);
+        }
+        return;
+    case WeaponFamily::Laser:
+    case WeaponFamily::Missile:
+    case WeaponFamily::Ion:
+        // One after another, at the one building.
+        for (int i = 0; i < spec.shots; ++i) {
+            shot.cell = cell_of(on, target, rng);
+            shot.lands = now + spec.flight + static_cast<Tick>(i) * (kTicksPerSecond / 6);
+            shots.push_back(shot);
+        }
+        return;
+    }
 }
 
-void move_and_shoot(Ship& ship, Enemy& e, Tick now) {
-    const EnemySpec& spec = enemy_spec(e.kind);
-    if (e.cooldown > 0)
-        --e.cooldown;
-    if (!e.target || !ship.building_anchored_at(*e.target) || ship.building_anchored_at(*e.target)->get_hp() == 0)
-        e.target = nearest_building(ship, e.x, e.y);
-    if (!e.target)
-        return;
-    Building& target = *ship.building_anchored_at(*e.target);
-    const GridSize size = target.footprint();
-    float tx = 0.0f;
-    float ty = 0.0f;
-    middle(*e.target, size, tx, ty);
-    if (distance_to_box(e.x, e.y, *e.target, size) > spec.range) {
-        const float d = std::hypot(tx - e.x, ty - e.y);
-        const float step = std::min(spec.speed, d);
-        e.x += (tx - e.x) / d * step;
-        e.y += (ty - e.y) / d * step;
-        return;
+// The first shield projector up on `ship`, if any.
+ShieldProjector* shield_up(Ship& ship) {
+    for (const GridPos p : ship.placement_order())
+        if (auto* shield = dynamic_cast<ShieldProjector*>(ship.building_anchored_at(p)); shield && shield->up())
+            return shield;
+    return nullptr;
+}
+
+// `damage` to the building anchored at `p` on `ship`: destroyed at 0,
+// unless it's part of the layout (the bridge, its ship lost or beaten; an
+// engine, knocked offline).
+void damage_building(Ship& ship, GridPos p, int damage, Tick now) {
+    Building& b = *ship.building_anchored_at(p);
+    b.hit_at = now;
+    if (b.take_damage(damage) && &b != &ship.get_bridge() && b.removable())
+        ship.destroy_building(p);
+}
+
+// `shot` landing on `ship` (its target).
+Impact land(const Shot& shot, Ship& ship, Rng& rng) {
+    const WeaponSpec& spec = weapon_spec(shot.weapon);
+    Impact impact{.on_enemy = shot.at_enemy,
+                  .ship = shot.ship,
+                  .cell = shot.cell,
+                  .kind = ImpactKind::Hit,
+                  .weapon = shot.weapon,
+                  .sweep = shot.sweep,
+                  .at = shot.lands};
+    if (spec.family == WeaponFamily::Beam) {
+        // Every building on its line, once each, weakened by the shields.
+        const int damage = std::max(0, spec.damage - kBeamShieldReduction * shield_layers(ship));
+        if (damage == 0) {
+            impact.kind = ImpactKind::Blocked;
+            return impact;
+        }
+        std::vector<GridPos> hit;
+        GridPos c = shot.cell;
+        for (int i = 0; i < spec.spread && ship.in_bounds(c); ++i, c = neighbor(c, shot.sweep))
+            if (const std::optional<GridPos> a = ship.anchor_of(c);
+                a && std::find(hit.begin(), hit.end(), *a) == hit.end())
+                hit.push_back(*a);
+        for (const GridPos a : hit)
+            if (ship.building_anchored_at(a))  // not destroyed by an earlier step
+                damage_building(ship, a, damage, shot.lands);
+        return impact;
     }
-    if (e.cooldown > 0)
-        return;
-    e.cooldown = spec.interval;
-    e.fired_at = now;
-    e.aim_x = tx;
-    e.aim_y = ty;
-    target.hit_at = now;
-    // Shot down: destroyed, unless it's part of the layout (the bridge,
-    // losing the ship; an engine, knocked offline till it mends).
-    if (target.take_damage(spec.damage) && &target != &ship.get_bridge()) {
-        if (target.removable())
-            ship.destroy_building(*e.target);
-        e.target.reset();
+    if (spec.family != WeaponFamily::Missile)
+        if (ShieldProjector* shield = shield_up(ship)) {
+            shield->knock_down();
+            if (spec.family == WeaponFamily::Ion)
+                shield->stun_for(spec.stun);
+            impact.kind = ImpactKind::Blocked;
+            return impact;
+        }
+    if (rng.chance(evasion(ship))) {
+        impact.kind = ImpactKind::Missed;
+        return impact;
     }
+    const std::optional<GridPos> a = ship.anchor_of(shot.cell);
+    if (!a)
+        return impact;  // bare hull, or space
+    if (spec.family == WeaponFamily::Ion) {
+        Building* b = ship.building_anchored_at(*a);
+        if (auto* weapon = dynamic_cast<Weapon*>(b))
+            weapon->stun_for(spec.stun);
+        else if (auto* shield = dynamic_cast<ShieldProjector*>(b))
+            shield->stun_for(spec.stun);
+    }
+    damage_building(ship, *a, spec.damage, shot.lands);
+    return impact;
+}
+
+// Scales `n` by 75% to 125%, at least 1.
+int about(int n, Rng& rng) {
+    return std::max(1, n * (75 + rng.range(0, 50)) / 100);
+}
+
+Salvage salvage_of(const Engagement& fight, int threat, const Progress& progress, Rng& rng, int ship) {
+    using enum ItemKind;
+    const EnemyDesign& design = fight.design();
+    const int t = std::max(threat, 1);
+    Inventory items;
+    items.add(FuelCell, about(10 + 5 * t, rng));
+    items.add(Steel, about(8 * t, rng));
+    items.add(Circuit, about(10 * t, rng));
+    items.add(IronPlate, about(15 * t, rng));
+    if (t >= 2) {
+        items.add(AdvancedCircuit, about(3 * t, rng));
+        items.add(Plastic, about(5 * t, rng));
+    }
+    if (t >= 3) {
+        items.add(IridiumPlate, about(4 * t, rng));
+        items.add(Silicon, about(5 * t, rng));
+    }
+    if (t >= 4)
+        items.add(Processor, about(t, rng));
+    // Its magazines, for each kind of ammunition it fired.
+    std::vector<ItemKind> ammo;
+    for (const ItemKind w : design.weapons)
+        if (std::find(ammo.begin(), ammo.end(), weapon_spec(w).ammo) == ammo.end())
+            ammo.push_back(weapon_spec(w).ammo);
+    for (const ItemKind a : ammo)
+        items.add(a, about(6 + 2 * t, rng));
+    // Some of its weapons still standing.
+    for (const GridPos p : fight.ship.placement_order()) {
+        const Building& b = *fight.ship.building_anchored_at(p);
+        if (b.item_kind() && is_weapon(*b.item_kind()) && rng.chance(kWeaponSalvageChance))
+            items.add(*b.item_kind());
+    }
+    // Maybe a weapon in its hold: one the fleet hasn't found, if it may
+    // carry any, with some ammunition for it.
+    if (!design.loot.empty() && rng.chance(design.loot_chance)) {
+        std::vector<ItemKind> pick;
+        for (const ItemKind w : design.loot)
+            if (!progress.has_found(w))
+                pick.push_back(w);
+        if (pick.empty())
+            pick = design.loot;
+        const ItemKind w = pick[static_cast<std::size_t>(rng.range(0, static_cast<int>(pick.size()) - 1))];
+        items.add(w);
+        items.add(weapon_spec(w).ammo, about(6 + 2 * t, rng));
+    }
+    Salvage salvage{.enemy = fight.enemy, .sector = fight.sector, .ship = ship, .items = items.stacks(), .found = {}};
+    return salvage;
 }
 
 }  // namespace
 
-void spawn_wave(const Ship& ship, Battle& battle, int threat, int wave, Rng& rng) {
-    // In from one side, on a ring just outside the hull.
-    const auto [corner, extent] = ship.hull_bounds();
-    const float cx = static_cast<float>(corner.x) + static_cast<float>(extent.w) * 0.5f;
-    const float cy = static_cast<float>(corner.y) + static_cast<float>(extent.h) * 0.5f;
-    const float radius =
-        std::hypot(static_cast<float>(extent.w), static_cast<float>(extent.h)) * 0.5f + kSpawnMargin;
-    const float side = rng.unit() * 6.2831853f;
-
-    int strength = 3 + 3 * threat + 2 * wave;
-    while (strength > 0) {
-        // The heaviest kind the sector sends and the wave can afford, now
-        // and then; drones otherwise.
-        EnemyKind kind = EnemyKind::Drone;
-        for (const EnemyKind heavy : {EnemyKind::Dreadnought, EnemyKind::Gunship}) {
-            const EnemySpec& spec = enemy_spec(heavy);
-            if (threat >= spec.min_threat && strength >= spec.cost && rng.chance(0.4f)) {
-                kind = heavy;
-                break;
-            }
-        }
-        const EnemySpec& spec = enemy_spec(kind);
-        const float angle = side + (rng.unit() - 0.5f) * 1.2f;
-        const float r = radius + rng.unit() * 4.0f;
-        Enemy e;
-        e.kind = kind;
-        e.x = cx + std::cos(angle) * r;
-        e.y = cy + std::sin(angle) * r;
-        e.hp = spec.hp;
-        e.cooldown = spec.interval;
-        battle.enemies.push_back(e);
-        strength -= spec.cost;
-    }
+Engagement make_engagement(int sector, EnemyClass enemy, Rng& rng) {
+    const EnemyDesign& design = enemy_design(enemy);
+    const ShipLayout* layout = find_layout(design.layout);
+    assert(layout && "make_engagement: the design's layout is missing");
+    Engagement fight{.sector = sector, .enemy = enemy, .ship = Ship::from_layout(*layout), .shots = {}, .impacts = {}};
+    Ship& ship = fight.ship;
+    ship.get_bridge().set_max_hp(design.hull);
+    for (const ItemKind w : design.weapons)
+        place_anywhere(ship, w, rng);
+    for (int i = 0; i < design.shields; ++i)
+        place_anywhere(ship, ItemKind::ShieldProjector, rng);
+    for (const ItemKind e : design.extras)
+        place_anywhere(ship, e, rng);
+    // Part charged: they don't all fire at once.
+    for (const GridPos p : ship.placement_order())
+        if (auto* w = dynamic_cast<Weapon*>(ship.building_anchored_at(p)))
+            w->charge_up(true, rng.range(0, static_cast<int>(w->get_spec().charge) * kChargeScale / 2));
+    return fight;
 }
 
-void combat_tick(Ship& ship, Battle& battle, Sector& sector, Rng& rng, Tick now) {
-    // The waves: the first a while after arriving, then one every so often.
-    if (sector.hostile() && !battle.next_wave)
-        battle.next_wave = now + kFirstWaveDelay;
-    if (battle.next_wave && now >= *battle.next_wave) {
-        if (sector.hostile()) {
-            const int wave = waves_for_threat(sector.threat) - sector.waves_left;
-            --sector.waves_left;
-            spawn_wave(ship, battle, sector.threat, std::max(wave, 0), rng);
-        }
-        battle.next_wave.reset();
-        if (sector.hostile())
-            battle.next_wave = now + kWaveInterval;
+int shield_layers(const Ship& ship) {
+    int layers = 0;
+    for (const GridPos p : ship.placement_order())
+        if (const auto* shield = dynamic_cast<const ShieldProjector*>(ship.building_anchored_at(p)); shield && shield->up())
+            ++layers;
+    return layers;
+}
+
+float evasion(const Ship& ship) {
+    int online = 0;
+    for (const Thruster* t : ship.thrusters())
+        online += t->offline() ? 0 : 1;
+    return std::min(kMaxEvasion, kEvasionPerEngine * static_cast<float>(online));
+}
+
+bool in_target_group(const Ship& ship, GridPos p, TargetGroup group) {
+    const Building* b = ship.building_anchored_at(p);
+    if (!b)
+        return false;
+    switch (group) {
+    case TargetGroup::Weapons:  return dynamic_cast<const Weapon*>(b) != nullptr;
+    case TargetGroup::Shields:  return dynamic_cast<const ShieldProjector*>(b) != nullptr;
+    case TargetGroup::Engines: {
+        const auto* t = dynamic_cast<const Thruster*>(b);
+        return t && !t->offline();
     }
-    if (battle.enemies.empty())
-        return;
+    case TargetGroup::Bridge:   return b == &ship.get_bridge();
+    case TargetGroup::Industry:
+        return dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) ||
+               dynamic_cast<const CargoHold*>(b);
+    }
+    return false;
+}
 
-    for (Enemy& e : battle.enemies)
-        if (!ship.bridge_destroyed())
-            move_and_shoot(ship, e, now);
+std::optional<GridPos> pick_target(const Ship& target, const std::vector<TargetGroup>& priorities, float random,
+                                   Rng& rng) {
+    const auto pick = [&](const auto& wanted) -> std::optional<GridPos> {
+        std::vector<GridPos> found;
+        for (const GridPos p : target.placement_order())
+            if (target.building_anchored_at(p)->get_hp() > 0 && wanted(p))
+                found.push_back(p);
+        if (found.empty())
+            return std::nullopt;
+        return found[static_cast<std::size_t>(rng.range(0, static_cast<int>(found.size()) - 1))];
+    };
+    if (random > 0.0f && rng.chance(random))
+        if (const std::optional<GridPos> any = pick([](GridPos) { return true; }))
+            return any;
+    for (const TargetGroup group : priorities)
+        if (const std::optional<GridPos> p = pick([&](GridPos q) { return in_target_group(target, q, group); }))
+            return p;
+    // Nothing it was after left: the bridge.
+    return pick([&](GridPos q) { return in_target_group(target, q, TargetGroup::Bridge); });
+}
 
-    // Turrets that are ready shoot the nearest enemy in range.
-    for (const GridPos p : ship.placement_order()) {
-        auto* turret = dynamic_cast<Turret*>(ship.building_anchored_at(p));
-        if (!turret || !turret->ready())
-            continue;
-        float x = 0.0f;
-        float y = 0.0f;
-        middle(p, turret->footprint(), x, y);
-        Enemy* nearest = nullptr;
-        float nearest_d = 0.0f;
-        for (Enemy& e : battle.enemies) {
-            const float d = std::hypot(e.x - x, e.y - y);
-            if (e.hp > 0 && d <= turret->get_spec().range && (!nearest || d < nearest_d)) {
-                nearest = &e;
-                nearest_d = d;
+const std::vector<TargetGroup>& default_player_priorities() {
+    static const std::vector<TargetGroup> priorities = {TargetGroup::Shields, TargetGroup::Weapons,
+                                                        TargetGroup::Bridge};
+    return priorities;
+}
+
+std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShip*>& ships, int threat,
+                                   const Progress& progress, Rng& rng, Tick now) {
+    Ship& enemy = fight.ship;
+    const EnemyDesign& design = fight.design();
+    enemy.tick();  // shields recharging, stuns wearing off
+    std::erase_if(fight.impacts, [&](const Impact& i) { return now >= i.at + kImpactTicks; });
+
+    // The player's weapons.
+    if (!enemy.bridge_destroyed())
+        for (FleetShip* s : ships) {
+            // Shot to pieces, or (an engine) knocked offline: nothing
+            // more to hit there, so pick again rather than waste rounds.
+            if (const Building* aimed = s->target ? enemy.building_anchored_at(*s->target) : nullptr;
+                s->target && (!aimed || aimed->get_hp() == 0))
+                s->target.reset();
+            for (const GridPos p : s->ship.placement_order()) {
+                auto* w = dynamic_cast<Weapon*>(s->ship.building_anchored_at(p));
+                if (!w)
+                    continue;
+                w->charge_up(false);
+                if (!w->charged())
+                    continue;
+                const std::optional<GridPos> target =
+                    s->target ? s->target : pick_target(enemy, default_player_priorities(), 0.0f, rng);
+                if (!target)
+                    continue;
+                w->fire(false);
+                fire_volley(fight.shots, enemy, *w->item_kind(), *target, true, s->id, rng, now);
             }
         }
-        if (!nearest)
+    // The enemy's, each at one of the player's ships there.
+    std::vector<FleetShip*> targets;
+    for (FleetShip* s : ships)
+        if (!s->ship.bridge_destroyed())
+            targets.push_back(s);
+    if (!enemy.bridge_destroyed() && !targets.empty())
+        for (const GridPos p : enemy.placement_order()) {
+            auto* w = dynamic_cast<Weapon*>(enemy.building_anchored_at(p));
+            if (!w)
+                continue;
+            w->charge_up(true, design.pace);
+            if (!w->charged())
+                continue;
+            FleetShip& at = *targets[static_cast<std::size_t>(rng.range(0, static_cast<int>(targets.size()) - 1))];
+            const std::optional<GridPos> target = pick_target(at.ship, design.priorities, kRandomTargetChance, rng);
+            if (!target)
+                continue;
+            w->fire(true);
+            fire_volley(fight.shots, at.ship, *w->item_kind(), *target, false, at.id, rng, now);
+        }
+
+    // Shots landing, in the order they were fired.
+    int last_hit_by = 0;
+    for (const Shot& shot : fight.shots) {
+        if (shot.lands > now)
             continue;
-        turret->fire();
-        turret->fired_at = now;
-        turret->aim_x = nearest->x;
-        turret->aim_y = nearest->y;
-        nearest->hp -= turret->get_spec().damage;
+        Ship* on = nullptr;
+        if (shot.at_enemy) {
+            on = &enemy;
+        } else {
+            for (FleetShip* s : ships)
+                if (s->id == shot.ship)
+                    on = &s->ship;
+        }
+        if (!on || on->bridge_destroyed())
+            continue;  // gone, or lost already
+        fight.impacts.push_back(land(shot, *on, rng));
+        if (shot.at_enemy && enemy.bridge_destroyed() && last_hit_by == 0)
+            last_hit_by = shot.ship;
     }
-    std::erase_if(battle.enemies, [](const Enemy& e) { return e.hp <= 0; });
+    std::erase_if(fight.shots, [&](const Shot& s) { return s.lands <= now; });
+
+    if (!enemy.bridge_destroyed())
+        return std::nullopt;
+    // Beaten: the salvage goes to the ship that fired the shot that did it
+    // (or any one there, if it's gone).
+    int to = 0;
+    for (FleetShip* s : ships)
+        if (s->id == last_hit_by && !s->ship.bridge_destroyed())
+            to = s->id;
+    if (to == 0)
+        for (FleetShip* s : ships)
+            if (!s->ship.bridge_destroyed()) {
+                to = s->id;
+                break;
+            }
+    return salvage_of(fight, threat, progress, rng, to);
 }

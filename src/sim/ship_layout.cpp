@@ -18,7 +18,9 @@ const std::vector<ShipLayout>& all_layouts() {
          {17, 15},
          {{10, 33}, {28, 33}},
          {{IronOre, 200}, {IronPlate, 100}, {CopperPlate, 50}},
-         std::nullopt},
+         std::nullopt,
+         {{16, 2}, {23, 2}},
+         {{20, 6}}},
         {"hauler",
          "Hauler",
          "Long and roomy, for long production lines.",
@@ -26,15 +28,19 @@ const std::vector<ShipLayout>& all_layouts() {
          {21, 24},
          {{11, 77}, {23, 77}, {35, 77}},
          {{IronOre, 300}, {Silica, 200}, {Steel, 100}, {StructuralFrame, 20}},
-         milestone_index("Deep space")},
+         milestone_index("Deep space"),
+         {{19, 3}, {28, 3}},
+         {{10, 10}, {37, 10}}},
         {"frigate",
          "Frigate",
-         "A broad arrowhead with space for industry and turrets.",
+         "A broad arrowhead with space for industry and weapons.",
          {{{30, 0}, {12, 8}}, {{22, 8}, {28, 10}}, {{12, 18}, {48, 12}}, {{0, 30}, {72, 30}}, {{8, 60}, {56, 12}}},
          {33, 36},
          {{14, 69}, {26, 69}, {44, 69}, {56, 69}},
          {{IronOre, 400}, {Carbon, 200}, {Steel, 200}, {StructuralFrame, 40}, {AdvancedCircuit, 20}},
-         milestone_index("Escape velocity")},
+         milestone_index("Escape velocity"),
+         {{2, 33}, {69, 33}, {36, 3}},
+         {{24, 12}, {47, 12}}},
         {"carrier",
          "Carrier",
          "A capital ship: nearly the whole build grid.",
@@ -42,7 +48,9 @@ const std::vector<ShipLayout>& all_layouts() {
          {53, 44},
          {{18, 93}, {34, 93}, {50, 93}, {60, 93}, {76, 93}, {92, 93}},
          {{IronOre, 1000}, {IridiumOre, 300}, {Steel, 300}, {IridiumPlate, 50}, {Processor, 20}},
-         milestone_index("Frontier")},
+         milestone_index("Frontier"),
+         {{40, 4}, {71, 4}, {2, 27}, {109, 27}},
+         {{20, 15}, {91, 15}, {56, 30}}},
     };
     return layouts;
 }
@@ -51,10 +59,69 @@ const ShipLayout& starter_layout() {
     return all_layouts().front();
 }
 
+const std::vector<ShipLayout>& enemy_layouts() {
+    // Like the player's, but small: room for a bridge, a few weapons and
+    // shields, and not much else.
+    static const std::vector<ShipLayout> layouts = {
+        {"scout",
+         "Scout",
+         "An enemy picket ship.",
+         {{{4, 0}, {6, 3}}, {{0, 3}, {14, 10}}, {{2, 13}, {10, 3}}},
+         {4, 5},
+         {{2, 13}, {10, 13}},
+         {},
+         std::nullopt,
+         {{7, 1}},
+         {}},
+        {"raider",
+         "Raider",
+         "An enemy raider.",
+         {{{6, 0}, {8, 4}}, {{0, 4}, {20, 12}}, {{3, 16}, {14, 3}}},
+         {7, 7},
+         {{3, 16}, {9, 16}, {15, 16}},
+         {},
+         std::nullopt,
+         {{2, 5}, {17, 5}},
+         {{10, 2}}},
+        {"gunship",
+         "Gunship",
+         "An enemy gunship.",
+         {{{7, 0}, {10, 4}}, {{0, 4}, {24, 14}}, {{4, 18}, {16, 3}}},
+         {9, 8},
+         {{4, 18}, {11, 18}, {18, 18}},
+         {},
+         std::nullopt,
+         {{2, 6}, {21, 6}},
+         {{11, 2}}},
+        {"corsair",
+         "Corsair",
+         "An enemy corsair.",
+         {{{8, 0}, {12, 5}}, {{0, 5}, {28, 16}}, {{4, 21}, {20, 3}}},
+         {11, 10},
+         {{4, 21}, {10, 21}, {16, 21}, {22, 21}},
+         {},
+         std::nullopt,
+         {{2, 7}, {25, 7}, {13, 2}},
+         {{2, 17}, {25, 17}, {13, 18}}},
+        {"dreadnought",
+         "Dreadnought",
+         "An enemy capital ship.",
+         {{{10, 0}, {14, 5}}, {{3, 5}, {28, 6}}, {{0, 11}, {34, 16}}, {{4, 27}, {26, 3}}},
+         {14, 15},
+         {{4, 27}, {10, 27}, {16, 27}, {22, 27}, {28, 27}},
+         {},
+         std::nullopt,
+         {{2, 13}, {31, 13}, {17, 2}},
+         {{7, 7}, {26, 7}, {2, 23}, {31, 23}}},
+    };
+    return layouts;
+}
+
 const ShipLayout* find_layout(std::string_view id) {
-    for (const ShipLayout& layout : all_layouts())
-        if (layout.id == id)
-            return &layout;
+    for (const std::vector<ShipLayout>* list : {&all_layouts(), &enemy_layouts()})
+        for (const ShipLayout& layout : *list)
+            if (layout.id == id)
+                return &layout;
     return nullptr;
 }
 
@@ -92,4 +159,20 @@ GridPos layout_to_grid(const ShipLayout& layout, GridPos p) {
 
 bool layout_unlocked(const ShipLayout& layout, const Progress& progress) {
     return !layout.milestone || progress.current_index() > *layout.milestone;
+}
+
+std::optional<Port> port_of(ItemKind kind) {
+    if (is_weapon(kind))
+        return Port::Weapon;
+    if (kind == ItemKind::ShieldProjector)
+        return Port::Shield;
+    return std::nullopt;
+}
+
+const std::vector<GridPos>& layout_ports(const ShipLayout& layout, Port port) {
+    return port == Port::Weapon ? layout.weapon_ports : layout.shield_ports;
+}
+
+const char* port_name(Port port) {
+    return port == Port::Weapon ? "weapon" : "shield";
 }

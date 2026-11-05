@@ -39,7 +39,7 @@ void DrawFleetStrip(World& world) {
                 f.renaming.reset();
             }
         } else {
-            const bool attacked = s->battle.under_attack();
+            const bool attacked = world.engagement_in(s->sector) != nullptr;
             const std::string label =
                 s->name + (s->provides ? " (P)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
             if (attacked && s->id != f.current)
@@ -57,7 +57,7 @@ void DrawFleetStrip(World& world) {
             ImGui::SetItemTooltip("%s, a %s, in %s%s%s\nDouble-click to rename", s->name.c_str(),
                                   layout ? layout->name : "ship", sector.name.c_str(),
                                   s->provides ? "\nProvider: sends what other ships here request" : "",
-                                  attacked ? "\nUnder attack!" : "");
+                                  attacked ? "\nIn a fight with an enemy ship!" : "");
         }
         ImGui::PopID();
     }
@@ -204,7 +204,7 @@ void DrawSendCargoWindow(World& world, FleetShip& current) {
 namespace {
 
 // A small picture of `layout` filling `size` from the cursor: its hull, its
-// bridge and its engines.
+// bridge, its engines and its ports.
 void DrawLayoutPreview(const ShipLayout& layout, ImVec2 size) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(size);
@@ -224,6 +224,10 @@ void DrawLayoutPreview(const ShipLayout& layout, ImVec2 size) {
     box(layout.bridge, {kBridgeSize, kBridgeSize}, theme::kTileBridge);
     for (const GridPos e : layout.engines)
         box(e, footprint_of(ItemKind::IonThruster), theme::kTileSystem);
+    for (const GridPos p : layout.weapon_ports)
+        box(p, {1, 1}, theme::kTileWeaponPort);
+    for (const GridPos p : layout.shield_ports)
+        box(p, {1, 1}, theme::kTileShieldPort);
 }
 
 }  // namespace
@@ -268,6 +272,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
     ImGui::PopTextWrapPos();
     ImGui::Text("%dx%d, %d hull tiles, %zu ion thrusters", bounds.w, bounds.h, layout_hull_count(layout),
                 layout.engines.size());
+    ImGui::Text("%zu weapon ports, %zu shield ports", layout.weapon_ports.size(), layout.shield_ports.size());
 
     // What it costs, against what this bridge has.
     const Inventory& inv = current.ship.inventory();
@@ -350,10 +355,15 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
             ImGui::TextColored(theme::kGood, "none");
         else
             ThreatPips(s.threat);
-        if (s.cleared())
-            ImGui::TextColored(theme::kGood, "Cleared: no more enemies come");
-        else if (s.hostile())
-            ImGui::TextColored(theme::kBad, "%d waves of enemies to fight off", s.waves_left);
+        if (s.enemy) {
+            const EnemyDesign& d = enemy_design(*s.enemy);
+            ImGui::TextColored(theme::kBad, "Enemy ship: %s", d.name);
+            ImGui::TextColored(theme::kTextDim, "%s", d.description);
+        } else if (s.cleared()) {
+            ImGui::TextColored(theme::kGood, "Cleared: its enemy is beaten");
+        } else if (s.threat > 0) {
+            ImGui::TextColored(theme::kTextDim, "No enemy ships here");
+        }
         ImGui::TextColored(theme::kTextDim, "Yields (home: 100%%)");
         for (int r = 0; r < kRawResourceCount; ++r) {
             const int y = s.yields[static_cast<std::size_t>(r)];

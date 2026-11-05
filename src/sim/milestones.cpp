@@ -20,10 +20,10 @@ const std::vector<Milestone>& all_milestones() {
           CargoPod}},
         {"Escape velocity",
          {{Processor, 20}},
-         {FabricatorMk3, FuelCell, Autocannon, SlugMagazine}},
+         {FabricatorMk3, FuelCell, FocusCrystal}},
         {"Frontier",
-         {{FuelCell, 100}, {SlugMagazine, 200}},
-         {Railgun, RailSlug}},
+         {{FuelCell, 100}, {FocusCrystal, 30}},
+         {ShieldProjector}},
     };
     return milestones;
 }
@@ -35,6 +35,17 @@ std::size_t milestone_index(std::string_view name) {
             return i;
     assert(false && "no milestone by that name");
     return milestones.size();
+}
+
+std::optional<ItemKind> weapon_unlocking(ItemKind kind) {
+    using enum ItemKind;
+    switch (kind) {
+    case Missile: return MissileLauncher;
+    case IonCell: return IonBlaster;
+    case FlakShell: return FlakCannon;
+    case IridiumLens: return BeamEmitter;
+    default: return std::nullopt;
+    }
 }
 
 std::optional<std::size_t> milestone_unlocking(ItemKind kind) {
@@ -83,7 +94,22 @@ bool Progress::complete_current() {
     return true;
 }
 
+bool Progress::has_found(ItemKind weapon) const {
+    return std::find(found.begin(), found.end(), weapon) != found.end();
+}
+
+bool Progress::add_found(ItemKind weapon) {
+    if (!is_weapon(weapon) || has_found(weapon))
+        return false;
+    found.push_back(weapon);
+    return true;
+}
+
 bool Progress::unlocked(ItemKind kind) const {
+    if (is_weapon(kind))
+        return has_found(kind);
+    if (const std::optional<ItemKind> weapon = weapon_unlocking(kind))
+        return has_found(*weapon);
     const std::optional<std::size_t> at = milestone_unlocking(kind);
     return !at || *at < current;
 }

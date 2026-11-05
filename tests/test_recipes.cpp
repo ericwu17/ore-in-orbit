@@ -35,7 +35,8 @@ void test_names_and_categories() {
 }
 
 // Every item can be made, starting from what the collectors gather (raw
-// resources); all but the layout's parts, which come with a ship.
+// resources); all but the layout's parts, which come with a ship, and
+// weapons, which are found.
 void test_everything_reachable() {
     std::array<bool, kItemKindCount> have{};
     for (int i = 0; i < kItemKindCount; ++i)
@@ -55,18 +56,21 @@ void test_everything_reachable() {
         }
     }
     for (int i = 0; i < kItemKindCount; ++i) {
-        if (!have[static_cast<std::size_t>(i)] && !is_layout_part(item(i)))
+        const bool never_made = is_layout_part(item(i)) || is_weapon(item(i));
+        if (!have[static_cast<std::size_t>(i)] && !never_made)
             std::printf("unreachable: %s\n", item_name(item(i)));
-        assert(have[static_cast<std::size_t>(i)] != is_layout_part(item(i)));
+        assert(have[static_cast<std::size_t>(i)] != never_made);
     }
 }
 
-// Every placeable item has a cost (an Assembly recipe), and every recipe
-// has a building that can run it.
+// Every placeable item but a weapon (found, never made) has a cost (an
+// Assembly recipe), and every recipe has a building that can run it.
 void test_costs_and_machines() {
     for (int i = 0; i < kItemKindCount; ++i) {
-        if (!is_placeable(item(i)))
+        if (!is_placeable(item(i)) || is_weapon(item(i))) {
+            assert(!is_weapon(item(i)) || !recipe_for(item(i)));
             continue;
+        }
         const Recipe* r = recipe_for(item(i));
         assert(r);
         assert(r->category == CraftCategory::Assembly);
@@ -124,7 +128,7 @@ bool bootstrappable(ItemKind kind, int depth) {
 void test_bootstrap() {
     for (int i = 0; i < kItemKindCount; ++i) {
         const Recipe* r = recipe_for(item(i));
-        if (!is_placeable(item(i)) || !r->hand_craftable || item(i) == ItemKind::TractorArray)
+        if (!is_placeable(item(i)) || !r || !r->hand_craftable || item(i) == ItemKind::TractorArray)
             continue;
         if (!all_bootstrappable(*r, 0))
             std::printf("not bootstrappable: %s\n", item_name(item(i)));

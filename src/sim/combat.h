@@ -1,94 +1,137 @@
-// combat.h — enemies, the waves they come in, and the fight on a ship's
-// grid between them and its turrets.
+// combat.h — ship-to-ship fights: an enemy ship (see enemies.h) against the
+// player's ships in its sector, weapon against weapon.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
-// A hostile sector (one with waves left, see Sector::waves_left) sends
-// waves at every ship in it: the first kFirstWaveDelay after the ship comes
-// in, then one every kWaveInterval while waves are left. A wave comes in
-// from one side, on a ring just outside the ship's hull; the later the
-// wave and the higher the threat, the bigger, and the heavier its ships.
+// A sector may hold an enemy ship. While any of the player's ships is
+// there, the two sides fight (an Engagement); once the last one leaves,
+// the enemy is left as it was found, to fight afresh another time.
 //
-// Enemies fly straight at the nearest building, stop within their range
-// and shoot it, as often as their kind can. Turrets shoot the nearest enemy
-// within theirs, while they have ammunition (see Turret). Shots hit at once:
-// nothing flies. A building shot down to 0 is destroyed, refunding nothing
-// (see Ship::destroy_building); an ion thruster is knocked offline instead
-// (it comes with the layout, see Thruster), and enemies leave it be; the
-// bridge shot down loses the ship (see World). Once the last wave is sent
-// and its enemies are dead, the sector is cleared, for good.
+// Every weapon charges while it has fuel and ammunition (an enemy's need
+// neither), then fires a volley and starts again. The player's weapons fire
+// at the building their ship targets on the enemy (FleetShip::target), or
+// with none, at its shields, then its weapons, then its bridge. An enemy's
+// fire at a player ship there, each weapon at the building its design's
+// priorities pick (see enemies.h). Shots take a moment to fly (their
+// WeaponSpec's flight), then land on the cell they were aimed at:
 //
-// Positions are in cells, as floats: (0, 0) is the grid's top-left corner
-// and (x + 0.5, y + 0.5) the middle of cell (x, y). Enemies may be off the
-// grid.
+//   - A shield layer up stops a laser shot or a flak pellet and is knocked
+//     down (see ShieldProjector); an ion bolt knocks one down and stuns its
+//     projector. Missiles go through shields; beams are weakened by every
+//     layer up, without knocking any down.
+//   - Past the shields, a shot may miss: every online ion thruster dodges
+//     kEvasionPerEngine of them, up to kMaxEvasion. Beams never miss.
+//   - Then it hits the building on that cell (nothing, on bare hull).
+//     Shot down to 0, a building is destroyed for good, refunding nothing,
+//     except an engine, knocked offline till it mends, and the bridge: at
+//     0, its ship is lost (the player's, see World) or beaten (the enemy).
+//
+// A beaten enemy leaves salvage for the player ship that fired the last
+// shot: materials and fuel by the sector's threat, ammunition for its
+// weapons, some of its weapons that are still standing, and maybe a weapon
+// from its hold, one the fleet hasn't found if it can. Salvage is the only
+// way to get weapons (see milestones.h).
 #pragma once
 
+#include "sim/enemies.h"
+#include "sim/fleet.h"
 #include "sim/game_types.h"
+#include "sim/milestones.h"
 #include "sim/rng.h"
-#include "sim/sector.h"
 #include "sim/ship.h"
 
 #include <optional>
-#include <string_view>
 #include <vector>
 
-enum class EnemyKind {
-    Drone,        // small and fast: closes in to shoot
-    Gunship,      // shoots from further off
-    Dreadnought,  // slow, tough and long-ranged
-    Count,        // not a kind: the number of kinds
+// Every online engine dodges this much of what's fired at its ship...
+constexpr float kEvasionPerEngine = 0.05f;
+// ...up to this much.
+constexpr float kMaxEvasion = 0.3f;
+// What each shield layer up takes off each hit of a beam.
+constexpr int kBeamShieldReduction = 40;
+// How often an enemy weapon shoots at any building at all, instead of its
+// design's priorities.
+constexpr float kRandomTargetChance = 0.2f;
+// The chance of each weapon still standing on a beaten enemy coming with
+// its salvage.
+constexpr float kWeaponSalvageChance = 0.5f;
+// How long a landed shot's flash shows (the UI; not saved).
+constexpr Tick kImpactTicks = kTicksPerSecond / 2;
+
+// A shot on its way: a laser shot, a missile, a flak pellet, an ion bolt or
+// a beam.
+struct Shot {
+    bool at_enemy = false;  // fired by the player's ship at the enemy, or the other way
+    int ship = 0;           // the player's ship: firing it (at_enemy), or aimed at
+    ItemKind weapon = ItemKind::BurstLaser;  // what fired it
+    GridPos cell;           // where it lands, on the target ship's grid
+    Direction sweep = Direction::East;  // a beam: the way it sweeps from `cell`
+    Tick fired = 0;
+    Tick lands = 0;
 };
 
-constexpr int kEnemyKindCount = static_cast<int>(EnemyKind::Count);
-
-struct EnemySpec {
-    const char* name;
-    int hp = 0;
-    float speed = 0.0f;  // cells per tick
-    float range = 0.0f;  // cells, from the edge of its target
-    int damage = 0;      // per shot
-    Tick interval = 0;   // ticks between shots
-    int cost = 0;        // what it takes of a wave's strength
-    int min_threat = 0;  // the least threat of a sector that sends it
+// How a shot landed, for the UI.
+enum class ImpactKind {
+    Hit,
+    Blocked,  // by a shield layer
+    Missed,   // dodged
 };
 
-const EnemySpec& enemy_spec(EnemyKind kind);
-// Its stable id, as saves write it ("Drone", ...).
-const char* enemy_id(EnemyKind kind);
-std::optional<EnemyKind> enemy_from_id(std::string_view id);
-
-struct Enemy {
-    EnemyKind kind = EnemyKind::Drone;
-    float x = 0.0f;
-    float y = 0.0f;
-    int hp = 0;
-    Tick cooldown = 0;               // ticks until it can shoot again
-    std::optional<GridPos> target;   // the top-left cell of the building it's after
-
-    // The last shot, for the UI (not saved): when, and where it hit.
-    Tick fired_at = 0;
-    float aim_x = 0.0f;
-    float aim_y = 0.0f;
+// A shot that just landed, for the UI to show (not saved).
+struct Impact {
+    bool on_enemy = false;
+    int ship = 0;  // the player's ship: the target's (on_enemy false)
+    GridPos cell;
+    ImpactKind kind = ImpactKind::Hit;
+    ItemKind weapon = ItemKind::BurstLaser;
+    Direction sweep = Direction::East;
+    Tick at = 0;
 };
 
-// When a ship's waves come (see the top of this file).
-constexpr Tick kFirstWaveDelay = 30 * kTicksPerSecond;
-constexpr Tick kWaveInterval = 45 * kTicksPerSecond;
-// Enemies arrive this far outside the ship's hull, in cells.
-constexpr float kSpawnMargin = 12.0f;
+// The fight in one sector: its enemy ship and the shots flying.
+struct Engagement {
+    int sector = 0;
+    EnemyClass enemy = EnemyClass::Scout;
+    Ship ship;  // the enemy's
+    std::vector<Shot> shots;
+    std::vector<Impact> impacts;  // landed in the last kImpactTicks (not saved)
 
-// One ship's fight: the enemies on its grid, and when its next wave comes.
-struct Battle {
-    std::vector<Enemy> enemies;
-    std::optional<Tick> next_wave;  // a World tick; none while none is due
-
-    bool under_attack() const { return !enemies.empty(); }
+    const EnemyDesign& design() const { return enemy_design(enemy); }
 };
 
-// Sends wave number `wave` (0 the first) of a sector of `threat` at `ship`.
-void spawn_wave(const Ship& ship, Battle& battle, int threat, int wave, Rng& rng);
+// What a beaten enemy left.
+struct Salvage {
+    EnemyClass enemy = EnemyClass::Scout;
+    int sector = 0;
+    int ship = 0;  // the player's ship it went to
+    std::vector<ItemStack> items;
+    // The kinds of weapon among `items` new to the fleet (filled in when
+    // it's collected, see World).
+    std::vector<ItemKind> found;
+};
 
-// One step of `ship`'s fight in `sector`, at World tick `now`: the next
-// wave comes when due, enemies close in and shoot, turrets shoot back, and
-// the dead are cleared away. Buildings shot down are destroyed; engines
-// stay, offline, and the bridge stays, at 0 (see Ship::bridge_destroyed).
-void combat_tick(Ship& ship, Battle& battle, Sector& sector, Rng& rng, Tick now);
+// A new enemy of class `enemy` in sector `sector`: its layout, with its
+// weapons, shields and other buildings placed where `rng` puts them, and its
+// weapons part charged.
+Engagement make_engagement(int sector, EnemyClass enemy, Rng& rng);
+
+// The shield layers up round `ship`: one per shield projector up.
+int shield_layers(const Ship& ship);
+// The share of shots fired at `ship` that miss (see the top of this file).
+float evasion(const Ship& ship);
+// Whether the building anchored at `p` on `ship` belongs to `group`.
+bool in_target_group(const Ship& ship, GridPos p, TargetGroup group);
+// The top-left cell of the building on `target` to shoot at: one of the
+// first group in `priorities` with any standing, picked by `rng` (with
+// chance `random`, one of any standing); nullopt if there's none.
+std::optional<GridPos> pick_target(const Ship& target, const std::vector<TargetGroup>& priorities, float random,
+                                   Rng& rng);
+// What the player's weapons fire at without a target of their ship's.
+const std::vector<TargetGroup>& default_player_priorities();
+
+// One step of `fight` against `ships` (the player's ships in its sector,
+// each already ticked this step) at World tick `now`: weapons charge and
+// fire, shots land. Returns the salvage once the enemy is beaten (its
+// bridge at 0), going to one of `ships`; `progress` says which weapons are
+// found already, and `threat` (the sector's) how rich it is.
+std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShip*>& ships, int threat,
+                                   const Progress& progress, Rng& rng, Tick now);

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 
 namespace ui {
 
@@ -76,26 +77,66 @@ void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
     DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 
-// The fight, along the bottom of the grid: how many enemies are on it, or
-// when the next wave comes. Returns its height (0 when there's none).
-float DrawBattleBanner(const FleetShip& ship, const Sector& sector, Tick now, ImVec2 grid_min, ImVec2 grid_size) {
-    const Battle& battle = ship.battle;
-    std::string title;
-    std::string subtitle;
-    ImVec4 color = theme::kBad;
-    if (battle.under_attack()) {
-        title = "UNDER ATTACK: " + std::to_string(battle.enemies.size()) + " enemies";
-        subtitle = sector.hostile() ? std::to_string(sector.waves_left) + " more waves to come" : "The last wave";
-    } else if (battle.next_wave) {
-        const Tick left = *battle.next_wave > now ? *battle.next_wave - now : 0;
-        title = "NEXT WAVE IN " + std::to_string((left + kTicksPerSecond - 1) / kTicksPerSecond) + " s";
-        subtitle = std::to_string(sector.waves_left) + " waves left in " + sector.name;
-        color = theme::kWarnText;
-    } else {
+// The fight, along the bottom of the grid: the enemy the ship shown is
+// fighting, and what its weapons go after. Returns its height (0 when
+// there's none).
+float DrawBattleBanner(const World& world, const FleetShip& ship, ImVec2 grid_min, ImVec2 grid_size) {
+    const Engagement* fight = world.engagement_in(ship.sector);
+    if (!fight)
         return 0.0f;
+    const EnemyDesign& design = fight->design();
+    const std::string title = std::string("UNDER FIRE: ") + design.name;
+    static constexpr const char* kGroups[] = {"weapons", "shields", "engines", "bridge", "industry"};
+    std::string subtitle = "It aims for your ";
+    for (std::size_t i = 0; i < design.priorities.size(); ++i)
+        subtitle += std::string(i == 0 ? "" : i + 1 == design.priorities.size() ? ", then " : ", ") +
+                    kGroups[static_cast<std::size_t>(design.priorities[i])];
+    subtitle += ".";
+    return DrawBanner(title.c_str(), subtitle.c_str(), theme::kBad, theme::kBad, true, grid_min, grid_size, true);
+}
+
+// What beaten enemies left, waiting for the player to acknowledge it,
+// oldest first.
+std::deque<Salvage> g_salvage;
+
+// Takes what beaten enemies left from `world` and shows the oldest not yet
+// acknowledged: a window centered over the grid listing what was taken
+// aboard, which stays up until the player clicks Take it.
+void DrawSalvageWindow(World& world, ImVec2 grid_min, ImVec2 grid_size) {
+    for (Salvage& s : world.take_salvage())
+        g_salvage.push_back(std::move(s));
+    if (g_salvage.empty())
+        return;
+    const Salvage& s = g_salvage.front();
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowPos(ImVec2(grid_min.x + grid_size.x * 0.5f, grid_min.y + grid_size.y * 0.4f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(fh * 14.0f, 0.0f), ImVec2(std::max(fh * 14.0f, grid_size.x * 0.9f),
+                                                                       std::max(fh * 8.0f, grid_size.y * 0.9f)));
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoMove;
+    if (ImGui::Begin("##salvage", nullptr, flags)) {
+        const std::string title = std::string("ENEMY DESTROYED: ") + enemy_design(s.enemy).name;
+        ImGui::TextColored(theme::kGood, "%s", title.c_str());
+        const FleetShip* to = world.get_fleet().find(s.ship);
+        ImGui::TextColored(theme::kTextDim, "Salvage taken aboard%s%s:", to ? " " : "", to ? to->name.c_str() : "");
+        ImGui::Separator();
+        for (const ItemKind w : s.found)
+            ImGui::TextColored(theme::kWarnText, "New weapon found: %s (its ammunition can now be made)",
+                               item_name(w));
+        for (const ItemStack& item : s.items) {
+            const bool found = std::find(s.found.begin(), s.found.end(), item.kind) != s.found.end();
+            AmountLine(ItemIcon(item.kind), std::to_string(item.count), found ? theme::kWarnText : theme::kText,
+                       true);
+        }
+        ImGui::Separator();
+        if (g_salvage.size() > 1)
+            ImGui::TextColored(theme::kTextDim, "%zu more salvaged after this", g_salvage.size() - 1);
+        if (theme::PrimaryButton("Take it", ImVec2(fh * 6.0f, 0.0f)))
+            g_salvage.pop_front();
     }
-    return DrawBanner(title.c_str(), subtitle.c_str(), color, battle.under_attack() ? theme::kBad : theme::kAccent,
-                      true, grid_min, grid_size, true);
+    ImGui::End();
 }
 
 // The last message (SetMessage), for a few seconds after it's set: a toast
@@ -135,6 +176,8 @@ void LeaveGame(Screen& screen) {
     g_fleet = {};
     g_map = {};
     g_banner = {};
+    g_salvage.clear();
+    g_build.craft_in_fight = false;  // the next game's first fight opens on the enemy
     g_build.inspected.reset();
     g_build.inspected_building = nullptr;
     LeaveBlueprintTool();  // the clipboard stays, to paste into another game
@@ -393,7 +436,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     const float fh = ImGui::GetFrameHeight();
     const float gap = ImGui::GetStyle().WindowPadding.x * 2.0f;
     const float palette_w = fh * 11.0f;
-    const float craft_w = fh * 12.0f;
+    // In a fight the right-hand column widens to hold the enemy's ship.
+    const bool in_fight = world.engagement_in(current.sector) != nullptr;
+    const float craft_w = fh * (in_fight ? 20.0f : 12.0f);
     DrawBuildPalette(ship, palette_w);
     ImGui::SameLine(0.0f, gap);
     const ImVec2 column_min = ImGui::GetCursorScreenPos();
@@ -408,20 +453,39 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     ImGui::SetCursorScreenPos(grid_min);
     // The strip may have switched ships, or renamed this one.
     FleetShip& shown = CurrentShip(world.get_fleet());
+    // In a fight (the shown ship's), the enemy's panel in the right-hand
+    // column. Only when the column was laid out for one, so a frame where
+    // the strip switches ships doesn't squeeze it into the narrow width.
+    const Engagement* fight = in_fight ? world.engagement_in(shown.sector) : nullptr;
     if (g_map.shown) {
         g_build.hover_cell.reset();
         DrawStarMap(world, shown, grid_avail);
     } else {
-        DrawShipGrid(shown.ship, shown.battle, world.get_tick(), grid_avail);
+        DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), grid_avail);
     }
     DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
-    const float battle_h =
-        g_map.shown ? 0.0f
-                    : DrawBattleBanner(shown, world.get_map().at(shown.sector), world.get_tick(), grid_min, grid_avail);
+    const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, grid_avail);
     DrawToast(grid_min, grid_avail, battle_h);
+    DrawSalvageWindow(world, grid_min, grid_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
-    DrawCraftPanel(world, shown, craft_w);
+    if (fight) {
+        // The right-hand column: the enemy, or (picked) the craft panel.
+        const float half = (craft_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (theme::SegmentedButton("Enemy", !g_build.craft_in_fight, ImVec2(half, 0.0f)))
+            g_build.craft_in_fight = false;
+        ImGui::SameLine();
+        if (theme::SegmentedButton("Ship", g_build.craft_in_fight, ImVec2(half, 0.0f)))
+            g_build.craft_in_fight = true;
+        ImGui::SetItemTooltip("The milestone, fleet, craft queue and hand-crafting");
+        ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y + strip_h));
+        if (g_build.craft_in_fight)
+            DrawCraftPanel(world, shown, craft_w);
+        else
+            DrawEnemyPanel(world, shown, ImVec2(craft_w, ImGui::GetContentRegionAvail().y));
+    } else {
+        DrawCraftPanel(world, shown, craft_w);
+    }
     if (!paused) {
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);

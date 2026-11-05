@@ -53,6 +53,11 @@ constexpr int kMaxSavedCount = std::numeric_limits<int>::max() / kItemKindCount;
 // The longest saved craft queue: far beyond play, but it keeps a damaged
 // save from asking for an absurd amount.
 constexpr std::size_t kMaxSavedQueue = 100'000;
+// The longest a saved weapon or shield projector may be stunned for:
+// longer than any weapon stuns it.
+constexpr Tick kMaxStun = 60 * kTicksPerSecond;
+// The furthest off a saved shot may land: longer than any flies.
+constexpr Tick kMaxFlight = 10 * kTicksPerSecond;
 
 // ---------------------------------------------------------------------------
 // Checked reading (the rest is in json_io.h)
@@ -169,10 +174,14 @@ struct SaveAccess {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
             j["fuel"] = thruster->fuel;
-        } else if (const auto* turret = dynamic_cast<const Turret*>(&b)) {
-            j["ammo"] = turret->ammo;
-            j["shots"] = turret->shots;
-            j["cooldown"] = turret->cooldown;
+        } else if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {
+            j["fuel"] = weapon->fuel;
+            j["ammo"] = weapon->ammo;
+            j["charge"] = weapon->charge;
+            j["stun"] = weapon->stun;
+        } else if (const auto* shield = dynamic_cast<const ShieldProjector*>(&b)) {
+            j["recharge"] = shield->recharge;
+            j["stun"] = shield->stun;
         } else if (const auto* m = dynamic_cast<const Machine*>(&b)) {
             j["recipe"] = save_recipe(m->recipe);
             // How far along the craft under way is, or null when idle.
@@ -193,7 +202,13 @@ struct SaveAccess {
         for (int i = 0; i < kItemKindCount; ++i)
             if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n != 0)
                 delivered[item_id(static_cast<ItemKind>(i))] = n;
-        return {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
+        Json j = {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
+        // The kinds of weapon found.
+        Json found = Json::array();
+        for (const ItemKind w : progress.found)
+            found.push_back(item_id(w));
+        j["found_weapons"] = std::move(found);
+        return j;
     }
 
     static Progress load_progress_of(const Json& j) {
@@ -222,6 +237,17 @@ struct SaveAccess {
                 return progress.delivered[static_cast<std::size_t>(d.kind)] >= d.count;
             }))
             throw LoadError("everything the milestone needs delivered, but not complete");
+        // The weapons found (none, without the list).
+        if (const auto found = j.find("found_weapons"); found != j.end())
+            for (const Json& w : load_array(*found, "found weapons")) {
+                const std::optional<ItemKind> weapon = load_item(w);
+                if (!weapon)
+                    continue;  // an item no longer known
+                if (!is_weapon(*weapon))
+                    throw LoadError(std::string(item_id(*weapon)) + " found as a weapon, which it isn't");
+                if (!progress.add_found(*weapon))
+                    throw LoadError(std::string(item_id(*weapon)) + " found twice");
+            }
         return progress;
     }
 
@@ -328,11 +354,15 @@ struct SaveAccess {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* thruster = dynamic_cast<Thruster*>(&b)) {
             thruster->fuel = static_cast<int>(load_int(j.at("fuel"), 0, kThrusterCharge));
-        } else if (auto* turret = dynamic_cast<Turret*>(&b)) {
-            turret->ammo = static_cast<int>(load_int(j.at("ammo"), 0, kTurretAmmoCapacity));
-            // An item is loaded when a shot needs it, so never a full one.
-            turret->shots = static_cast<int>(load_int(j.at("shots"), 0, turret->spec->shots_per_ammo - 1));
-            turret->cooldown = load_tick(j.at("cooldown"), turret->spec->interval);
+        } else if (auto* weapon = dynamic_cast<Weapon*>(&b)) {
+            weapon->fuel = static_cast<int>(load_int(j.at("fuel"), 0, kWeaponFuelCapacity));
+            weapon->ammo = static_cast<int>(load_int(j.at("ammo"), 0, kWeaponAmmoCapacity));
+            weapon->charge =
+                static_cast<int>(load_int(j.at("charge"), 0, static_cast<std::int64_t>(weapon->spec->charge) * kChargeScale));
+            weapon->stun = load_tick(j.at("stun"), kMaxStun);
+        } else if (auto* shield = dynamic_cast<ShieldProjector*>(&b)) {
+            shield->recharge = load_tick(j.at("recharge"), kShieldRecharge);
+            shield->stun = load_tick(j.at("stun"), kMaxStun);
         } else if (auto* m = dynamic_cast<Machine*>(&b)) {
             // An unknown recipe: none now, and a craft of it under way
             // dropped, its ingredients with it.
@@ -418,8 +448,10 @@ struct SaveAccess {
         }
         // push_output keeps it below the number of cells around the footprint.
         b->next_output_side = static_cast<std::size_t>(load_int(j.at("output_side"), 0, 1'000));
+        // Only an engine stays at 0 (knocked offline): anything else is
+        // destroyed, and the bridge's ship lost.
         if (const auto hp = j.find("hp"); hp != j.end())
-            b->hp = static_cast<int>(load_int(*hp, 1, b->max_hp()));
+            b->hp = static_cast<int>(load_int(*hp, dynamic_cast<const Thruster*>(b.get()) ? 0 : 1, b->max_hp()));
 
         const GridPos p{load_coord(j.at("x")), load_coord(j.at("y"))};
         const GridSize size = b->footprint();
@@ -433,55 +465,85 @@ struct SaveAccess {
                     throw LoadError("buildings overlap");
             }
 
+        if (const std::optional<ItemKind> kind = b->item_kind())
+            if (const BuildResult ports = ship.check_ports(*kind, p, size); ports != BuildResult::Ok)
+                throw LoadError(std::string("a ") + item_id(*kind) + " not where the ports allow: " + describe(ports));
+
         load_state(j, *b);
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))
             ship.bridge = bridge;
         ship.add_building(p, std::move(b));
     }
 
-    // The enemies on a ship's grid, and when its next wave comes.
-    static Json save_battle(const Battle& battle) {
-        Json enemies = Json::array();
-        for (const Enemy& e : battle.enemies)
-            enemies.push_back({
-                {"kind", enemy_id(e.kind)},
-                {"x", e.x},
-                {"y", e.y},
-                {"hp", e.hp},
-                {"cooldown", e.cooldown},
-                {"target", e.target ? Json{{"x", e.target->x}, {"y", e.target->y}} : Json(nullptr)},
+    // A fight: the sector, the enemy's class and ship, and the shots on
+    // their way.
+    static Json save_engagement(const Engagement& e) {
+        Json shots = Json::array();
+        for (const Shot& shot : e.shots)
+            shots.push_back({
+                {"at_enemy", shot.at_enemy},
+                {"ship", shot.ship},
+                {"weapon", item_id(shot.weapon)},
+                {"x", shot.cell.x},
+                {"y", shot.cell.y},
+                {"sweep", direction_id(shot.sweep)},
+                {"fired", shot.fired},
+                {"lands", shot.lands},
             });
-        return {{"enemies", std::move(enemies)},
-                {"next_wave", battle.next_wave ? Json(*battle.next_wave) : Json(nullptr)}};
+        return {{"sector", e.sector},
+                {"enemy", enemy_id(e.enemy)},
+                {"ship", save_ship(e.ship)},
+                {"shots", std::move(shots)}};
     }
 
-    // `now`: the World's tick, which the next wave comes after.
-    static Battle load_battle(const Json& j, Tick now) {
-        Battle battle;
-        const Json& enemies = load_array(j.at("enemies"), "enemies");
-        if (enemies.size() > 10'000)
-            throw LoadError("too many enemies");
-        for (const Json& je : enemies) {
-            Enemy e;
-            const std::optional<EnemyKind> kind = enemy_from_id(load_string(je.at("kind"), "an enemy kind"));
-            if (!kind)
-                throw LoadError("an unknown enemy: " + je.at("kind").dump());
-            e.kind = *kind;
-            const EnemySpec& spec = enemy_spec(e.kind);
-            e.x = load_float(je.at("x"), 10'000.0f);
-            e.y = load_float(je.at("y"), 10'000.0f);
-            e.hp = static_cast<int>(load_int(je.at("hp"), 1, spec.hp));
-            e.cooldown = load_tick(je.at("cooldown"), spec.interval);
-            if (const Json& t = je.at("target"); !t.is_null())
-                e.target = GridPos{load_coord(t.at("x")), load_coord(t.at("y"))};
-            battle.enemies.push_back(e);
+    // `now`: the World's tick, which shots land after; the fight is in one
+    // of `map`'s sectors that has its enemy waiting, and some of `fleet`'s
+    // ships are there.
+    static Engagement load_engagement(const Json& j, Tick now, const StarMap& map, const Fleet& fleet) {
+        Engagement e;
+        e.sector = static_cast<int>(load_int(j.at("sector"), 0, map.size() - 1));
+        const std::optional<EnemyClass> enemy = enemy_from_id(load_string(j.at("enemy"), "an enemy class"));
+        if (!enemy)
+            throw LoadError("an unknown enemy: " + j.at("enemy").dump());
+        e.enemy = *enemy;
+        if (map.at(e.sector).enemy != e.enemy)
+            throw LoadError("a fight with an enemy that isn't in its sector");
+        if (std::none_of(fleet.ships.begin(), fleet.ships.end(),
+                         [&](const std::unique_ptr<FleetShip>& s) { return s->sector == e.sector; }))
+            throw LoadError("a fight with none of the fleet's ships there");
+        // The enemy's bridge follows a progress of its own: it crafts nothing.
+        e.ship = load_ship(j.at("ship"), std::make_shared<Progress>());
+        // Its health is saved only when hurt, so a full one reads as any
+        // bridge's full health.
+        if (const Bridge& b = e.ship.get_bridge(); b.damaged() && b.get_hp() > e.design().hull)
+            throw LoadError("an enemy's bridge tougher than its class");
+        e.ship.get_bridge().set_max_hp(e.design().hull);
+        if (e.ship.get_layout()->id != std::string_view(e.design().layout))
+            throw LoadError("an enemy ship in another class's layout");
+        if (e.ship.bridge_destroyed())
+            throw LoadError("an enemy beaten but still fighting");
+        const Json& shots = load_array(j.at("shots"), "shots");
+        if (shots.size() > 10'000)
+            throw LoadError("too many shots");
+        for (const Json& js : shots) {
+            Shot shot;
+            shot.at_enemy = js.at("at_enemy").get<bool>();
+            shot.ship = static_cast<int>(load_int(js.at("ship"), 1, fleet.next_id - 1));
+            const std::optional<ItemKind> weapon = load_item(js.at("weapon"));
+            if (!weapon)
+                continue;  // a weapon no longer known: its shot is lost
+            if (!is_weapon(*weapon))
+                throw LoadError(std::string("a shot from ") + item_id(*weapon) + ", which isn't a weapon");
+            shot.weapon = *weapon;
+            shot.cell = {load_coord(js.at("x")), load_coord(js.at("y"))};
+            shot.sweep = load_direction(js.at("sweep"));
+            shot.lands = load_tick(js.at("lands"), now + kMaxFlight);
+            if (shot.lands <= now)
+                throw LoadError("a shot that should have landed already");
+            shot.fired = load_tick(js.at("fired"), shot.lands);
+            e.shots.push_back(shot);
         }
-        if (const Json& next = j.at("next_wave"); !next.is_null()) {
-            battle.next_wave = load_tick(next, now + std::max(kFirstWaveDelay, kWaveInterval));
-            if (*battle.next_wave <= now)
-                throw LoadError("a wave that should have come already");
-        }
-        return battle;
+        return e;
     }
 
     // The ships, oldest first, and the cargo in flight between them.
@@ -491,8 +553,10 @@ struct SaveAccess {
             Json ship = {{"id", s->id},
                          {"name", s->name},
                          {"sector", s->sector},
-                         {"ship", save_ship(s->ship)},
-                         {"battle", save_battle(s->battle)}};
+                         {"ship", save_ship(s->ship)}};
+            // Only while it has a target.
+            if (s->target)
+                ship["target"] = {{"x", s->target->x}, {"y", s->target->y}};
             // Only for a provider.
             if (s->provides)
                 ship["provides"] = true;
@@ -540,7 +604,9 @@ struct SaveAccess {
             if (!map.at(sector).visited)
                 throw LoadError("a ship in a sector never visited");
             fleet.ships.push_back(std::make_unique<FleetShip>(FleetShip{
-                id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector, load_battle(s.at("battle"), now)}));
+                id, std::move(name), load_ship(s.at("ship"), fleet.progress), sector, std::nullopt}));
+            if (const auto target = s.find("target"); target != s.end())
+                fleet.ships.back()->target = GridPos{load_coord(target->at("x")), load_coord(target->at("y"))};
             // Not a provider in saves from before there were providers.
             if (const auto provides = s.find("provides"); provides != s.end())
                 fleet.ships.back()->provides = provides->get<bool>();
@@ -587,7 +653,8 @@ struct SaveAccess {
                 {"neighbors", s.neighbors},
                 {"yields", std::move(yields)},
                 {"threat", s.threat},
-                {"waves_left", s.waves_left},
+                {"enemy", s.enemy ? Json(enemy_id(*s.enemy)) : Json(nullptr)},
+                {"beaten", s.beaten},
                 {"visited", s.visited},
                 {"surveyed", s.surveyed},
             });
@@ -617,7 +684,12 @@ struct SaveAccess {
             if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
                 throw LoadError("a yield for something that isn't a raw resource");
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
-            s.waves_left = static_cast<int>(load_int(js.at("waves_left"), 0, waves_for_threat(s.threat)));
+            if (const Json& enemy = js.at("enemy"); !enemy.is_null()) {
+                s.enemy = enemy_from_id(load_string(enemy, "an enemy class"));
+                if (!s.enemy)
+                    throw LoadError("an unknown enemy: " + enemy.dump());
+            }
+            s.beaten = js.at("beaten").get<bool>();
             s.visited = js.at("visited").get<bool>();
             s.surveyed = js.at("surveyed").get<bool>();
             if (s.visited && !s.surveyed)
@@ -655,7 +727,13 @@ struct SaveAccess {
         return {{"tick", world.current_tick},
                 {"rng", world.rng.state},
                 {"star_map", save_map(world.map)},
-                {"fleet", save_fleet(world.fleet)}};
+                {"fleet", save_fleet(world.fleet)},
+                {"engagements", [&] {
+                     Json fights = Json::array();
+                     for (const Engagement& e : world.engagements)
+                         fights.push_back(save_engagement(e));
+                     return fights;
+                 }()}};
     }
 
     static World load_world(const Json& j) {
@@ -667,6 +745,19 @@ struct SaveAccess {
         world.rng.state = j.at("rng").get<std::uint64_t>();
         world.map = load_map(j.at("star_map"));
         world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map);
+        for (const Json& e : load_array(j.at("engagements"), "fights")) {
+            Engagement fight = load_engagement(e, world.current_tick, world.map, world.fleet);
+            if (world.engagement_in(fight.sector))
+                throw LoadError("two fights in one sector");
+            world.engagements.push_back(std::move(fight));
+        }
+        // Targets on the enemy there, if there's a fight (else none).
+        for (const std::unique_ptr<FleetShip>& s : world.fleet.ships)
+            if (s->target) {
+                const Engagement* fight = world.engagement_in(s->sector);
+                if (!fight || !fight->ship.building_anchored_at(*s->target))
+                    throw LoadError("a ship targeting nothing there");
+            }
         world.update_yields();
         return world;
     }

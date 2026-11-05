@@ -17,7 +17,9 @@
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── Thruster     ion thruster (part of the ship's layout): charged with
 //   │                fuel cells for a jump
-//   ├── Turret       autocannon, railgun: fire the ammunition belts bring
+//   ├── Weapon       lasers, missiles, ...: fire at enemy ships, on the fuel
+//   │                cells and ammunition belts bring
+//   ├── ShieldProjector  one shield layer round the ship
 //   └── ShipSystem   survey scanner
 //
 // One class per family, not per building: each building's footprint and
@@ -42,6 +44,7 @@
 #include "sim/milestones.h"
 #include "sim/recipes.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -89,7 +92,8 @@ private:
     std::optional<ItemKind> placed_by;
     Direction dir;
     GridSize size;
-    int hp;  // 0 to max_hp(): at 0, destroyed
+    int hp;      // 0 to max_hp(): at 0, destroyed
+    int max;     // max_hp_of(placed_by), unless set (an enemy's bridge)
 
 public:
     // `placed_by` is nullopt for buildings that never came from the inventory
@@ -109,7 +113,11 @@ public:
     // Health: enemies wear it down (see combat.h), and it mends while no
     // enemy is near.
     int get_hp() const { return hp; }
-    int max_hp() const { return max_hp_of(placed_by); }
+    int max_hp() const { return max; }
+    // Makes its full health `full` (from max_hp_of(item_kind())), its
+    // health no more than that: an enemy's bridge, whose class says how
+    // tough it is.
+    void set_max_hp(int full);
     bool damaged() const { return hp < max_hp(); }
     // Takes `amount` of damage, down to 0; true if that destroyed it.
     bool take_damage(int amount);
@@ -631,57 +639,120 @@ public:
     void receive(ItemKind) override { ++fuel; }
 };
 
-// What a turret fires and how: one item of `ammo` is `shots_per_ammo`
-// shots, each doing `damage` to an enemy within `range` cells of its middle,
-// one every `interval` ticks.
-struct TurretSpec {
-    ItemKind ammo;
-    int shots_per_ammo = 1;
-    float range = 0.0f;
-    int damage = 0;
-    Tick interval = 0;
+// How a weapon's shots behave when they reach the ship they're aimed at
+// (see combat.h).
+enum class WeaponFamily {
+    Laser,    // each shot is stopped by a shield layer, popping it
+    Missile,  // goes through shields
+    Ion,      // pops a shield layer and stuns its projector, or stuns a weapon it hits
+    Flak,     // a spray of pellets around the aim, each stopped by a shield layer
+    Beam,     // sweeps a line across the ship, hitting each building on it;
+              // never misses, shields weaken it without popping
 };
 
-// The spec of a turret kind (autocannon, railgun).
-const TurretSpec& turret_spec(ItemKind kind);
+// What a weapon fires and how. Each volley burns one fuel cell (its power)
+// and one round of `ammo`, and fires `shots` projectiles (a beam: one sweep)
+// of `damage` each, once it has charged for `charge` ticks.
+struct WeaponSpec {
+    WeaponFamily family = WeaponFamily::Laser;
+    ItemKind ammo = ItemKind::FocusCrystal;
+    int shots = 1;
+    int damage = 0;      // per projectile; a beam's, per building it crosses
+    Tick charge = 0;     // ticks to charge a volley
+    Tick flight = 0;     // ticks a shot takes to reach its target
+    int spread = 0;      // flak: how far (cells) pellets land from the aim; beam: its length
+    Tick stun = 0;       // ion: how long what it hits is stunned
+    const char* blurb = "";  // a line for the inspector
+};
 
-// Items of ammunition a turret holds, waiting to be loaded.
-constexpr int kTurretAmmoCapacity = 10;
+// The spec of a weapon kind (is_weapon).
+const WeaponSpec& weapon_spec(ItemKind kind);
 
-// A turret: takes its ammunition from belts, and fires at the nearest enemy
-// in range when it's ready (see combat.h). Out of ammunition, it's silent.
-class Turret : public Building {
+// What a weapon holds, waiting: fuel cells and rounds of ammunition.
+constexpr int kWeaponFuelCapacity = 5;
+constexpr int kWeaponAmmoCapacity = 10;
+// A charge, in hundredths of a tick: an enemy's weapons charge at their
+// design's pace, which needn't be a whole number of ticks.
+constexpr int kChargeScale = 100;
+
+// A weapon: takes fuel cells and its ammunition from belts and, while it
+// has both and an enemy ship is in its sector, charges, then fires a volley
+// at it (see combat.h). Stunned (an ion hit), it stops charging until the
+// stun wears off.
+class Weapon : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
     // the private state.
     friend struct SaveAccess;
 
-    const TurretSpec* spec;
-    int ammo = 0;       // items waiting
-    int shots = 0;      // left in the item loaded
-    Tick cooldown = 0;  // ticks until it can fire again
+    const WeaponSpec* spec;
+    int fuel = 0;     // fuel cells
+    int ammo = 0;     // rounds
+    int charge = 0;   // toward a volley, in kChargeScale-ths of a tick
+    Tick stun = 0;    // ticks until it can charge again
 
 public:
-    explicit Turret(ItemKind k);
+    explicit Weapon(ItemKind k);
 
-    const TurretSpec& get_spec() const { return *spec; }
+    const WeaponSpec& get_spec() const { return *spec; }
+    int get_fuel() const { return fuel; }
     int get_ammo() const { return ammo; }
-    int get_shots() const { return shots; }
-    // Shots it can fire before it needs more ammunition.
-    int shots_left() const { return shots + ammo * spec->shots_per_ammo; }
-    bool ready() const { return cooldown == 0 && shots_left() > 0; }
-    // Fires one shot (ready() must hold), loading an item if it must.
-    void fire();
+    Tick get_stun() const { return stun; }
+    // Fuel and ammunition for a volley.
+    bool powered() const { return fuel > 0 && ammo > 0; }
+    // How far charged, 0 to 1.
+    float charge_fraction() const;
+    bool charged() const { return charge >= static_cast<int>(spec->charge) * kChargeScale; }
+    // One tick of charging, `pace` kChargeScale-ths of a tick (kChargeScale:
+    // as fast as its spec), while it can: powered (or `free`: an enemy's,
+    // which needs neither fuel nor ammunition) and not stunned.
+    void charge_up(bool free, int pace = kChargeScale);
+    // Fires the charged volley: burns a fuel cell and a round (unless
+    // `free`), and starts charging the next.
+    void fire(bool free);
+    // Loses its charge (its ship's fight over: see World::stand_down).
+    void discharge() { charge = 0; }
+    void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
     void tick() override;
     std::vector<ItemStack> contents() const override;
-    bool accepts(ItemKind kind) const override { return kind == spec->ammo && ammo < kTurretAmmoCapacity; }
-    void receive(ItemKind) override { ++ammo; }
+    bool accepts(ItemKind kind) const override;
+    void receive(ItemKind kind) override;
+};
 
-    // The last shot, for the UI (not saved): when, and where it went (in
-    // cells, as Enemy positions are).
-    Tick fired_at = 0;
-    float aim_x = 0.0f;
-    float aim_y = 0.0f;
+// How long a shield layer knocked down takes to come back up. A ship puts
+// its layers back one at a time, FTL-style (see Ship::tick): three knocked
+// down take three times as long.
+constexpr Tick kShieldRecharge = 1 * kTicksPerSecond;
+
+// The shield projector: one shield layer around its whole ship, stopping
+// one laser shot or flak pellet before it's knocked down; then it waits its
+// turn to put it back up, taking kShieldRecharge (not while stunned). No
+// power needed.
+class ShieldProjector : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    Tick recharge = 0;  // ticks of recharging until its layer is up again; 0: up
+    Tick stun = 0;      // ticks it's stunned for: no recharging
+
+public:
+    ShieldProjector() : Building(ItemKind::ShieldProjector, Direction::North, footprint_of(ItemKind::ShieldProjector)) {}
+
+    bool up() const { return recharge == 0 && get_hp() > 0; }
+    Tick get_recharge() const { return recharge; }
+    Tick get_stun() const { return stun; }
+    // Whether it could recharge this tick: down and not stunned.
+    bool can_recharge() const { return recharge > 0 && stun == 0 && get_hp() > 0; }
+    // One tick of recharging (its ship picks which of its projectors).
+    void recharge_step() {
+        if (can_recharge())
+            --recharge;
+    }
+    void knock_down() { recharge = kShieldRecharge; }
+    void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
+    void tick() override;
 };
 
 // The survey scanner: surveys the sectors next to the ship's (see World).

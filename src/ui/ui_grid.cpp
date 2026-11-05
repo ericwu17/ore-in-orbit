@@ -1,5 +1,5 @@
 // ui_grid.cpp — the ship build grid: its camera, the hull and buildings,
-// the enemies, and building, removing, copying and pasting with the mouse
+// the fight it's in, and building, removing, copying and pasting with the mouse
 // (see ui_internal.h).
 #include "ui/ui_internal.h"
 
@@ -18,6 +18,24 @@ void DrawHull(ImDrawList* draw, ImVec2 min, ImVec2 max, float cell, ImU32 hull) 
         DrawSprite(draw, *sprite, min, max, Direction::North, 1.0f);
     else
         draw->AddRectFilled(min, max, hull);
+}
+
+// A port's tile from `min`, `cell` across: tinted its kind's color, with a
+// crosshair (a weapon port) or a ring (a shield port).
+void DrawPort(ImDrawList* draw, ImVec2 min, float cell, Port port) {
+    const ImVec4 color = port == Port::Weapon ? theme::kTileWeaponPort : theme::kTileShieldPort;
+    const ImVec2 max(min.x + cell, min.y + cell);
+    draw->AddRectFilled(min, max, theme::U32(color, 0.45f));
+    draw->AddRect(min, max, theme::U32(color), 0.0f, 0, std::max(1.0f, cell * 0.08f));
+    const ImVec2 c(min.x + cell * 0.5f, min.y + cell * 0.5f);
+    const float r = cell * 0.28f;
+    const float t = std::max(1.0f, cell * 0.08f);
+    const ImU32 glyph = theme::U32(theme::kTileGlyph);
+    if (port == Port::Weapon) {
+        draw->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), glyph, t);
+        draw->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), glyph, t);
+    }
+    draw->AddCircle(c, r * 0.75f, glyph, 0, t);
 }
 
 // Amber brackets round the corners of `min`..`max`, marking the building
@@ -145,90 +163,6 @@ PastePlan DrawPasteGhost(ImDrawList* draw, const Ship& ship, const Blueprint& bl
     draw->AddRect(min, FootprintMax(min, cell, blueprint.size), theme::U32(plan.ok() ? theme::kGood : theme::kBad),
                   0.0f, 0, 2.0f);
     return plan;
-}
-
-// The build grid on a canvas filling `avail`: click / drag to build and
-// remove (or with the copy and paste tools, copy and paste), scroll to zoom,
-// middle drag (or hold Space and move) to pan.
-// A building's health, as a thin bar along its top, once it's damaged; and a
-// red flash for a few frames after it's hit (`now`: the World's tick).
-void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now) {
-    constexpr Tick kFlashTicks = 8;
-    if (b.hit_at > 0 && now - b.hit_at < kFlashTicks) {
-        const float fade = 1.0f - static_cast<float>(now - b.hit_at) / static_cast<float>(kFlashTicks);
-        draw->AddRectFilled(min, max, theme::U32(theme::kBad, 0.45f * fade));
-    }
-    if (!b.damaged())
-        return;
-    const float fraction = static_cast<float>(b.get_hp()) / static_cast<float>(b.max_hp());
-    const float h = std::max(2.0f, cell * 0.12f);
-    const float inset = std::max(1.0f, cell * 0.08f);
-    const ImVec2 bar_min(min.x + inset, min.y + inset);
-    const ImVec2 bar_max(max.x - inset, min.y + inset + h);
-    draw->AddRectFilled(bar_min, bar_max, theme::U32(theme::kBevelDark, 0.75f));
-    const ImVec4 color = fraction > 0.6f ? theme::kGood : fraction > 0.3f ? theme::kWarn : theme::kBad;
-    draw->AddRectFilled(bar_min, ImVec2(bar_min.x + (bar_max.x - bar_min.x) * fraction, bar_max.y),
-                        theme::U32(color));
-}
-
-// The fight on the grid (`origin`, `cell`): turrets' shots, then the
-// enemies, as arrowheads pointing where they're headed, with their health
-// once hurt and their shots.
-void DrawBattle(ImDrawList* draw, const Ship& ship, const Battle& battle, ImVec2 origin, float cell, Tick now) {
-    constexpr Tick kTracerTicks = 6;
-    const auto screen = [&](float x, float y) { return ImVec2(origin.x + x * cell, origin.y + y * cell); };
-    const auto tracer = [&](ImVec2 from, ImVec2 to, Tick fired_at, ImVec4 color, float width) {
-        if (fired_at == 0 || now - fired_at >= kTracerTicks)
-            return;
-        const float fade = 1.0f - static_cast<float>(now - fired_at) / static_cast<float>(kTracerTicks);
-        draw->AddLine(from, to, theme::U32(color, fade), std::max(1.5f, width));
-    };
-    for (const GridPos p : ship.placement_order()) {
-        const auto* turret = dynamic_cast<const Turret*>(ship.building_anchored_at(p));
-        if (!turret)
-            continue;
-        const GridSize size = turret->footprint();
-        const ImVec2 from = screen(static_cast<float>(p.x) + static_cast<float>(size.w) * 0.5f,
-                                   static_cast<float>(p.y) + static_cast<float>(size.h) * 0.5f);
-        tracer(from, screen(turret->aim_x, turret->aim_y), turret->fired_at, theme::kWarn,
-               cell * (*turret->item_kind() == ItemKind::Railgun ? 0.3f : 0.12f));
-    }
-    for (const Enemy& e : battle.enemies) {
-        const EnemySpec& spec = enemy_spec(e.kind);
-        const ImVec2 c = screen(e.x, e.y);
-        tracer(c, screen(e.aim_x, e.aim_y), e.fired_at, theme::kBad, cell * 0.1f);
-        // Pointing at its target.
-        ImVec2 d(0.0f, -1.0f);
-        if (e.target)
-            if (const Building* b = ship.building_anchored_at(*e.target)) {
-                const GridSize size = b->footprint();
-                const float dx = static_cast<float>(e.target->x) + static_cast<float>(size.w) * 0.5f - e.x;
-                const float dy = static_cast<float>(e.target->y) + static_cast<float>(size.h) * 0.5f - e.y;
-                const float len = std::hypot(dx, dy);
-                if (len > 0.01f)
-                    d = ImVec2(dx / len, dy / len);
-            }
-        const float r = cell * (e.kind == EnemyKind::Drone ? 0.45f : e.kind == EnemyKind::Gunship ? 0.9f : 1.8f);
-        const ImVec2 side(-d.y, d.x);
-        const ImVec2 tip(c.x + d.x * r, c.y + d.y * r);
-        const ImVec2 left(c.x - d.x * r * 0.7f + side.x * r * 0.7f, c.y - d.y * r * 0.7f + side.y * r * 0.7f);
-        const ImVec2 right(c.x - d.x * r * 0.7f - side.x * r * 0.7f, c.y - d.y * r * 0.7f - side.y * r * 0.7f);
-        const ImVec4 color = e.kind == EnemyKind::Drone     ? theme::kBadHover
-                             : e.kind == EnemyKind::Gunship ? theme::kBad
-                                                            : theme::kBadActive;
-        draw->AddTriangleFilled(tip, left, right, theme::U32(color));
-        draw->AddTriangle(tip, left, right, theme::U32(theme::kBevelDark), 1.5f);
-        if (e.hp < spec.hp) {
-            const float w = r * 1.6f;
-            const float h = std::max(2.0f, cell * 0.1f);
-            const ImVec2 bar_min(c.x - w * 0.5f, c.y - r - h - 2.0f);
-            draw->AddRectFilled(bar_min, ImVec2(bar_min.x + w, bar_min.y + h), theme::U32(theme::kBevelDark, 0.75f));
-            draw->AddRectFilled(bar_min,
-                                ImVec2(bar_min.x + w * static_cast<float>(e.hp) / static_cast<float>(spec.hp),
-                                       bar_min.y + h),
-                                theme::U32(theme::kBad));
-        }
-    }
 }
 
 // A belt tunnel's underground stretch, from cell `a` to cell `b`.
@@ -387,7 +321,26 @@ constexpr double kTooltipDelay = 0.35;
 
 }  // namespace
 
-void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
+void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now) {
+    constexpr Tick kFlashTicks = 8;
+    if (b.hit_at > 0 && now - b.hit_at < kFlashTicks) {
+        const float fade = 1.0f - static_cast<float>(now - b.hit_at) / static_cast<float>(kFlashTicks);
+        draw->AddRectFilled(min, max, theme::U32(theme::kBad, 0.45f * fade));
+    }
+    if (!b.damaged())
+        return;
+    const float fraction = static_cast<float>(b.get_hp()) / static_cast<float>(b.max_hp());
+    const float h = std::max(2.0f, cell * 0.12f);
+    const float inset = std::max(1.0f, cell * 0.08f);
+    const ImVec2 bar_min(min.x + inset, min.y + inset);
+    const ImVec2 bar_max(max.x - inset, min.y + inset + h);
+    draw->AddRectFilled(bar_min, bar_max, theme::U32(theme::kBevelDark, 0.75f));
+    const ImVec4 color = fraction > 0.6f ? theme::kGood : fraction > 0.3f ? theme::kWarn : theme::kBad;
+    draw->AddRectFilled(bar_min, ImVec2(bar_min.x + (bar_max.x - bar_min.x) * fraction, bar_max.y),
+                        theme::U32(color));
+}
+
+void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, ImVec2 avail) {
     const int n = ship.size();
     const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
     const ImVec2 canvas_size(std::max(avail.x, 1.0f), std::max(avail.y, 1.0f));
@@ -504,6 +457,12 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
             }
         }
     }
+    // The ports, over the hull (buildings over them hide them): a tile of
+    // their color with a crosshair.
+    if (const ShipLayout* layout = ship.get_layout())
+        for (const Port port : {Port::Weapon, Port::Shield})
+            for (const GridPos q : layout_ports(*layout, port))
+                DrawPort(draw, CellMin(origin, cell, layout_to_grid(*layout, q)), cell, port);
     // Buildings after all the hull, since larger ones overlap later cells.
     // Ones anchored up to kMaxFootprint - 1 cells above / left of the view
     // still reach into it.
@@ -539,14 +498,10 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
                     DrawFilterIcon(draw, sorter->get_filter(), min, cell);
                 if (unloader)
                     DrawFilterIcon(draw, unloader->get_filter(), min, cell);
+                DrawCombatStatus(draw, *b, min, max, cell);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
-                if (b == InspectedBuilding(ship)) {
+                if (b == InspectedBuilding(ship))
                     DrawCornerBrackets(draw, min, max, theme::U32(theme::kAccent), cell);
-                    // A turret's reach.
-                    if (const auto* turret = dynamic_cast<const Turret*>(b))
-                        draw->AddCircle(ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f),
-                                        turret->get_spec().range * cell, theme::U32(theme::kAccent, 0.6f), 0, 1.5f);
-                }
             }
     // Items on belts, junctions and routers, over every building (they
     // cross onto the next cell).
@@ -564,7 +519,8 @@ void DrawShipGrid(Ship& ship, const Battle& battle, Tick now, ImVec2 avail) {
 
     DrawTunnelLinks(draw, ship, InspectedBuilding(ship), g_build.selected == ItemKind::BeltTunnel, origin, cell);
 
-    DrawBattle(draw, ship, battle, origin, cell, now);
+    if (fight)
+        DrawCombatOverlay(draw, ship, *fight, false, ship_id, origin, cell, canvas_min, canvas_max, now);
 
     // Copying: the box being dragged, or the cell it would start from.
     if (bp.tool == Tool::Copy) {
