@@ -61,8 +61,8 @@ void World::fight() {
         beaten.push_back(std::move(*salvage));
         return true;
     });
-    for (const Salvage& s : beaten)
-        collect(s);
+    for (Salvage& s : beaten)
+        collect(std::move(s));
 
     std::vector<int> lost;
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
@@ -72,7 +72,7 @@ void World::fight() {
         fleet.remove(id);
 }
 
-void World::collect(const Salvage& salvage) {
+void World::collect(Salvage salvage) {
     Sector& sector = map.at(salvage.sector);
     sector.enemy.reset();
     sector.beaten = true;
@@ -80,9 +80,10 @@ void World::collect(const Salvage& salvage) {
         s->target.reset();
     if (FleetShip* s = fleet.find(salvage.ship))
         s->ship.inventory().add(salvage.items);
-    if (salvage.schematic)
-        fleet.get_progress().add_schematic(*salvage.schematic);
-    salvaged.push_back(salvage);
+    for (const ItemStack& item : salvage.items)
+        if (fleet.get_progress().add_found(item.kind))
+            salvage.found.push_back(item.kind);
+    salvaged.push_back(std::move(salvage));
 }
 
 void World::advance_tick() {

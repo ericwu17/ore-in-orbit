@@ -20,7 +20,7 @@ const std::vector<Milestone>& all_milestones() {
           CargoPod}},
         {"Escape velocity",
          {{Processor, 20}},
-         {FabricatorMk3, FuelCell, BurstLaser, FocusCrystal}},
+         {FabricatorMk3, FuelCell, FocusCrystal}},
         {"Frontier",
          {{FuelCell, 100}, {FocusCrystal, 100}},
          {ShieldProjector}},
@@ -37,30 +37,15 @@ std::size_t milestone_index(std::string_view name) {
     return milestones.size();
 }
 
-const std::vector<Schematic>& all_schematics() {
+std::optional<ItemKind> weapon_unlocking(ItemKind kind) {
     using enum ItemKind;
-    static const std::vector<Schematic> schematics = {
-        {HeavyLaser, {HeavyLaser}},  // fires the burst laser's focus crystals
-        {MissileLauncher, {MissileLauncher, Missile}},
-        {IonBlaster, {IonBlaster, IonCell}},
-        {FlakCannon, {FlakCannon, FlakShell}},
-        {BeamEmitter, {BeamEmitter, IridiumLens}},
-    };
-    return schematics;
-}
-
-const Schematic* schematic_unlocking(ItemKind kind) {
-    for (const Schematic& s : all_schematics())
-        if (std::find(s.unlocks.begin(), s.unlocks.end(), kind) != s.unlocks.end())
-            return &s;
-    return nullptr;
-}
-
-const Schematic* schematic_for(ItemKind weapon) {
-    for (const Schematic& s : all_schematics())
-        if (s.weapon == weapon)
-            return &s;
-    return nullptr;
+    switch (kind) {
+    case Missile: return MissileLauncher;
+    case IonCell: return IonBlaster;
+    case FlakShell: return FlakCannon;
+    case IridiumLens: return BeamEmitter;
+    default: return std::nullopt;
+    }
 }
 
 std::optional<std::size_t> milestone_unlocking(ItemKind kind) {
@@ -109,20 +94,22 @@ bool Progress::complete_current() {
     return true;
 }
 
-bool Progress::has_schematic(ItemKind weapon) const {
-    return std::find(schematics.begin(), schematics.end(), weapon) != schematics.end();
+bool Progress::has_found(ItemKind weapon) const {
+    return std::find(found.begin(), found.end(), weapon) != found.end();
 }
 
-bool Progress::add_schematic(ItemKind weapon) {
-    if (!schematic_for(weapon) || has_schematic(weapon))
+bool Progress::add_found(ItemKind weapon) {
+    if (!is_weapon(weapon) || has_found(weapon))
         return false;
-    schematics.push_back(weapon);
+    found.push_back(weapon);
     return true;
 }
 
 bool Progress::unlocked(ItemKind kind) const {
-    if (const Schematic* s = schematic_unlocking(kind))
-        return has_schematic(s->weapon);
+    if (is_weapon(kind))
+        return has_found(kind);
+    if (const std::optional<ItemKind> weapon = weapon_unlocking(kind))
+        return has_found(*weapon);
     const std::optional<std::size_t> at = milestone_unlocking(kind);
     return !at || *at < current;
 }

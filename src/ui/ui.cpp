@@ -118,9 +118,12 @@ void DrawSalvageBanner(World& world, ImVec2 grid_min, ImVec2 grid_size) {
         return;
     const Salvage& s = *g_salvage.last;
     const std::string title = std::string("ENEMY DESTROYED: ") + enemy_design(s.enemy).name;
-    const std::string subtitle = s.schematic ? std::string("Schematic found: ") + item_name(*s.schematic) +
-                                                   " (new recipes unlocked)"
-                                             : std::string("Salvage taken aboard");
+    std::string subtitle = "Salvage taken aboard";
+    if (!s.found.empty()) {
+        subtitle = "New weapon found: ";
+        for (std::size_t i = 0; i < s.found.size(); ++i)
+            subtitle += (i ? ", " : "") + std::string(item_name(s.found[i]));
+    }
     DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kGood, false, grid_min, grid_size, false);
 }
 

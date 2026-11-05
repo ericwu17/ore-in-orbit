@@ -195,13 +195,20 @@ Salvage salvage_of(const Engagement& fight, int threat, const Progress& progress
         if (b.item_kind() && is_weapon(*b.item_kind()) && rng.chance(kWeaponSalvageChance))
             items.add(*b.item_kind());
     }
-    Salvage salvage{.enemy = fight.enemy, .sector = fight.sector, .ship = ship, .items = items.stacks(), .schematic = std::nullopt};
-    std::vector<ItemKind> unfound;
-    for (const ItemKind w : design.schematics)
-        if (!progress.has_schematic(w))
-            unfound.push_back(w);
-    if (!unfound.empty() && rng.chance(design.schematic_chance))
-        salvage.schematic = unfound[static_cast<std::size_t>(rng.range(0, static_cast<int>(unfound.size()) - 1))];
+    // Maybe a weapon in its hold: one the fleet hasn't found, if it may
+    // carry any, with some ammunition for it.
+    if (!design.loot.empty() && rng.chance(design.loot_chance)) {
+        std::vector<ItemKind> pick;
+        for (const ItemKind w : design.loot)
+            if (!progress.has_found(w))
+                pick.push_back(w);
+        if (pick.empty())
+            pick = design.loot;
+        const ItemKind w = pick[static_cast<std::size_t>(rng.range(0, static_cast<int>(pick.size()) - 1))];
+        items.add(w);
+        items.add(weapon_spec(w).ammo, about(6 + 2 * t, rng));
+    }
+    Salvage salvage{.enemy = fight.enemy, .sector = fight.sector, .ship = ship, .items = items.stacks(), .found = {}};
     return salvage;
 }
 

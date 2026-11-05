@@ -99,8 +99,8 @@ void test_no_dead_ends() {
         }
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
-        if (is_layout_part(kind))
-            continue;  // comes with a ship's layout, never made
+        if (is_layout_part(kind) || is_weapon(kind))
+            continue;  // comes with a ship's layout, or is found, never made
         if (!reachable(kind, milestones.size()))
             std::printf("unreachable: %s\n", item_name(kind));
         assert(reachable(kind, milestones.size()));
@@ -137,11 +137,14 @@ void test_progress() {
     assert(progress.all_complete());
     assert(progress.current_index() == all_milestones().size());
     assert(!progress.on_delivered(ItemKind::Processor));
-    // Everything but what only schematics unlock (see test_combat).
+    // Everything but weapons and what only finding one unlocks (see
+    // test_combat).
+    const auto found_only = [](ItemKind kind) { return is_weapon(kind) || weapon_unlocking(kind).has_value(); };
     for (int i = 0; i < kItemKindCount; ++i)
-        assert(progress.unlocked(static_cast<ItemKind>(i)) == !schematic_unlocking(static_cast<ItemKind>(i)));
-    for (const Schematic& sc : all_schematics())
-        assert(progress.add_schematic(sc.weapon));
+        assert(progress.unlocked(static_cast<ItemKind>(i)) == !found_only(static_cast<ItemKind>(i)));
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (is_weapon(static_cast<ItemKind>(i)))
+            assert(progress.add_found(static_cast<ItemKind>(i)));
     for (int i = 0; i < kItemKindCount; ++i)
         assert(progress.unlocked(static_cast<ItemKind>(i)));
 }

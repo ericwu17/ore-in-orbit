@@ -12,10 +12,6 @@ namespace ui {
 
 namespace {
 
-// Whether every schematic has been found.
-bool progress_all_found(const Progress& progress) {
-    return progress.found_schematics().size() == all_schematics().size();
-}
 
 
 // The debug menu's item cheat: what to give, and how many.
@@ -28,7 +24,7 @@ DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
 // give the bridge any items, reveal the map, charge the thrusters, spawn
-// or beat an enemy ship, find schematics, and complete milestones. It is a developer tool, so it is
+// or beat an enemy ship, give every weapon, and complete milestones. It is a developer tool, so it is
 // drawn in stock Dear ImGui (dark colors, default sizes), not the game's
 // theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
@@ -152,11 +148,14 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
                         fight->ship.get_bridge().get_hp(), fight->shots.size());
         else
             ImGui::TextDisabled("No fight in %s", world.get_map().at(current.sector).name.c_str());
-        ImGui::BeginDisabled(progress_all_found(world.get_fleet().get_progress()));
-        if (ImGui::Button("Find every schematic"))
-            for (const Schematic& sc : all_schematics())
-                world.get_fleet().get_progress().add_schematic(sc.weapon);
-        ImGui::EndDisabled();
+        if (ImGui::Button("Give every weapon"))
+            for (int i = 0; i < kItemKindCount; ++i)
+                if (const ItemKind kind = static_cast<ItemKind>(i); is_weapon(kind)) {
+                    world.get_fleet().get_progress().add_found(kind);
+                    current.ship.inventory().add(kind, 1);
+                }
+        ImGui::SetItemTooltip("One of each weapon into %s's bridge, every one found (their ammunition unlocked)",
+                              current.name.c_str());
 
         ImGui::SeparatorText("Milestones");
         Progress& progress = world.get_fleet().get_progress();

@@ -102,20 +102,14 @@ std::vector<Recipe> make_recipes() {
             .out(ShipStarterPack),
         R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
 
-        // Weapons, their ammunition and shields. The burst laser and focus
-        // crystals come with a milestone, as does the shield projector; the
-        // rest from schematics salvaged from enemy ships.
-        R(Assemble, 6).in(Steel, 10).in(Glass, 10).in(Circuit, 10).out(BurstLaser),
+        // Ammunition and shields. Weapons have no recipes: they are found
+        // (see milestones.h). Focus crystals and the shield projector come
+        // with milestones; the rest of the ammunition with its weapon.
         R(Assemble, 1).in(Glass, 2).in(CopperPlate).out(FocusCrystal, 2),
         R(Assemble, 8).in(StructuralFrame, 6).in(AdvancedCircuit, 6).in(CopperPlate, 20).out(ShieldProjector),
-        R(Assemble, 8).in(Steel, 15).in(Glass, 15).in(AdvancedCircuit, 5).out(HeavyLaser),
-        R(Assemble, 8).in(Steel, 15).in(StructuralFrame, 4).in(AdvancedCircuit, 4).out(MissileLauncher),
         R(Assemble, 2).in(Steel).in(Plastic).in(FuelCell).out(Missile),
-        R(Assemble, 8).in(CopperPlate, 20).in(Silicon, 10).in(AdvancedCircuit, 5).out(IonBlaster),
         R(Assemble, 1).in(CopperPlate, 2).in(Silicon).out(IonCell),
-        R(Assemble, 10).in(Steel, 20).in(Gear, 10).in(StructuralFrame, 5).out(FlakCannon),
         R(Assemble, 1).in(IronPlate, 3).in(Steel).out(FlakShell),
-        R(Assemble, 15).in(IridiumPlate, 10).in(Processor, 4).in(Glass, 20).out(BeamEmitter),
         R(Assemble, 3).in(IridiumPlate, 2).in(Glass, 2).in(AdvancedCircuit).out(IridiumLens),
     };
 }

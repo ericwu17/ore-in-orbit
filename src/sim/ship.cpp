@@ -19,6 +19,7 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::FabricatorMk1, 1},
     {ItemKind::IronPlate, 20},
     {ItemKind::CopperPlate, 10},
+    {ItemKind::BurstLaser, 1},
 };
 
 }  // namespace

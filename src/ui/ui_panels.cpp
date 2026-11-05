@@ -200,9 +200,9 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
 std::string LockedHint(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
-    if (const Schematic* s = schematic_unlocking(recipe.outputs.front().kind))
-        return std::string("Needs the ") + item_name(s->weapon) +
-               " schematic: salvage it from a beaten enemy ship";
+    if (const std::optional<ItemKind> w = weapon_unlocking(recipe.outputs.front().kind))
+        return std::string("Unlocks once the fleet finds a ") + item_name(*w) +
+               ": salvage one from a beaten enemy ship";
     const std::size_t i = *milestone_unlocking(recipe.outputs.front().kind);
     return "Unlocks with milestone " + std::to_string(i + 1) + ": " + all_milestones()[i].name;
 }
@@ -211,8 +211,8 @@ std::string LockedHint(const Progress& progress, const Recipe& recipe) {
 std::string LockedBadge(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
-    if (schematic_unlocking(recipe.outputs.front().kind))
-        return "S";
+    if (weapon_unlocking(recipe.outputs.front().kind))
+        return "W";
     return "M" + std::to_string(*milestone_unlocking(recipe.outputs.front().kind) + 1);
 }
 

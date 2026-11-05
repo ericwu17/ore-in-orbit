@@ -27,8 +27,9 @@
 //
 // A beaten enemy leaves salvage for the player ship that fired the last
 // shot: materials and fuel by the sector's threat, ammunition for its
-// weapons, some of its weapons that are still standing, and maybe the
-// schematic of a weapon the fleet hasn't found (see milestones.h).
+// weapons, some of its weapons that are still standing, and maybe a weapon
+// from its hold, one the fleet hasn't found if it can. Salvage is the only
+// way to get weapons (see milestones.h).
 #pragma once
 
 #include "sim/enemies.h"
@@ -103,7 +104,9 @@ struct Salvage {
     int sector = 0;
     int ship = 0;  // the player's ship it went to
     std::vector<ItemStack> items;
-    std::optional<ItemKind> schematic;  // a weapon's, found
+    // The kinds of weapon among `items` new to the fleet (filled in when
+    // it's collected, see World).
+    std::vector<ItemKind> found;
 };
 
 // A new enemy of class `enemy` in sector `sector`: its layout, with its
@@ -128,7 +131,7 @@ const std::vector<TargetGroup>& default_player_priorities();
 // One step of `fight` against `ships` (the player's ships in its sector,
 // each already ticked this step) at World tick `now`: weapons charge and
 // fire, shots land. Returns the salvage once the enemy is beaten (its
-// bridge at 0), going to one of `ships`; `progress` says which schematics
-// are found already, and `threat` (the sector's) how rich it is.
+// bridge at 0), going to one of `ships`; `progress` says which weapons are
+// found already, and `threat` (the sector's) how rich it is.
 std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShip*>& ships, int threat,
                                    const Progress& progress, Rng& rng, Tick now);

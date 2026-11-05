@@ -137,7 +137,7 @@ public:
     // place, and nothing in the inventory.
     static Ship from_layout(const ShipLayout& ship_layout);
     // The starting ship: the starter layout, with the bridge inventory
-    // stocked.
+    // stocked (a burst laser among it).
     static Ship new_game();
 
     int size() const { return kShipGridSize; }

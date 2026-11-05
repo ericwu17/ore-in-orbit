@@ -9,7 +9,7 @@
 // Combat (see combat.h): the player's ships in a sector with an enemy ship
 // fight it; a ship whose bridge is destroyed is lost, and with the last one,
 // the game (fleet_lost). Beating it, its salvage goes to one of them, its
-// schematic (if any) to the fleet, and the sector is cleared. Where no
+// weapons found by the fleet, and the sector is cleared. Where no
 // enemy is, buildings mend, kRepairPercent of their health a second.
 #pragma once
 
@@ -73,9 +73,9 @@ private:
     // those it has left, and steps the rest; ships whose bridge falls are
     // lost.
     void fight();
-    // A beaten enemy's salvage: into its ship's bridge, its schematic to
-    // the fleet, the sector cleared.
-    void collect(const Salvage& salvage);
+    // A beaten enemy's salvage: into its ship's bridge, the weapons in it
+    // found by the fleet, the sector cleared.
+    void collect(Salvage salvage);
 
 public:
     // A new game on the map kDefaultMapSeed makes.

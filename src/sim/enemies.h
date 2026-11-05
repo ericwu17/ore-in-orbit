@@ -49,8 +49,11 @@ struct EnemyDesign {
     int min_threat = 1;               // the sectors it's found in
     int max_threat = 1;
     int pace = 100;                   // how fast its weapons charge, in % of their spec
-    std::vector<ItemKind> schematics; // weapons whose schematic it may carry
-    float schematic_chance = 0.0f;    // that it carries one the fleet hasn't found
+    // Weapons it may carry in its hold, besides those mounted...
+    std::vector<ItemKind> loot;
+    // ...and the chance it carries one (one the fleet hasn't found, if
+    // any of them are), salvaged when it's beaten.
+    float loot_chance = 0.0f;
 };
 
 const EnemyDesign& enemy_design(EnemyClass c);

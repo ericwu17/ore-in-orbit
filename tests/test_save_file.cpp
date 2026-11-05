@@ -61,7 +61,7 @@ const Recipe& recipe_named(const char* name) {
 // items, and the bridge hand-crafting, part way through a milestone; an
 // engine (ion thruster) part charged, a burst laser with fuel and
 // ammunition and a damaged cargo hold, in a fight with a Raider, targeting
-// its bridge, with a schematic found; and a second ship, with cargo on its
+// its bridge, with a weapon found; and a second ship, with cargo on its
 // way to it.
 World busy_world() {
     World world;
@@ -140,7 +140,7 @@ World busy_world() {
            FleetResult::Ok);
     // A fight under way, the laser aimed at the enemy's bridge, and a
     // building already hurt.
-    assert(progress.add_schematic(ItemKind::MissileLauncher));
+    assert(progress.add_found(ItemKind::MissileLauncher));
     assert(world.spawn_enemy(fleet.flagship().id, EnemyClass::Raider));
     run(world, 1);
     const Ship& enemy = world.engagement_in(0)->ship;
@@ -217,7 +217,7 @@ void test_round_trip() {
     assert(fight->ship.get_bridge().max_hp() == enemy_design(EnemyClass::Raider).hull);
     assert(loaded->world.get_fleet().flagship().target == world.get_fleet().flagship().target);
     assert(loaded->world.get_fleet().flagship().target);
-    assert(loaded->world.get_fleet().get_progress().has_schematic(ItemKind::MissileLauncher));
+    assert(loaded->world.get_fleet().get_progress().has_found(ItemKind::MissileLauncher));
     // The same star map.
     assert(loaded->world.get_map().size() == world.get_map().size());
     assert(loaded->world.get_map().at(3).name == world.get_map().at(3).name);
@@ -453,9 +453,9 @@ void test_refused() {
     refused_after(save, "the bridge past full health", [](Json& j) { bridge(j)["hp"] = 1e6; });
     refused_after(save, "no fights", [](Json& j) { j["world"].erase("engagements"); });
     refused_after(save, "a target with no fight", [](Json& j) { first_ship(j)["target"] = {{"x", 1}, {"y", 1}}; });
-    refused_after(save, "an unknown schematic's weapon", [](Json& j) { progress(j)["schematics"] = {"BurstLaser"}; });
-    refused_after(save, "a schematic found twice",
-                  [](Json& j) { progress(j)["schematics"] = {"MissileLauncher", "MissileLauncher"}; });
+    refused_after(save, "a found weapon that's no weapon", [](Json& j) { progress(j)["found_weapons"] = {"Missile"}; });
+    refused_after(save, "a weapon found twice",
+                  [](Json& j) { progress(j)["found_weapons"] = {"MissileLauncher", "MissileLauncher"}; });
 
     // An engine knocked offline (at 0) loads; nothing else does at 0.
     Json offline = minimal();

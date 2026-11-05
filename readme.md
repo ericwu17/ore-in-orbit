@@ -169,9 +169,10 @@ pick its shields, then its weapons, then its bridge.
 
 Weapons are the only buildings that need power: each charges while it holds
 fuel cells and ammunition (delivered by belt), then fires a volley, burning
-one of each. The burst laser (from "Escape velocity") fires focus crystals;
-the others are found as schematics in what beaten enemies leave, each with
-its own ammunition: the heavy laser, the missile launcher (through shields),
+one of each. Weapons can't be made: they are found, salvaged from beaten
+enemy ships, and finding one unlocks its ammunition's recipe. A new game
+starts with a burst laser, which fires focus crystals (from "Escape
+velocity"); the others are the heavy laser (focus crystals too), the missile launcher (through shields),
 the ion blaster (knocks shields down and stuns what it hits), the flak cannon
 (a spread of pellets) and the beam emitter (sweeps a line, weakened by every
 shield layer up). Shield projectors (from "Frontier") each put up a layer
@@ -186,7 +187,7 @@ until it mends. A ship whose bridge falls is lost, and with every ship, the
 game: the last save stays as it was, to try again from. Shoot the enemy's
 bridge down and its sector is cleared, for good, and your ship gets its
 salvage: materials and fuel, ammunition, some of its weapons, and maybe a
-schematic. Jumping discharges every weapon. Buildings mend slowly while no
+weapon from its hold, one the fleet hasn't found. Jumping discharges every weapon. Buildings mend slowly while no
 enemy is near.
 
 ## Controls
@@ -237,7 +238,7 @@ enemy is near.
 - **B**: the Blueprints window (saved blueprints, import and export).
 - **F1**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
-  spawn or beat an enemy ship, find every schematic, complete the
+  spawn or beat an enemy ship, give every weapon, complete the
   milestone, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
@@ -368,7 +369,7 @@ One directory per layer under `src/`; includes name their layer
     (`Transfer`), and providers topping up requests (`dispatch`).
   - `enemies.h/.cpp` — the enemy ships' designs (`EnemyClass`,
     `EnemyDesign`: layout, weapons, shields, targeting priorities, threats,
-    schematics they may leave).
+    weapons they may carry).
   - `combat.h/.cpp` — ship-to-ship fights (`Engagement`, `combat_tick`):
     shots in flight, shields, evasion, targeting, and a beaten enemy's
     `Salvage`.

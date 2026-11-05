@@ -203,13 +203,11 @@ struct SaveAccess {
             if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n != 0)
                 delivered[item_id(static_cast<ItemKind>(i))] = n;
         Json j = {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
-        // The schematics found, by weapon; only when there are any.
-        if (!progress.schematics.empty()) {
-            Json found = Json::array();
-            for (const ItemKind w : progress.schematics)
-                found.push_back(item_id(w));
-            j["schematics"] = std::move(found);
-        }
+        // The kinds of weapon found.
+        Json found = Json::array();
+        for (const ItemKind w : progress.found)
+            found.push_back(item_id(w));
+        j["found_weapons"] = std::move(found);
         return j;
     }
 
@@ -239,15 +237,16 @@ struct SaveAccess {
                 return progress.delivered[static_cast<std::size_t>(d.kind)] >= d.count;
             }))
             throw LoadError("everything the milestone needs delivered, but not complete");
-        if (const auto found = j.find("schematics"); found != j.end())
-            for (const Json& w : load_array(*found, "schematics")) {
+        // The weapons found (none, without the list).
+        if (const auto found = j.find("found_weapons"); found != j.end())
+            for (const Json& w : load_array(*found, "found weapons")) {
                 const std::optional<ItemKind> weapon = load_item(w);
                 if (!weapon)
-                    continue;  // a weapon no longer known
-                if (!schematic_for(*weapon))
-                    throw LoadError(std::string("a schematic for ") + item_id(*weapon) + ", which has none");
-                if (!progress.add_schematic(*weapon))
-                    throw LoadError(std::string("the schematic for ") + item_id(*weapon) + " found twice");
+                    continue;  // an item no longer known
+                if (!is_weapon(*weapon))
+                    throw LoadError(std::string(item_id(*weapon)) + " found as a weapon, which it isn't");
+                if (!progress.add_found(*weapon))
+                    throw LoadError(std::string(item_id(*weapon)) + " found twice");
             }
         return progress;
     }

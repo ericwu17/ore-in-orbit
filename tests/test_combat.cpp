@@ -2,18 +2,20 @@
 // fuel cells and ammunition (and silent without), charging and firing
 // volleys, shields stopping lasers but not missiles, ion stuns, beams,
 // evasion, the enemy's target priorities, beating an enemy for its salvage
-// and schematics, leaving a fight, losing the fleet, and the same seed
+// and the weapons it carries, leaving a fight, losing the fleet, and the same seed
 // fighting the same fight.
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/enemies.h"
 #include "sim/fleet.h"
 #include "sim/milestones.h"
+#include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 #include "sim/world.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <set>
@@ -118,8 +120,8 @@ void test_ids() {
         assert(!d.weapons.empty() && d.hull > 0 && d.hull <= max_hp_of(std::nullopt));
         for (const ItemKind w : d.weapons)
             assert(is_weapon(w));
-        for (const ItemKind w : d.schematics)
-            assert(schematic_for(w));
+        for (const ItemKind w : d.loot)
+            assert(is_weapon(w));
     }
     assert(!enemy_from_id("Kraken"));
     assert(enemies_for_threat(0).empty());
@@ -326,26 +328,30 @@ void test_priorities() {
     assert(picked.contains({kShield.x, kShield.y}));
 }
 
-// Schematics unlock their weapon and its own ammunition, once.
-void test_schematics() {
+// Weapons are found, never made: none has a recipe, and finding one
+// unlocks its own ammunition, once. A new game has found the burst laser.
+void test_found_weapons() {
     Progress progress;
-    assert(!progress.unlocked(ItemKind::MissileLauncher) && !progress.unlocked(ItemKind::Missile));
-    assert(!progress.unlocked(ItemKind::HeavyLaser));
-    assert(progress.add_schematic(ItemKind::MissileLauncher));
-    assert(!progress.add_schematic(ItemKind::MissileLauncher));
-    assert(!progress.add_schematic(ItemKind::BurstLaser));  // comes with a milestone
+    for (int i = 0; i < kItemKindCount; ++i)
+        if (const ItemKind kind = static_cast<ItemKind>(i); is_weapon(kind)) {
+            assert(!recipe_for(kind) && !milestone_unlocking(kind) && !progress.unlocked(kind));
+            // Its ammunition comes with it, or with a milestone (focus
+            // crystals, which the lasers share).
+            const ItemKind ammo = weapon_spec(kind).ammo;
+            assert(recipe_for(ammo));
+            assert(weapon_unlocking(ammo) == kind || milestone_unlocking(ammo));
+        }
+    assert(!progress.unlocked(ItemKind::Missile));
+    assert(progress.add_found(ItemKind::MissileLauncher));
+    assert(!progress.add_found(ItemKind::MissileLauncher));
+    assert(!progress.add_found(ItemKind::Missile));  // no weapon
     assert(progress.unlocked(ItemKind::MissileLauncher) && progress.unlocked(ItemKind::Missile));
-    assert(!progress.unlocked(ItemKind::HeavyLaser) && !progress.unlocked(ItemKind::BurstLaser));
-    // The burst laser and its crystals come with a milestone.
-    assert(milestone_unlocking(ItemKind::BurstLaser) && milestone_unlocking(ItemKind::FocusCrystal));
-    assert(milestone_unlocking(ItemKind::ShieldProjector));
-    for (const Schematic& s : all_schematics()) {
-        assert(is_weapon(s.weapon) && !milestone_unlocking(s.weapon));
-        // Its ammunition comes with it, unless it shares a milestone weapon's.
-        const ItemKind ammo = weapon_spec(s.weapon).ammo;
-        assert(schematic_unlocking(ammo) || milestone_unlocking(ammo));
-        assert(schematic_unlocking(s.weapon) == &s && schematic_for(s.weapon) == &s);
-    }
+    assert(!progress.unlocked(ItemKind::HeavyLaser) && !progress.unlocked(ItemKind::IonCell));
+    assert(milestone_unlocking(ItemKind::FocusCrystal) && milestone_unlocking(ItemKind::ShieldProjector));
+
+    World world;
+    assert(world.get_fleet().get_progress().found_weapons() == std::vector<ItemKind>{ItemKind::BurstLaser});
+    assert(world.flagship().inventory().count(ItemKind::BurstLaser) == 1);
 }
 
 // The flagship, armed, beats a Scout: its salvage lands in the bridge, the
@@ -370,8 +376,8 @@ void test_beating_an_enemy() {
     assert(!world.engagement_in(0));
     assert(world.get_map().at(0).cleared() && !world.get_map().at(0).hostile());
     assert(ship.inventory().count(ItemKind::FuelCell) > cells);
-    if (salvage[0].schematic)
-        assert(world.get_fleet().get_progress().has_schematic(*salvage[0].schematic));
+    for (const ItemKind w : salvage[0].found)
+        assert(is_weapon(w) && world.get_fleet().get_progress().has_found(w));
     // Mending again.
     ship.get_bridge().take_damage(500);
     const int hp = ship.get_bridge().get_hp();
@@ -380,21 +386,26 @@ void test_beating_an_enemy() {
     assert(ship.get_bridge().get_hp() > hp);
 }
 
-// A beaten Dreadnought always carries a schematic the fleet hasn't found.
-void test_salvaged_schematic() {
+// A beaten Dreadnought always carries a weapon in its hold, one the fleet
+// hasn't found, with ammunition for it: found when it's salvaged.
+void test_salvaged_weapon() {
     World world;
     const int id = world.get_fleet().flagship().id;
     Progress& progress = world.get_fleet().get_progress();
     for (const ItemKind found : {ItemKind::BeamEmitter, ItemKind::FlakCannon})
-        progress.add_schematic(found);
+        progress.add_found(found);
+    const int ion_blasters = world.flagship().inventory().count(ItemKind::IonBlaster);
     world.spawn_enemy(id, EnemyClass::Dreadnought);
     world.advance_tick();
     assert(world.defeat_enemy(id));
     world.advance_tick();
     const std::vector<Salvage> salvage = world.take_salvage();
-    assert(salvage.size() == 1 && salvage[0].schematic == ItemKind::IonBlaster);
-    assert(progress.unlocked(ItemKind::IonBlaster) && progress.unlocked(ItemKind::IonCell));
-    // Its ammunition comes with it.
+    assert(salvage.size() == 1);
+    assert(std::find(salvage[0].found.begin(), salvage[0].found.end(), ItemKind::IonBlaster) != salvage[0].found.end());
+    assert(world.flagship().inventory().count(ItemKind::IonBlaster) == ion_blasters + 1);
+    assert(progress.has_found(ItemKind::IonBlaster) && progress.unlocked(ItemKind::IonCell));
+    assert(world.flagship().inventory().count(ItemKind::IonCell) > 0);
+    // Its own weapons' ammunition comes too.
     assert(world.flagship().inventory().count(ItemKind::IridiumLens) > 0);
 }
 
@@ -469,9 +480,9 @@ int main() {
     test_beam();
     test_evasion();
     test_priorities();
-    test_schematics();
+    test_found_weapons();
     test_beating_an_enemy();
-    test_salvaged_schematic();
+    test_salvaged_weapon();
     test_no_repair_in_a_fight();
     test_leaving();
     test_losing();

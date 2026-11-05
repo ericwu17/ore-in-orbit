@@ -9,8 +9,12 @@
 // of a bridge counts against it, so items going round from a bridge back
 // into one gain nothing. Completing one unlocks the recipes making the items
 // it lists. A recipe no milestone lists is unlocked from the start, unless
-// a schematic does: the stronger weapons (and their ammunition) are found
-// only by salvaging enemy ships (see combat.h), a schematic each.
+// it makes the ammunition of a weapon the fleet has yet to find.
+//
+// Weapons have no recipes at all: they are found, salvaged from beaten enemy
+// ships (see combat.h), and a new game starts with a burst laser. Finding a
+// weapon unlocks its ammunition's recipe (the burst laser's focus crystals
+// come with a milestone instead).
 #pragma once
 
 #include "sim/game_types.h"
@@ -41,22 +45,11 @@ std::size_t milestone_index(std::string_view name);
 // nullopt if it is unlocked from the start.
 std::optional<std::size_t> milestone_unlocking(ItemKind kind);
 
-// A weapon's schematic, salvaged from an enemy ship: it unlocks the
-// recipes of the weapon and of the ammunition only it fires.
-struct Schematic {
-    ItemKind weapon;
-    std::vector<ItemKind> unlocks;
-};
+// The weapon whose finding unlocks the recipe making `kind` (the
+// ammunition only it fires), or nullopt.
+std::optional<ItemKind> weapon_unlocking(ItemKind kind);
 
-// Every schematic there is to find.
-const std::vector<Schematic>& all_schematics();
-// The schematic that unlocks the recipe making `kind`, or null.
-const Schematic* schematic_unlocking(ItemKind kind);
-// The schematic of weapon `weapon`, or null if it has none (it comes with a
-// milestone).
-const Schematic* schematic_for(ItemKind weapon);
-
-// How far the player is through the milestones, and the schematics found.
+// How far the player is through the milestones, and the weapons found.
 class Progress {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -67,8 +60,8 @@ private:
     // Delivered toward it, net of what was unloaded, per item kind: below 0
     // when more were unloaded than delivered.
     std::array<int, kItemKindCount> delivered{};
-    // The weapons whose schematics have been found, in the order they were.
-    std::vector<ItemKind> schematics;
+    // The kinds of weapon the fleet has found, in the order it did.
+    std::vector<ItemKind> found;
 
 public:
     // The index of the milestone being worked on (all_milestones().size()
@@ -90,14 +83,15 @@ public:
     // every one already is.
     bool complete_current();
 
-    // Whether weapon `weapon`'s schematic has been found.
-    bool has_schematic(ItemKind weapon) const;
-    const std::vector<ItemKind>& found_schematics() const { return schematics; }
-    // Finds weapon `weapon`'s schematic, unlocking what it does; false if it
-    // has none, or it was already found.
-    bool add_schematic(ItemKind weapon);
+    // Whether the fleet has found a weapon of kind `weapon`.
+    bool has_found(ItemKind weapon) const;
+    const std::vector<ItemKind>& found_weapons() const { return found; }
+    // Finds a weapon of kind `weapon`, unlocking its ammunition; false if
+    // it's no weapon, or one already found.
+    bool add_found(ItemKind weapon);
     // Whether the recipe making `kind` (and so the recipe itself, by its
-    // main output) has been unlocked.
+    // main output) has been unlocked; for a weapon, which has none, whether
+    // it has been found.
     bool unlocked(ItemKind kind) const;
     bool unlocked(const Recipe& recipe) const { return unlocked(recipe.outputs.front().kind); }
 };
