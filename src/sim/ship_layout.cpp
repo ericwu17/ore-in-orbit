@@ -102,7 +102,7 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {},
          std::nullopt,
          3,
-         2},
+         3},
         {"dreadnought",
          "Dreadnought",
          "An enemy capital ship.",
@@ -112,7 +112,7 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {},
          std::nullopt,
          3,
-         3},
+         4},
     };
     return layouts;
 }

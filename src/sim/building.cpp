@@ -297,26 +297,26 @@ float Collector::catch_progress() const {
 
 const WeaponSpec& weapon_spec(ItemKind kind) {
     constexpr Tick s = kTicksPerSecond;
-    // Three quick shots: good against shields, which each pops one of.
+    // Two quick shots: the weapon a new game starts with, and the weakest.
     static const WeaponSpec burst_laser{.family = WeaponFamily::Laser, .ammo = ItemKind::FocusCrystal,
-                                        .shots = 3, .damage = 60, .charge = 9 * s, .flight = s,
-                                        .blurb = "Three laser shots. Each is stopped by a shield layer, and pops it."};
+                                        .shots = 2, .damage = 60, .charge = 10 * s, .flight = s,
+                                        .blurb = "Two laser shots. Each is stopped by a shield layer, and pops it."};
     static const WeaponSpec heavy_laser{.family = WeaponFamily::Laser, .ammo = ItemKind::FocusCrystal,
-                                        .shots = 2, .damage = 160, .charge = 12 * s, .flight = s,
+                                        .shots = 2, .damage = 170, .charge = 11 * s, .flight = s,
                                         .blurb = "Two heavy laser shots. Each is stopped by a shield layer, and pops it."};
     static const WeaponSpec missile_launcher{.family = WeaponFamily::Missile, .ammo = ItemKind::Missile,
-                                             .shots = 1, .damage = 280, .charge = 13 * s, .flight = 2 * s,
+                                             .shots = 1, .damage = 350, .charge = 11 * s, .flight = 2 * s,
                                              .blurb = "One missile, slow but heavy. It flies straight through shields."};
     static const WeaponSpec ion_blaster{.family = WeaponFamily::Ion, .ammo = ItemKind::IonCell,
                                         .shots = 1, .damage = 30, .charge = 7 * s, .flight = s, .stun = 10 * s,
                                         .blurb = "An ion bolt: knocks down a shield layer and stuns its projector, "
                                                  "or stuns the weapon or projector it hits."};
     static const WeaponSpec flak_cannon{.family = WeaponFamily::Flak, .ammo = ItemKind::FlakShell,
-                                        .shots = 7, .damage = 50, .charge = 15 * s, .flight = s, .spread = 4,
+                                        .shots = 7, .damage = 50, .charge = 14 * s, .flight = s, .spread = 4,
                                         .blurb = "A spray of pellets round the target: each is stopped by a shield "
                                                  "layer, so it strips shields fast."};
     static const WeaponSpec beam_emitter{.family = WeaponFamily::Beam, .ammo = ItemKind::IridiumLens,
-                                         .shots = 1, .damage = 140, .charge = 16 * s, .flight = s / 2, .spread = 10,
+                                         .shots = 1, .damage = 180, .charge = 15 * s, .flight = s / 2, .spread = 10,
                                          .blurb = "Sweeps a beam across the ship, hitting every building on its line. "
                                                   "Never misses; each shield layer up takes 40 off each hit."};
     switch (kind) {

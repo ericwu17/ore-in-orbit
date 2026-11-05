@@ -67,6 +67,16 @@ void ground(Ship& ship) {
             t->take_damage(t->get_hp());
 }
 
+// Destroys every weapon on `ship`.
+void disarm(Ship& ship) {
+    std::vector<GridPos> weapons;
+    for (const GridPos p : ship.placement_order())
+        if (dynamic_cast<const Weapon*>(ship.building_anchored_at(p)))
+            weapons.push_back(p);
+    for (const GridPos p : weapons)
+        ship.destroy_building(p);
+}
+
 // Where the bridge of `ship` is (its top-left cell).
 GridPos bridge_of(const Ship& ship) {
     for (const GridPos p : ship.placement_order())
@@ -277,23 +287,24 @@ void test_shields_one_at_a_time() {
     for (const GridPos p : e.ship.placement_order())
         if (auto* s = dynamic_cast<ShieldProjector*>(e.ship.building_anchored_at(p)))
             shields.push_back(s);
-    assert(shields.size() == 2 && shield_layers(e.ship) == 2);
+    const int all = static_cast<int>(shields.size());
+    assert(all >= 2 && shield_layers(e.ship) == all);
     const auto run = [&](Tick ticks) {
         for (Tick t = 0; t < ticks; ++t)
             e.ship.tick();
     };
-    for (ShieldProjector* s : shields)
-        s->knock_down();
-    assert(shield_layers(e.ship) == 0);
+    shields[0]->knock_down();
+    shields[1]->knock_down();
+    assert(shield_layers(e.ship) == all - 2);
     run(kShieldRecharge - 1);
-    assert(shield_layers(e.ship) == 0);
+    assert(shield_layers(e.ship) == all - 2);
     run(1);
-    assert(shield_layers(e.ship) == 1);
+    assert(shield_layers(e.ship) == all - 1);
     run(kShieldRecharge);
-    assert(shield_layers(e.ship) == 2);
+    assert(shield_layers(e.ship) == all);
     // One stunned: the other comes back first.
-    for (ShieldProjector* s : shields)
-        s->knock_down();
+    shields[0]->knock_down();
+    shields[1]->knock_down();
     shields[0]->stun_for(3 * kShieldRecharge);
     run(kShieldRecharge);
     assert(!shields[0]->up() && shields[1]->up());
@@ -313,6 +324,7 @@ void test_missiles_and_ion() {
         Tick now = 0;
         Engagement e = make_engagement(0, EnemyClass::Gunship, rng);
         ground(e.ship);
+        disarm(e.ship);  // or it shoots the launcher down first
         player.target = bridge_of(e.ship);
         fight(e, player, rng, now, w.get_spec().charge + w.get_spec().flight + 1);
         assert(shield_layers(e.ship) == 1);
