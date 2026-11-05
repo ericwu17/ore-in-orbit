@@ -332,6 +332,31 @@ The current sprites are placeholders made by
 the sprites that are missing, so it never overwrites real art;
 `--force` regenerates them all.
 
+## Sounds
+
+`assets/sounds/` holds the game's sound effects and background music, as
+16-bit mono WAV. They aren't played yet: nothing in the game loads them so
+far.
+
+- `sfx/<name>.wav` (44.1 kHz) — one per event that wants audio feedback,
+  named by group: `ui_*` (clicks, toggles, panels, errors), `build_*`
+  (placing, removing, rotating, can't-place, blueprints), `game_*` (crafting,
+  milestones, cargo pods, new ships, jumps, the star map, warnings, the enemy
+  klaxon, game over) and `combat_*` (each weapon firing, hits on hull and
+  shields, shields breaking and recharging, misses, buildings and ships
+  destroyed, targeting, salvage, weapons found).
+- `music/cold_orbit.wav` (32 kHz) — a 40-second background track (A minor,
+  96 bpm, 16 bars) that loops seamlessly: play it from the start again the
+  moment it ends.
+
+All of them are synthesized from scratch by `tools/make_sounds.py` (Python 3
+and NumPy), in the sprites' cold, hard, retro style: pulse and saw
+oscillators, chip noise, pitch sweeps, resonant filters and bit crushing.
+Effects are leveled by loudness, quieter for the ones heard constantly. Like
+the sprite script it only writes the files that are missing, so it never
+overwrites real audio; `--force` regenerates them all, and `--only NAME...`
+just the ones named. Its output is the same on every run.
+
 ## Code layout
 
 One directory per layer under `src/`; includes name their layer
@@ -434,8 +459,9 @@ One directory per layer under `src/`; includes name their layer
   embedded app icon, and the macOS-only startup tweak.
 - `tests/` — the headless tests, one binary per `test_*.cpp` (`make
   test`), linked against `src/sim/` and `src/persistence/` only.
-- `assets/` — the app icon (`logo.png`) and the sprites.
-- `tools/` — `make_placeholder_sprites.py` (see Sprites).
+- `assets/` — the app icon (`logo.png`), the sprites and the sounds.
+- `tools/` — `make_placeholder_sprites.py` (see Sprites) and
+  `make_sounds.py` (see Sounds).
 - `imgui/`, `implot/` — Dear ImGui and ImPlot, as git submodules.
 - `third_party/` — vendored single headers: nlohmann::json (saves and
   blueprints) and stb_image (decoding the icon and sprites).
