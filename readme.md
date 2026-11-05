@@ -342,7 +342,7 @@ or delete one and run `make` again).
 - `sfx/<name>.wav` (44.1 kHz) — one per event that wants audio feedback,
   named by group: `ui_*` (clicks, toggles, panels, errors), `build_*`
   (placing, removing, rotating, can't-place, blueprints), `game_*` (crafting,
-  milestones, cargo pods, new ships, jumps, the star map, warnings, the enemy
+  milestones, cargo pods, new ships, jumps, the star map, surveys, the enemy
   klaxon, game over) and `combat_*` (each weapon firing, hits on hull and
   shields, shields breaking and recharging, misses, buildings and ships
   destroyed, targeting, salvage, weapons found).

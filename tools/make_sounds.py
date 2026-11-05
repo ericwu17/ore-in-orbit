@@ -315,10 +315,6 @@ def ui_click():
     return relay_click()
 
 
-def ui_hover():
-    return 0.4 * relay_click(1.6, 0.012)
-
-
 def ui_toggle_on():
     return seq(relay_click(0.9), silence(0.03), beep(1320, 0.05))
 
@@ -402,11 +398,6 @@ def build_blueprint_place():
     return mix(thump(80, 0.32, 0.4), clanks, beep(1760, 0.07, 0.125), at=[0, 0.02, 0.18])
 
 
-def build_item_pickup():
-    """Taking items out of a building by hand."""
-    return seq(beep(740, 0.03, 0.125), beep(988, 0.04, 0.125))
-
-
 # -- Game events --------------------------------------------------------------
 
 def game_craft_complete():
@@ -422,10 +413,6 @@ def game_milestone_complete():
     arp = seq(*[crush(square(note(n), d, 0.25) * adsr(d, 0.002, 0.02, 0.6, 0.03), 5) for n in notes])
     tail = crush(lowpass(square(note("A5"), 0.5, 0.125) + 0.5 * square(note("E6") * 1.003, 0.5, 0.25), 3000) * env(0.5, 0.004, curve=3), 5)
     return echo(seq(arp, 0.8 * tail), 0.11, feedback=0.4, mix=0.35, repeats=4)
-
-
-def game_recipe_unlocked():
-    return echo(seq(beep(note("E5"), 0.06), beep(note("B5"), 0.12)), 0.09, 0.35, 0.3, 3)
 
 
 def game_cargo_launch():
@@ -492,16 +479,6 @@ def game_map_open():
     return crush(lowpass(sweep, 4000) * adsr(d, 0.005, 0.1, 0.5, 0.1), 4, 2)
 
 
-def game_saved():
-    return seq(beep(note("A5"), 0.04, 0.125), silence(0.02), beep(note("A5"), 0.04, 0.125), silence(0.02), beep(note("E6"), 0.08, 0.125))
-
-
-def game_warning():
-    """Something's short (no pods, no fuel, stalled machine): a single
-    two-tone chirp."""
-    return alarm(587, 880, 0.12, 2, 0.5)
-
-
 def game_enemy_detected():
     """An enemy ship in the sector: a klaxon."""
     return alarm(370, 554, 0.36, 3, 0.4)
@@ -515,13 +492,6 @@ def game_over():
     chord = (square(f, d, 0.4) + square(f * 1.19, d, 0.3) + saw(f * 1.5, d)) / 3
     down = lowpass(chord, ramp(3000, 150, d), 0.5) * adsr(d, 0.01, 0.2, 0.8, 0.8)
     return crush(mix(boom(1.4, 1.6), 0.7 * down, at=[0, 0.1]), 6, 2)
-
-
-def game_sector_cleared():
-    """An enemy's bridge down, the sector won: a short victory phrase."""
-    phrase = [("E5", 0.09), ("A5", 0.09), ("B5", 0.09), ("E6", 0.4)]
-    out = seq(*[crush(square(note(n), d, 0.25) * adsr(d, 0.002, 0.03, 0.7, 0.04), 5) + 0.4 * crush(tri(note(n) / 2, d), 6) * adsr(d, 0.002, 0.03, 0.7, 0.04) for n, d in phrase])
-    return echo(out, 0.12, 0.35, 0.3, 4)
 
 
 # -- Combat -------------------------------------------------------------------
@@ -663,16 +633,9 @@ def combat_weapon_found():
     return echo(mix(lead, 0.6 * bass), 0.13, 0.35, 0.3, 4)
 
 
-def combat_weapon_charged():
-    """A weapon's charge full (ready to fire): a short rising blip."""
-    d = 0.1
-    return crush(square(ramp(600, 1800, d), d, 0.25) * adsr(d, 0.003, 0.02, 0.8, 0.03), 5)
-
-
 SOUNDS = {
     # UI
     "ui_click": ui_click,
-    "ui_hover": ui_hover,
     "ui_toggle_on": ui_toggle_on,
     "ui_toggle_off": ui_toggle_off,
     "ui_tab_switch": ui_tab_switch,
@@ -688,11 +651,9 @@ SOUNDS = {
     "build_rotate": build_rotate,
     "build_invalid": build_invalid,
     "build_blueprint_place": build_blueprint_place,
-    "build_item_pickup": build_item_pickup,
     # Game events
     "game_craft_complete": game_craft_complete,
     "game_milestone_complete": game_milestone_complete,
-    "game_recipe_unlocked": game_recipe_unlocked,
     "game_cargo_launch": game_cargo_launch,
     "game_cargo_land": game_cargo_land,
     "game_ship_built": game_ship_built,
@@ -701,10 +662,7 @@ SOUNDS = {
     "game_jump": game_jump,
     "game_sector_surveyed": game_sector_surveyed,
     "game_map_open": game_map_open,
-    "game_saved": game_saved,
-    "game_warning": game_warning,
     "game_enemy_detected": game_enemy_detected,
-    "game_sector_cleared": game_sector_cleared,
     "game_over": game_over,
     # Combat
     "combat_burst_laser": combat_burst_laser,
@@ -713,7 +671,6 @@ SOUNDS = {
     "combat_ion_blaster": combat_ion_blaster,
     "combat_flak_cannon": combat_flak_cannon,
     "combat_beam_emitter": combat_beam_emitter,
-    "combat_weapon_charged": combat_weapon_charged,
     "combat_hit_hull": combat_hit_hull,
     "combat_hit_shield": combat_hit_shield,
     "combat_shield_down": combat_shield_down,
@@ -732,13 +689,13 @@ SOUNDS = {
 # Loudness offsets in dB: quieter for what's heard constantly (UI, belts,
 # guns firing every few seconds), louder for the big moments.
 LEVELS = {
-    "ui_hover": -12, "ui_type": -10, "ui_click": -5, "ui_tab_switch": -4,
+    "ui_type": -10, "ui_click": -5, "ui_tab_switch": -4,
     "ui_toggle_on": -4, "ui_toggle_off": -4, "ui_panel_open": -4, "ui_panel_close": -4,
-    "build_place_belt": -4, "build_rotate": -5, "build_item_pickup": -4, "build_invalid": -3,
-    "game_ship_switch": -4, "game_craft_complete": -3, "game_saved": -3,
+    "build_place_belt": -4, "build_rotate": -5, "build_invalid": -3,
+    "game_ship_switch": -4, "game_craft_complete": -3,
     "combat_burst_laser": -2, "combat_heavy_laser": -2, "combat_missile_launch": -2,
     "combat_ion_blaster": -2, "combat_flak_cannon": -2, "combat_beam_emitter": -3,
-    "combat_hit_shield": -3, "combat_miss": -5, "combat_weapon_charged": -6,
+    "combat_hit_shield": -3, "combat_miss": -5,
     "combat_target_set": -4, "combat_target_clear": -4,
     "game_jump": 2, "combat_enemy_destroyed": 2, "game_over": 2, "combat_ship_lost": 2,
     "game_milestone_complete": 1, "combat_weapon_found": 1,

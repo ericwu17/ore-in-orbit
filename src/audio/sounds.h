@@ -22,7 +22,6 @@ namespace audio {
 // are: interface, building, game events, combat.
 #define ORE_SOUNDS(X)                                   \
     X(UiClick, "ui_click")                              \
-    X(UiHover, "ui_hover")                              \
     X(UiToggleOn, "ui_toggle_on")                       \
     X(UiToggleOff, "ui_toggle_off")                     \
     X(UiTabSwitch, "ui_tab_switch")                     \
@@ -37,10 +36,8 @@ namespace audio {
     X(BuildRotate, "build_rotate")                      \
     X(BuildInvalid, "build_invalid")                    \
     X(BuildBlueprintPlace, "build_blueprint_place")     \
-    X(BuildItemPickup, "build_item_pickup")             \
     X(GameCraftComplete, "game_craft_complete")         \
     X(GameMilestoneComplete, "game_milestone_complete") \
-    X(GameRecipeUnlocked, "game_recipe_unlocked")       \
     X(GameCargoLaunch, "game_cargo_launch")             \
     X(GameCargoLand, "game_cargo_land")                 \
     X(GameShipBuilt, "game_ship_built")                 \
@@ -49,10 +46,7 @@ namespace audio {
     X(GameJump, "game_jump")                            \
     X(GameSectorSurveyed, "game_sector_surveyed")       \
     X(GameMapOpen, "game_map_open")                     \
-    X(GameSaved, "game_saved")                          \
-    X(GameWarning, "game_warning")                      \
     X(GameEnemyDetected, "game_enemy_detected")         \
-    X(GameSectorCleared, "game_sector_cleared")         \
     X(GameOver, "game_over")                            \
     X(CombatBurstLaser, "combat_burst_laser")           \
     X(CombatHeavyLaser, "combat_heavy_laser")           \
@@ -60,7 +54,6 @@ namespace audio {
     X(CombatIonBlaster, "combat_ion_blaster")           \
     X(CombatFlakCannon, "combat_flak_cannon")           \
     X(CombatBeamEmitter, "combat_beam_emitter")         \
-    X(CombatWeaponCharged, "combat_weapon_charged")     \
     X(CombatHitHull, "combat_hit_hull")                 \
     X(CombatHitShield, "combat_hit_shield")             \
     X(CombatShieldDown, "combat_shield_down")           \
