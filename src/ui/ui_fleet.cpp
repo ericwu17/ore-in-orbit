@@ -268,6 +268,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
     ImGui::PopTextWrapPos();
     ImGui::Text("%dx%d, %d hull tiles, %zu ion thrusters", bounds.w, bounds.h, layout_hull_count(layout),
                 layout.engines.size());
+    ImGui::Text("%d weapon ports, %d shield ports", layout.weapon_ports, layout.shield_ports);
 
     // What it costs, against what this bridge has.
     const Inventory& inv = current.ship.inventory();

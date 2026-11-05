@@ -104,11 +104,17 @@ void DrawBuildPalette(Ship& ship, float width) {
             ImGui::TextUnformatted(item_name(kind));
             const GridSize footprint = footprint_of(kind);
             ImGui::TextColored(theme::kTextDim, "%d in the bridge, %dx%d", count, footprint.w, footprint.h);
+            if (const std::optional<Port> port = port_of(kind))
+                ImGui::TextColored(ship.ports_taken(*port) < ship.ports(*port) ? theme::kTextDim : theme::kBad,
+                                   "%d of %d %s ports taken", ship.ports_taken(*port), ship.ports(*port),
+                                   port_name(*port));
             if (i < 9)
                 ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
             if (hand) {
                 ImGui::TextColored(theme::kTextDim, "Right click: hand-craft 1 (Shift: 5)");
                 RecipeDetails(*hand, &bridge.get_inventory());
+            } else if (is_weapon(kind)) {
+                ImGui::TextColored(theme::kTextDim, "Found on beaten enemy ships, never made");
             } else {
                 ImGui::TextColored(theme::kTextDim, "Made in machines");
             }

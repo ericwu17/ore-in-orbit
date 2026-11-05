@@ -621,6 +621,18 @@ void test_machine_refused() {
     refused_after(armed, "past a full charge", [&](Json& j) { weapon(j)["charge"] = 1e9; });
     refused_after(armed, "a weapon stunned for ages", [&](Json& j) { weapon(j)["stun"] = 1e6; });
     refused_after(armed, "a shield recharging too long", [&](Json& j) { shield(j)["recharge"] = 1e6; });
+    // No more of them than the layout has ports for (the starter's: two
+    // weapon ports, one shield port).
+    Json two_guns = armed;
+    Json gun = weapon(two_guns);
+    gun["x"] = 74;
+    buildings(two_guns).push_back(gun);
+    assert(loads(two_guns.dump()));
+    refused_after(armed, "more shields than ports", [&](Json& j) {
+        Json second = shield(j);
+        second["x"] = 74;
+        buildings(j).push_back(second);
+    });
 }
 
 // A tunnel saved with an item partway under comes back linked, and the item

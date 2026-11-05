@@ -18,7 +18,9 @@ const std::vector<ShipLayout>& all_layouts() {
          {17, 15},
          {{10, 33}, {28, 33}},
          {{IronOre, 200}, {IronPlate, 100}, {CopperPlate, 50}},
-         std::nullopt},
+         std::nullopt,
+         2,
+         1},
         {"hauler",
          "Hauler",
          "Long and roomy, for long production lines.",
@@ -26,15 +28,19 @@ const std::vector<ShipLayout>& all_layouts() {
          {21, 24},
          {{11, 77}, {23, 77}, {35, 77}},
          {{IronOre, 300}, {Silica, 200}, {Steel, 100}, {StructuralFrame, 20}},
-         milestone_index("Deep space")},
+         milestone_index("Deep space"),
+         2,
+         2},
         {"frigate",
          "Frigate",
-         "A broad arrowhead with space for industry and turrets.",
+         "A broad arrowhead with space for industry and weapons.",
          {{{30, 0}, {12, 8}}, {{22, 8}, {28, 10}}, {{12, 18}, {48, 12}}, {{0, 30}, {72, 30}}, {{8, 60}, {56, 12}}},
          {33, 36},
          {{14, 69}, {26, 69}, {44, 69}, {56, 69}},
          {{IronOre, 400}, {Carbon, 200}, {Steel, 200}, {StructuralFrame, 40}, {AdvancedCircuit, 20}},
-         milestone_index("Escape velocity")},
+         milestone_index("Escape velocity"),
+         3,
+         2},
         {"carrier",
          "Carrier",
          "A capital ship: nearly the whole build grid.",
@@ -42,7 +48,9 @@ const std::vector<ShipLayout>& all_layouts() {
          {53, 44},
          {{18, 93}, {34, 93}, {50, 93}, {60, 93}, {76, 93}, {92, 93}},
          {{IronOre, 1000}, {IridiumOre, 300}, {Steel, 300}, {IridiumPlate, 50}, {Processor, 20}},
-         milestone_index("Frontier")},
+         milestone_index("Frontier"),
+         4,
+         3},
     };
     return layouts;
 }
@@ -62,7 +70,9 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {4, 5},
          {{2, 13}, {10, 13}},
          {},
-         std::nullopt},
+         std::nullopt,
+         1,
+         0},
         {"raider",
          "Raider",
          "An enemy raider.",
@@ -70,7 +80,9 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {7, 7},
          {{3, 16}, {9, 16}, {15, 16}},
          {},
-         std::nullopt},
+         std::nullopt,
+         2,
+         1},
         {"gunship",
          "Gunship",
          "An enemy gunship.",
@@ -78,7 +90,9 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {9, 8},
          {{4, 18}, {11, 18}, {18, 18}},
          {},
-         std::nullopt},
+         std::nullopt,
+         2,
+         1},
         {"corsair",
          "Corsair",
          "An enemy corsair.",
@@ -86,7 +100,9 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {11, 10},
          {{4, 21}, {10, 21}, {16, 21}, {22, 21}},
          {},
-         std::nullopt},
+         std::nullopt,
+         3,
+         2},
         {"dreadnought",
          "Dreadnought",
          "An enemy capital ship.",
@@ -94,7 +110,9 @@ const std::vector<ShipLayout>& enemy_layouts() {
          {14, 15},
          {{4, 27}, {10, 27}, {16, 27}, {22, 27}, {28, 27}},
          {},
-         std::nullopt},
+         std::nullopt,
+         3,
+         3},
     };
     return layouts;
 }
@@ -141,4 +159,20 @@ GridPos layout_to_grid(const ShipLayout& layout, GridPos p) {
 
 bool layout_unlocked(const ShipLayout& layout, const Progress& progress) {
     return !layout.milestone || progress.current_index() > *layout.milestone;
+}
+
+std::optional<Port> port_of(ItemKind kind) {
+    if (is_weapon(kind))
+        return Port::Weapon;
+    if (kind == ItemKind::ShieldProjector)
+        return Port::Shield;
+    return std::nullopt;
+}
+
+int layout_ports(const ShipLayout& layout, Port port) {
+    return port == Port::Weapon ? layout.weapon_ports : layout.shield_ports;
+}
+
+const char* port_name(Port port) {
+    return port == Port::Weapon ? "weapon" : "shield";
 }

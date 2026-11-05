@@ -130,6 +130,8 @@ PastePlan plan_paste(const Ship& ship, const Blueprint& blueprint, GridPos origi
                 for (int y = entry.at.y; y < entry.at.y + size.h; ++y)
                     for (int x = entry.at.x; x < entry.at.x + size.w; ++x)
                         planned.occupied.insert(PlannedChanges::cell_key({x, y}));
+                if (const std::optional<Port> port = port_of(b.kind))
+                    ++planned.ports[static_cast<std::size_t>(*port)];
             }
         }
         add(entry);

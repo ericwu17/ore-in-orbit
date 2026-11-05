@@ -8,6 +8,10 @@
 // buildings go on it, and the bridge and engines stay where the layout puts
 // them. Bigger layouts unlock with the milestones.
 //
+// A layout also has a fixed number of ports: weapon ports and shield ports,
+// one taken by each weapon or shield projector built on it, so a ship holds
+// no more of them than its layout allows, however much hull it has.
+//
 // A layout is drawn in its own coordinates, from its top-left corner (0, 0);
 // a ship centers it on the build grid (layout_origin).
 #pragma once
@@ -36,7 +40,19 @@ struct ShipLayout {
     std::vector<GridPos> engines;          // each ion thruster's top-left cell (facing North)
     std::vector<ItemStack> cost;           // on top of one ship starter pack
     std::optional<std::size_t> milestone;  // unlocked once this one is complete; nullopt: from the start
+    int weapon_ports = 0;                  // how many weapons it holds
+    int shield_ports = 0;                  // how many shield projectors it holds
 };
+
+// The two kinds of port: what a weapon or a shield projector takes.
+enum class Port { Weapon, Shield };
+constexpr int kPortKindCount = 2;
+// The port a building of kind `kind` takes, if any.
+std::optional<Port> port_of(ItemKind kind);
+// How many ports of kind `port` `layout` has.
+int layout_ports(const ShipLayout& layout, Port port);
+// "weapon" or "shield".
+const char* port_name(Port port);
 
 // Every layout, smallest first.
 const std::vector<ShipLayout>& all_layouts();

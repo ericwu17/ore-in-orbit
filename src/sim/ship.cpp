@@ -33,6 +33,8 @@ const char* describe(BuildResult result) {
     case BuildResult::NoneInInventory:  return "None left in the bridge inventory";
     case BuildResult::NothingThere:     return "Nothing to remove there";
     case BuildResult::NotRemovable:     return "Part of the ship's layout: it can't be removed";
+    case BuildResult::NoWeaponPort:     return "Every weapon port on this ship is taken";
+    case BuildResult::NoShieldPort:     return "Every shield port on this ship is taken";
     }
     return "?";
 }
@@ -252,9 +254,24 @@ BuildResult Ship::can_place(ItemKind kind, GridPos p, Direction facing, const Pl
         for (int x = p.x; x < p.x + size.w; ++x)
             if (occupied({x, y}))
                 return BuildResult::Occupied;
+    if (const std::optional<Port> port = port_of(kind);
+        port && ports_taken(*port) + planned.ports[static_cast<std::size_t>(*port)] >= ports(*port))
+        return *port == Port::Weapon ? BuildResult::NoWeaponPort : BuildResult::NoShieldPort;
     if (planned.inventory.count(kind) <= 0)
         return BuildResult::NoneInInventory;
     return BuildResult::Ok;
+}
+
+int Ship::ports(Port port) const {
+    return layout ? layout_ports(*layout, port) : 0;
+}
+
+int Ship::ports_taken(Port port) const {
+    int n = 0;
+    for (const GridPos p : placed)
+        if (const std::optional<ItemKind> kind = at(buildings, p)->item_kind(); kind && port_of(*kind) == port)
+            ++n;
+    return n;
 }
 
 BuildResult Ship::place(ItemKind kind, GridPos p, Direction facing) {

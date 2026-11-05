@@ -4,6 +4,7 @@
 // evasion, the enemy's target priorities, beating an enemy for its salvage
 // and the weapons it carries, leaving a fight, losing the fleet, and the same seed
 // fighting the same fight.
+#include "sim/blueprint.h"
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/enemies.h"
@@ -145,6 +146,48 @@ void test_enemies_built() {
             assert(e.ship.get_bridge().get_hp() == d.hull && e.ship.get_bridge().max_hp() == d.hull);
             assert(shield_layers(e.ship) == d.shields);
         }
+}
+
+// A ship holds no more weapons or shield projectors than its layout has
+// ports for, placed one at a time or pasted from a blueprint; each layout
+// has some, more the bigger it is.
+void test_ports() {
+    int weapons = 0;
+    for (const ShipLayout& l : all_layouts()) {
+        assert(l.weapon_ports >= weapons && l.shield_ports >= 1);
+        weapons = l.weapon_ports;
+    }
+    for (int i = 0; i < kEnemyClassCount; ++i) {
+        const EnemyDesign& d = enemy_design(static_cast<EnemyClass>(i));
+        const ShipLayout& l = *find_layout(d.layout);
+        assert(static_cast<int>(d.weapons.size()) <= l.weapon_ports && d.shields <= l.shield_ports);
+    }
+    assert(port_of(ItemKind::BeamEmitter) == Port::Weapon && port_of(ItemKind::ShieldProjector) == Port::Shield);
+    assert(!port_of(ItemKind::CargoHold) && !port_of(ItemKind::FocusCrystal));
+
+    World world;
+    Ship& ship = world.flagship();
+    assert(ship.ports(Port::Weapon) == 2 && ship.ports(Port::Shield) == 1);
+    place_weapon(ship, ItemKind::BurstLaser, kGun, 0, 0);
+    place_weapon(ship, ItemKind::BurstLaser, kGun2, 0, 0);
+    assert(ship.ports_taken(Port::Weapon) == 2);
+    ship.inventory().add(ItemKind::BurstLaser);
+    assert(ship.place(ItemKind::BurstLaser, kGun3) == BuildResult::NoWeaponPort);
+    ship.inventory().add(ItemKind::ShieldProjector, 2);
+    assert(ship.place(ItemKind::ShieldProjector, kShield) == BuildResult::Ok);
+    assert(ship.place(ItemKind::ShieldProjector, {kShield.x, kShield.y + 4}) == BuildResult::NoShieldPort);
+    // Removing one frees its port.
+    assert(ship.remove_building(kGun2) == BuildResult::Ok && ship.ports_taken(Port::Weapon) == 1);
+    assert(ship.can_place(ItemKind::BurstLaser, kGun3) == BuildResult::Ok);
+    // Two weapons pasted where one port is free: the second doesn't fit.
+    const std::optional<Blueprint> pair = copy_region(ship, kGun, {kGun.x + 1, kGun.y + 1});
+    assert(pair && pair->buildings.size() == 1);
+    Blueprint two = *pair;
+    two.buildings.push_back(two.buildings[0]);
+    two.buildings[1].offset = {0, 2};
+    two.size = {2, 4};
+    const PastePlan plan = plan_paste(ship, two, kGun3);
+    assert(plan.blocked == 1 && plan.entries[1].result == BuildResult::NoWeaponPort);
 }
 
 // A weapon takes fuel cells and its own ammunition, up to what it holds,
@@ -481,6 +524,7 @@ int main() {
     test_evasion();
     test_priorities();
     test_found_weapons();
+    test_ports();
     test_beating_an_enemy();
     test_salvaged_weapon();
     test_no_repair_in_a_fight();
