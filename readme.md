@@ -116,11 +116,13 @@ takes out of the bridge counts against the milestone, so sending items
 round from the bridge back into it gains nothing. Locked recipes show
 greyed out, marked with the milestone that unlocks them.
 
-In order: First light, Heavy industry, Deep space, Escape velocity (fuel
-cells, to travel, and focus crystals, the first weapon's ammunition),
-Frontier and Starforge. Everything up to and including Frontier can be made
-from what home has; Escape velocity unlocks iridium plates and processors,
-and Starforge asks for them, but home has no iridium.
+In order: First light, Heavy industry, Deep space (fuel cells, to travel),
+Escape velocity (focus crystals, the first weapon's ammunition), Frontier
+and Starforge. Everything up to and including Frontier can be made from
+what home has; Escape velocity unlocks iridium plates and processors, and
+Starforge asks for them, but home has no iridium. Fuel cells come early, and
+from carbon alone, so that a player who spends home's silica or copper
+before Escape velocity can still leave to find more.
 
 ### The fleet
 
@@ -177,7 +179,7 @@ sectors hold half as much again as home at a yield of 100% (and 1,500
 iridium ore), scaled by their yields, so the richer they are, the more.
 
 Home's amounts come from the sums in raw resources of what it takes to
-reach travel: the milestones up to Escape velocity, a factory of a fair size
+reach Escape velocity: the milestones up to it, a factory of a fair size
 (around 20 asteroid collectors, 8 solar furnaces, 6 fabricators, 3
 refineries, 2 tractor arrays and 400 belts), a 25% margin on the
 milestones' parts for ones made and never used (none on buildings, which
@@ -191,6 +193,13 @@ before they have to move on; one with a sprawling factory gets to Escape
 velocity and a first jump, and then has to; a lean one, gathering slowly,
 has plenty of time. `tools/home_reserves_model.py` is that model, to rerun
 with other amounts.
+
+Travel itself comes sooner and costs less: the milestones up to Deep space
+(which unlocks fuel cells) and a skiff's jump take about 650 iron ore, 220
+copper ore, 50 silica and 330 carbon, and still only about 3,150, 460, 230
+and 650 with a fair-sized factory built in full before Deep space, well
+within home's 1,700 carbon. Fuel cells take nothing but carbon, so running
+out of the rest at home doesn't keep a fleet from leaving.
 
 Ships jump to a linked sector at once, when every ion thruster their layout
 has is charged (10 fuel cells each, refined from carbon and delivered by

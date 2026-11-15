@@ -14,8 +14,9 @@
 // resource (its reserves), and every catch a collector makes there takes
 // one. Once one is gone, it's gone for good: collectors aimed at it there
 // stall, and the fleet has to go elsewhere for more. Home holds enough to
-// reach travel (the "Escape velocity" milestone) with a margin; the
-// other sectors hold more, the richer their yields.
+// reach the "Escape velocity" milestone with a margin, and travel (fuel
+// cells, from "Deep space") with a wide one; the other sectors hold more,
+// the richer their yields.
 //
 // What the player knows: a sector a ship has been to is visited. Its
 // neighbors are known (shown on the map, without details). A sector is
@@ -53,8 +54,8 @@ using Yields = std::array<int, kRawResourceCount>;
 using Reserves = std::array<int, kRawResourceCount>;
 
 // What home starts with: enough of each to reach the "Escape velocity"
-// milestone (fuel cells, to travel) with a factory of a fair size, a jump
-// and a first fight's ammunition, and a margin over (see the readme's
+// milestone (weapons) with a factory of a fair size, a jump and a first
+// fight's ammunition, and a margin over (see the readme's
 // "Running out" section for the sums). No iridium: that's found elsewhere.
 // Other sectors start with kSectorReserves scaled by their yields (see
 // starting_reserves()).

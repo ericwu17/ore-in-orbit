@@ -3,7 +3,8 @@
 (src/sim/sector.h).
 
 It sums what it takes, in raw resources, to reach the "Escape velocity"
-milestone (travel and weapons) for three styles of player (a lean factory, a
+milestone (weapons; fuel cells, to travel, come sooner, at "Deep space")
+for three styles of player (a lean factory, a
 fair-sized one and a sprawling one), using the recipe table and milestones
 copied from src/sim/recipes.cpp and src/sim/milestones.cpp, then plays each
 out minute by minute: collectors gather at 30 a minute (tractor arrays 120)

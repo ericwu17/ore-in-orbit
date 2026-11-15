@@ -14,14 +14,18 @@ const std::vector<Milestone>& all_milestones() {
         {"Heavy industry",
          {{Circuit, 100}, {Steel, 50}},
          {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel}},
+        // Travel: fuel cells, from carbon alone. Home's resources run out,
+        // so leaving it must never wait on a milestone that asks for more
+        // (a player who spent home's silica couldn't finish Escape velocity,
+        // and couldn't leave to find more).
         {"Deep space",
          {{AdvancedCircuit, 50}, {StructuralFrame, 25}},
-         {FabricatorMk2, TractorArray, SurveyScanner, ShipStarterPack, CargoPod}},
-        // Travel and weapons, from what home has: iridium is only to be had
-        // in other sectors, so the milestones that need it come after.
+         {FabricatorMk2, TractorArray, SurveyScanner, ShipStarterPack, CargoPod, FuelCell}},
+        // Weapons, from what home has: iridium is only to be had in other
+        // sectors, so the milestones that need it come after.
         {"Escape velocity",
          {{AdvancedCircuit, 40}, {StructuralFrame, 15}, {Glass, 60}},
-         {FuelCell, FocusCrystal, IridiumPlate, Processor}},
+         {FocusCrystal, IridiumPlate, Processor}},
         {"Frontier",
          {{FuelCell, 100}, {FocusCrystal, 30}},
          {ShieldProjector}},
