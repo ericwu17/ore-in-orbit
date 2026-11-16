@@ -1,6 +1,7 @@
 // audio.h — playing the game's sounds (see sounds.h) through SDL's audio
-// device: a small software mixer, with a looping music track (crossfading
-// from one to the next) under any number of effects. src/audio/ is the only code that touches SDL audio; the
+// device: a small software mixer, with the music (each mood's tracks
+// shuffled, see playlist.h) under any number of effects. src/audio/ is the
+// only code that touches SDL audio; the
 // UI decides what to play and when (ui/ui_sound.h).
 //
 // Every call is safe without a device (none found, or before Init()): it
@@ -27,13 +28,21 @@ void Play(Sound sound, float gain = 1.0f);
 constexpr unsigned kRetriggerMs = 45;
 constexpr int kMaxVoices = 24;
 
-// Loops `music`, crossfading over kCrossfadeMs from whatever was playing;
-// does nothing if it is the one playing already. A track still fading out
-// fades back in from where it had got to; any other starts from the top.
-void PlayMusic(Music music);
-// Fades the music out, over kCrossfadeMs.
+// Plays `mood`'s music; call it every frame. Its tracks play in a shuffle
+// (playlist.h), one song at a time: each fades in over kSongFadeInMs, plays
+// its loop music_plays() times, fades out over its last kSongFadeOutMs, and
+// is followed by kSongGapMs of silence before the next. A change of mood
+// doesn't wait: whatever was playing fades out over kCrossfadeMs while one
+// of the new mood's tracks fades in over the same (a track of it still
+// fading out, from a moment ago, fades back in from where it had got to).
+void PlayMusic(MusicMood mood);
+// Fades the music out, over kCrossfadeMs; the next PlayMusic() starts a
+// song straight away.
 void StopMusic();
 constexpr unsigned kCrossfadeMs = 2000;
+constexpr unsigned kSongFadeInMs = 3000;
+constexpr unsigned kSongFadeOutMs = 6000;
+constexpr unsigned kSongGapMs = 10000;
 
 // The volumes, 0 to 1 (1: as made). The effects volume scales every
 // effect, the music volume the track. (The game's defaults are the

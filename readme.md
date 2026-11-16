@@ -394,10 +394,16 @@ or delete one and run `make` again).
   klaxon, game over) and `combat_*` (each weapon firing, hits on hull and
   shields, shields breaking and recharging, misses, buildings and ships
   destroyed, targeting, salvage, weapons found).
-- `music/cold_orbit.wav` and `music/red_alert.wav` (32 kHz) — the
-  background track (40 seconds, A minor, 96 bpm, cold and calm) and the
-  fight's (29 seconds, D minor, 132 bpm, tense and driving). Each loops
-  seamlessly: play it from the start again the moment it ends.
+- `music/<name>.wav` (32 kHz) — eight tracks, each a seamless loop, in two
+  sets. Calm: `cold_orbit` (A minor, 96 bpm, cold and steady), `ice_drift`
+  (E minor, 84 bpm, chiming bells, the quietest), `deep_core` (D Dorian,
+  104 bpm, plucked and busy) and `far_beacon` (C minor, 88 bpm, a lonely
+  beacon pinging into echo). Combat: `red_alert` (D minor, 132 bpm),
+  `broadside` (E Phrygian, 140 bpm, chord stabs), `hard_burn` (G minor,
+  126 bpm, a galloping bass) and `hull_breach` (B minor, 150 bpm, the most
+  frantic). `src/audio/sounds.h` gives each its set and how many times its
+  loop plays as one song (twice for the calm ones, three times for the
+  combat ones: about a minute and a half either way).
 
 All of them are synthesized from scratch by `tools/make_sounds.py` (Python 3
 and NumPy), in the sprites' cold, hard, retro style: pulse and saw
@@ -409,10 +415,14 @@ regenerates just the ones named. Its output is the same on every run.
 
 What plays when:
 
-- The background track loops on every screen. While the ship on screen is
-  in a fight, the fight's track takes over, crossfading over two seconds
-  each way. Over a lost fleet the music fades out, leaving the game-over
-  sound alone.
+- The calm tracks play on every screen, shuffled (each plays once before
+  any repeats, never the same twice in a row): each song fades in over
+  three seconds, fades out over its last six, and ten seconds of silence
+  follow before the next. While the ship on screen is in a fight, the
+  combat tracks take over the same way, except that the change doesn't
+  wait: the calm song crossfades straight into a combat one over two
+  seconds, and back again when the fight ends. Over a lost fleet the music
+  fades out, leaving the game-over sound alone.
 - The player's own actions have their sounds: placing (belts more lightly),
   removing and turning buildings, a click that can't build, pasting a
   blueprint, opening the star map, switching ships, sending cargo, building
@@ -547,8 +557,10 @@ One directory per layer under `src/`; includes name their layer
 - `src/audio/` — playing sounds through SDL's audio device.
   - `sounds.h` — every sound effect and music track, by name (header-only
     and headless: the tests check each has its file).
+  - `playlist.h` — the music's shuffle (header-only, tested headless).
   - `audio.h/.cpp` — a small mixer: decoding the embedded WAVs, the music
-    (looping, crossfading between tracks) under any number of effects, the
+    (songs fading in and out, crossfading on a change of mood) under any
+    number of effects, the
     volumes.
   - `embedded_sounds.h/.cpp` — the embedded WAV files, by path (in their
     own file: they're large).

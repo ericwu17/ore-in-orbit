@@ -147,16 +147,17 @@ void PlayEventSounds(const World& world, const std::vector<Event>& events) {
 using namespace ui;
 
 void PlayFrameSounds(Screen screen, const World& world) {
-    // The music: the fight's while the ship on screen is in one, none over
-    // the wreck of a lost fleet (its game-over sound plays alone), the
-    // background's otherwise. audio crossfades between them.
+    // The music: the combat tracks while the ship on screen is in a fight,
+    // none over the wreck of a lost fleet (its game-over sound plays alone),
+    // the calm ones otherwise. audio shuffles each set and crossfades
+    // between them.
     const FleetShip* shown = screen == Screen::Playing ? world.get_fleet().find(g_fleet.current) : nullptr;
     if (screen == Screen::Playing && world.fleet_lost())
         audio::StopMusic();
     else if (shown && world.engagement_in(shown->sector))
-        audio::PlayMusic(audio::Music::RedAlert);
+        audio::PlayMusic(audio::MusicMood::Combat);
     else
-        audio::PlayMusic(audio::Music::ColdOrbit);
+        audio::PlayMusic(audio::MusicMood::Calm);
 
     // A press on any widget clicks when it is let go, unless something played
     // its own sound between press and release: most widgets (buttons,

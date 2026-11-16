@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthesizes the game's sound effects and its looping background track.
+"""Synthesizes the game's sound effects and its music.
 
     python3 tools/make_sounds.py           # only the missing ones
     python3 tools/make_sounds.py --force   # all of them, overwriting
@@ -10,9 +10,9 @@ readme's "Sounds" section), as 16-bit mono WAV:
 
     sfx/<name>.wav       one short effect per game event (see SOUNDS),
                          44.1 kHz
-    music/<name>.wav     the two tracks (background and combat), 32 kHz,
-                         each written to loop seamlessly: its echo tail
-                         is folded back onto its start
+    music/<name>.wav     the tracks (see MUSIC: four calm, four for
+                         combat), 32 kHz, each written to loop seamlessly:
+                         its echo tail is folded back onto its start
 
 Without --force (or --only, which names what to overwrite), files that
 already exist are left alone, so real audio is never overwritten. The game plays every file it lists in src/audio/sounds.h
@@ -706,10 +706,17 @@ LEVELS = {
 
 
 # ---------------------------------------------------------------------------
-# The music: two loops, which the game crossfades between.
+# The music: loops, each played a few times through as one song (the game
+# shuffles them, see src/audio/sounds.h), in two sets.
 #
-#   cold_orbit   the background: A minor, 96 bpm, 16 bars, calm and cold
-#   red_alert    in a fight: D minor, 132 bpm, 16 bars, tense and driving
+#   cold_orbit   calm: A minor, 96 bpm, 16 bars, calm and cold
+#   ice_drift    calm: E minor, 84 bpm, 16 bars, chiming and sparse
+#   deep_core    calm: D Dorian, 104 bpm, 16 bars, plucked and busy
+#   far_beacon   calm: C minor, 88 bpm, 16 bars, lonely, a pinging beacon
+#   red_alert    combat: D minor, 132 bpm, 16 bars, tense and driving
+#   broadside    combat: E Phrygian, 140 bpm, 16 bars, chord stabs
+#   hard_burn    combat: G minor, 126 bpm, 16 bars, a galloping bass
+#   hull_breach  combat: B minor, 150 bpm, 16 bars, the most frantic
 #
 # Each is built over its length plus a tail, and the echoes ringing past the
 # end are folded back onto its start, so it loops without a seam.
@@ -959,9 +966,411 @@ def music_red_alert():
     return fold_loop(np.tanh(out * 1.6) / np.tanh(1.6), total)
 
 
+# -- More voices, for the tracks below ------------------------------------------
+
+def bell_note(freq, dur):
+    """A cold metallic chime: a sine with two inharmonic partials, ringing
+    down (at least 0.6 s, whatever the note's length)."""
+    d = max(dur, 0.6)
+    v = (sine(freq, d) + 0.35 * sine(freq * 2.76, d) * env(d, 0.001, curve=9)
+         + 0.18 * sine(freq * 5.4, d) * env(d, 0.001, curve=14))
+    return crush(v * env(d, 0.002, curve=5), 7)
+
+
+def pluck_note(freq, dur):
+    """A plucked saw: the filter snaps open and closes again."""
+    v = saw(freq, dur) + 0.5 * square(freq * 1.005, dur, 0.3)
+    return crush(lowpass(v, 300 + 3500 * env(dur, 0.001, curve=6), 0.4) * env(dur, 0.001, curve=4), 6)
+
+
+def soft_lead(freq, dur):
+    """A hollow triangle-and-pulse voice with a slow vibrato, for the calm
+    tracks."""
+    vib = 1 + 0.005 * np.sin(2 * np.pi * phase(4.5, dur)) * np.clip(np.linspace(-1, 1.5, n_of(dur)), 0, 1)
+    v = tri(freq * vib, dur) + 0.3 * square(freq * vib, dur, 0.5)
+    return crush(lowpass(v, 2400) * adsr(dur, 0.03, 0.15, 0.7, 0.12), 6)
+
+
+def drone_bass(freq, dur):
+    """A held bass: round, with a little pulse edge."""
+    v = tri(freq, dur) + 0.4 * square(freq, dur, 0.5)
+    return lowpass(v, 420, 0.3) * adsr(dur, 0.05, 0.2, 0.8, 0.2)
+
+
+def beacon_ping(freq):
+    """A navigation beacon: a thin pulse blip."""
+    d = 0.16
+    return crush(square(freq, d, 0.125) * env(d, 0.001, curve=7), 5)
+
+
+def stab(freqs, dur):
+    """A chord hit: bright saws, gone quickly."""
+    v = sum(saw(f * 0.998, dur) + saw(f * 1.002, dur) for f in freqs) / len(freqs)
+    return crush(lowpass(v, 2600, 0.3) * env(dur, 0.002, curve=5), 6)
+
+
+def power_lead(freq, dur):
+    """A brassy lead: a pulse doubled an octave down, swelling into its
+    vibrato and driven."""
+    vib = 1 + 0.006 * np.sin(2 * np.pi * phase(6.0, dur)) * np.clip(np.linspace(-0.3, 1.5, n_of(dur)), 0, 1)
+    v = square(freq * vib, dur, 0.4) + 0.6 * square(freq * vib / 2 * 1.003, dur, 0.25)
+    return crush(drive(lowpass(v, 2800, 0.2), 1.6) * adsr(dur, 0.02, 0.1, 0.75, 0.05), 5)
+
+
+def song(bpm, chords, bar_fn, lead, lead_voice, tail=4.0):
+    """The shared frame of the tracks below: `chords` (one per bar) played
+    twice, `bar_fn(layers, i, t0, root, voicing, second_half)` adding each
+    bar's parts into the layers (bass, pad, arp, lead, drums), `lead` (eighth
+    notes) over the second half. Returns the layers, the beat's length, the
+    samples to build over and the loop's length (see finish_song)."""
+    beat = 60.0 / bpm
+    bar = 4 * beat
+    total = 2 * len(chords) * bar
+    n = n_of(total + tail)
+    layers = {k: np.zeros(n) for k in ("bass", "pad", "arp", "lead", "drums")}
+    for i, (root, voicing) in enumerate(chords * 2):
+        bar_fn(layers, i, i * bar, note(root), voicing, i >= len(chords))
+    if lead:
+        place_melody(layers["lead"], lead, len(chords) * bar, beat / 2, lead_voice)
+    return layers, beat, n, total
+
+
+def finish_song(layers, beat, n, total, echoes, mix_levels, heat, peak=0.6):
+    """Each layer's echo (by `echoes`: layer -> (time in beats, feedback,
+    mix, repeats)), the mix by `mix_levels`, a tanh saturation of `heat`, and
+    the loop folded."""
+    for k, (time, fb, wet, reps) in echoes.items():
+        layers[k] = echo(layers[k], time * beat, feedback=fb, mix=wet, repeats=reps)[:n]
+    out = sum(mix_levels[k] * layers[k] for k in mix_levels)
+    return fold_loop(np.tanh(out * heat) / np.tanh(heat), total, peak)
+
+
+# -- Ice Drift (calm) -------------------------------------------------------------
+#
+# The quietest: E minor at 84 bpm, a chiming bell arpeggio over a held bass
+# and the pad, no drums at first, then a soft kick and off-beat hats under a
+# slow triangle lead. The last bar's B7 turns back to E minor.
+
+ICE_CHORDS = [
+    ("E2", ["E3", "G3", "B3", "F#4"]),
+    ("C2", ["C3", "E3", "G3", "B3"]),
+    ("G1", ["G3", "B3", "D4", "F#4"]),
+    ("D2", ["D3", "F#3", "A3", "E4"]),
+    ("A1", ["A3", "C4", "E4", "G4"]),
+    ("E2", ["G3", "B3", "E4", "F#4"]),
+    ("C2", ["C3", "G3", "B3", "E4"]),
+    ("B1", ["B2", "D#3", "F#3", "A3"]),
+]
+ICE_LEAD = (
+    "B4 - - - - - E5 - | G5 - - - F#5 - E5 - | D5 - - - - - B4 - | A4 - - - - - . . | "
+    "C5 - - - B4 - A4 - | B4 - - - G4 - E4 - | G4 - - - A4 - B4 - | D#5 - - - - - . ."
+)
+ICE_ARP = [0, 2, 1, 3, 2, 1, 3, 0]
+
+
+def music_ice_drift():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 84
+        bar, eighth = 4 * beat, beat / 2
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.6), t0)
+        place(L["bass"], drone_bass(r, 2 * beat), t0)
+        place(L["bass"], drone_bass(r, 2 * beat), t0 + 2 * beat)
+        tones = [note(nm) * 2 for nm in voicing]
+        for k, idx in enumerate(ICE_ARP):
+            place(L["arp"], (0.8 if k % 2 else 1.0) * bell_note(tones[idx], eighth), t0 + k * eighth)
+        if i >= 4:
+            place(L["drums"], 0.6 * kick(), t0)
+        if second_half:
+            place(L["drums"], 0.45 * kick(), t0 + 2.5 * beat)
+            for k in range(4):
+                place(L["drums"], 0.45 * hat(), t0 + (k + 0.5) * beat)
+            if i % 4 == 3:
+                place(L["drums"], 0.35 * hat(True), t0 + 3.5 * beat)
+
+    layers, beat, n, total = song(84, ICE_CHORDS, bar_fn, ICE_LEAD, soft_lead)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (1.5, 0.45, 0.4, 5), "lead": (1.5, 0.35, 0.35, 5), "pad": (2, 0.3, 0.3, 3)},
+                       {"bass": 0.34, "pad": 0.18, "arp": 0.14, "lead": 0.2, "drums": 0.4}, 1.3)
+
+
+# -- Deep Core (calm) -------------------------------------------------------------
+#
+# The busiest of the calm ones, for long stretches of building: D Dorian at
+# 104 bpm, a syncopated bass, a plucked sixteenth ostinato and a steady
+# beat, the lead in the second half. The last bar's A7 leads back to D minor.
+
+CORE_CHORDS = [
+    ("D2", ["D3", "F3", "A3", "C4"]),
+    ("G1", ["D3", "G3", "B3", "E4"]),
+    ("D2", ["F3", "A3", "C4", "E4"]),
+    ("A1", ["E3", "A3", "C4", "E4"]),
+    ("Bb1", ["F3", "Bb3", "D4", "A4"]),
+    ("C2", ["E3", "G3", "C4", "D4"]),
+    ("D2", ["D3", "F3", "A3", "E4"]),
+    ("A1", ["C#3", "E3", "G3", "A3"]),
+]
+CORE_LEAD = (
+    "A4 - - - C5 - D5 - | E5 - - - D5 - B4 - | A4 - - - F4 - A4 - | E4 - - - - - . . | "
+    "F4 - A4 - D5 - - - | E5 - - - C5 - G4 - | A4 - - - F5 - E5 - | C#5 - - - - - . ."
+)
+CORE_ARP = [0, 2, 1, 3, 2, 0, 3, 1]
+# The bass, in eighths: (step, octave up?)
+CORE_BASS = [(0, False), (3, True), (4, False), (6, False), (7, True)]
+
+
+def music_deep_core():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 104
+        bar, eighth, sixteenth = 4 * beat, beat / 2, beat / 4
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.4), t0)
+        for step, up in CORE_BASS:
+            place(L["bass"], bass_note(r * 2 if up else r, eighth * 0.85, 1100), t0 + step * eighth)
+        if i >= 1:
+            tones = [note(nm) * 2 for nm in voicing]
+            for k in range(16):
+                place(L["arp"], (1.0 if k % 4 == 0 else 0.7) * pluck_note(tones[CORE_ARP[k % 8]], sixteenth * 0.9),
+                      t0 + k * sixteenth)
+        if i >= 2:
+            for t in (0, 1.5, 2):
+                place(L["drums"], 0.8 * kick(), t0 + t * beat)
+            for k in range(8):
+                place(L["drums"], (0.5 if k % 2 else 0.7) * hat(), t0 + k * eighth)
+        if i >= 4:
+            place(L["drums"], 0.6 * snare(), t0 + beat)
+            place(L["drums"], 0.6 * snare(), t0 + 3 * beat)
+        if second_half and i % 2 == 1:
+            place(L["drums"], 0.4 * hat(True), t0 + 3.5 * beat)
+
+    layers, beat, n, total = song(104, CORE_CHORDS, bar_fn, CORE_LEAD, lead_note)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (0.75, 0.35, 0.3, 4), "lead": (1.5, 0.35, 0.35, 5), "pad": (2, 0.3, 0.25, 3)},
+                       {"bass": 0.36, "pad": 0.14, "arp": 0.1, "lead": 0.17, "drums": 0.4}, 1.4)
+
+
+# -- Far Beacon (calm) ------------------------------------------------------------
+#
+# Lonely and wide: C minor at 88 bpm, a beacon pinging every bar into a long
+# echo, a pulsing bass and the pad; hats creep in, then a half-time beat and
+# a low triangle lead. The last bar's G7 turns back to C minor.
+
+BEACON_CHORDS = [
+    ("C2", ["C3", "Eb3", "G3", "D4"]),
+    ("Ab1", ["Eb3", "Ab3", "C4", "G4"]),
+    ("Eb2", ["Eb3", "G3", "Bb3", "D4"]),
+    ("Bb1", ["D3", "F3", "Bb3", "C4"]),
+    ("F1", ["F3", "Ab3", "C4", "Eb4"]),
+    ("C2", ["Eb3", "G3", "C4", "D4"]),
+    ("Ab1", ["Eb3", "Ab3", "C4", "Bb3"]),
+    ("G1", ["D3", "G3", "B3", "F4"]),
+]
+BEACON_LEAD = (
+    "G4 - - - Eb5 - - - | D5 - - - C5 - Bb4 - | G4 - - - - - - - | F4 - - - G4 - Ab4 - | "
+    "Ab4 - - - G4 - F4 - | Eb4 - - - G4 - C5 - | C5 - - - Bb4 - Ab4 - | B4 - - - - - D5 - "
+)
+
+
+def music_far_beacon():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 88
+        bar, sixteenth = 4 * beat, beat / 4
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.6), t0)
+        for b in range(4):
+            place(L["bass"], bass_note(r * 2 if b == 3 else r, beat * 0.7, 600), t0 + b * beat)
+        place(L["arp"], beacon_ping(note(voicing[-1]) * 4), t0)
+        if i >= 4:
+            place(L["arp"], 0.6 * beacon_ping(note(voicing[1]) * 4), t0 + 2.5 * beat)
+            for k in range(16):
+                place(L["drums"], (0.45 if k % 4 == 2 else 0.2) * hat(), t0 + k * sixteenth)
+        if second_half:
+            place(L["drums"], 0.8 * kick(), t0)
+            place(L["drums"], 0.5 * kick(), t0 + 1.5 * beat)
+            place(L["drums"], 0.65 * snare(), t0 + 2 * beat)
+
+    layers, beat, n, total = song(88, BEACON_CHORDS, bar_fn, BEACON_LEAD, soft_lead, tail=6.0)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (1.5, 0.55, 0.5, 8), "lead": (1.5, 0.35, 0.35, 5), "pad": (2, 0.35, 0.3, 3)},
+                       {"bass": 0.34, "pad": 0.2, "arp": 0.16, "lead": 0.2, "drums": 0.4}, 1.3)
+
+
+# -- Broadside (combat) -----------------------------------------------------------
+#
+# Trading fire: E Phrygian at 140 bpm, the F major leaning on E minor,
+# driving eighth bass, syncopated chord stabs (sparse, then busier), a
+# punchy beat, and the lead in the second half. B major leads back to E
+# minor.
+
+BROADSIDE_CHORDS = [
+    ("E1", ["E3", "G3", "B3", "D4"]),
+    ("F1", ["F3", "A3", "C4", "E4"]),
+    ("E1", ["E3", "G3", "B3", "E4"]),
+    ("D1", ["D3", "F#3", "A3", "C4"]),
+    ("C1", ["C3", "E3", "G3", "B3"]),
+    ("D1", ["D3", "F#3", "A3", "D4"]),
+    ("E1", ["E3", "G3", "B3", "F4"]),
+    ("B0", ["B2", "D#3", "F#3", "A3"]),
+]
+BROADSIDE_LEAD = (
+    "E5 - - - F5 - E5 - | D5 - - - C5 - - - | B4 - - - - - E5 - | F#5 - - - - - . . | "
+    "G5 - F#5 - E5 - D5 - | C5 - - - D5 - E5 - | F5 - - - E5 - D5 - | D#5 - - - F#5 - - - "
+)
+
+
+def music_broadside():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 140
+        bar, eighth, sixteenth = 4 * beat, beat / 2, beat / 4
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.3), t0)
+        for k in range(8):
+            place(L["bass"], bass_note(r * 2 if k % 4 == 3 else r, eighth * 0.8, 2400 if second_half else 1700),
+                  t0 + k * eighth)
+        freqs = [note(nm) * 2 for nm in voicing]
+        for step in ((0, 3, 6, 10, 12) if second_half else (0, 6)):
+            place(L["arp"], stab(freqs, sixteenth * 1.6), t0 + step * sixteenth)
+        last_bar = i % len(BROADSIDE_CHORDS) == len(BROADSIDE_CHORDS) - 1
+        for step in (0, 6, 8, 11):
+            place(L["drums"], kick(), t0 + step * sixteenth)
+        place(L["drums"], 0.75 * snare(), t0 + beat)
+        if not last_bar:
+            place(L["drums"], 0.75 * snare(), t0 + 3 * beat)
+        if i >= 2:
+            for k in range(16):
+                place(L["drums"], (0.55 if k % 2 == 0 else 0.3) * hat(), t0 + k * sixteenth)
+        if last_bar:
+            for k, f in enumerate([200, 170, 150, 130, 115, 100, 90, 80]):
+                place(L["drums"], 0.7 * tom(f), t0 + 2 * beat + k * sixteenth)
+
+    layers, beat, n, total = song(140, BROADSIDE_CHORDS, bar_fn, BROADSIDE_LEAD, lead_note)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (0.75, 0.3, 0.25, 3), "lead": (1, 0.3, 0.3, 4), "pad": (1, 0.25, 0.2, 3)},
+                       {"bass": 0.36, "pad": 0.12, "arp": 0.12, "lead": 0.16, "drums": 0.45}, 1.6)
+
+
+# -- Hard Burn (combat) -----------------------------------------------------------
+#
+# Running at full thrust: G minor at 126 bpm, a galloping bass (an eighth
+# and two sixteenths a beat), a ticking ostinato from bar 5, and a brassy
+# lead in the second half; the A flat chord (the Neapolitan) and D major
+# lead back to G minor.
+
+BURN_CHORDS = [
+    ("G1", ["G3", "Bb3", "D4", "A4"]),
+    ("Eb1", ["G3", "Bb3", "Eb4", "F4"]),
+    ("F1", ["F3", "A3", "C4", "G4"]),
+    ("G1", ["G3", "Bb3", "D4", "F4"]),
+    ("C1", ["G3", "C4", "Eb4", "G4"]),
+    ("Eb1", ["G3", "Bb3", "Eb4", "Bb4"]),
+    ("Ab0", ["Ab3", "C4", "Eb4", "G4"]),
+    ("D1", ["F#3", "A3", "C4", "D4"]),
+]
+BURN_LEAD = (
+    "G5 - - - - - D5 - | Eb5 - - - D5 - C5 - | D5 - - - - - A4 - | Bb4 - - - - - . . | "
+    "C5 - - - Eb5 - G5 - | Bb5 - - - G5 - Eb5 - | Ab5 - - - G5 - Eb5 - | F#5 - - - - - D5 - "
+)
+BURN_OSTINATO = [0, 7, 12, 7, 15, 12, 7, 3]
+
+
+def music_hard_burn():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 126
+        bar, eighth, sixteenth = 4 * beat, beat / 2, beat / 4
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.3), t0)
+        for b in range(4):
+            for step, length in ((0, 2), (2, 1), (3, 1)):
+                f = r * 2 if (b == 3 and step == 3) else r
+                place(L["bass"], bass_note(f, length * sixteenth * 0.85, 2200), t0 + b * beat + step * sixteenth)
+        if i >= 4:
+            base = r * 4
+            for k in range(16):
+                semis = BURN_OSTINATO[k % len(BURN_OSTINATO)]
+                place(L["arp"], arp_note(base * 2 ** (semis / 12), sixteenth * 0.8), t0 + k * sixteenth)
+        for step in (0, 8, 15):
+            place(L["drums"], kick(), t0 + step * sixteenth)
+        if i >= 1:
+            place(L["drums"], 0.75 * snare(), t0 + beat)
+            place(L["drums"], 0.75 * snare(), t0 + 3 * beat)
+        for k in range(8):
+            place(L["drums"], (0.6 if k % 2 else 0.4) * hat(), t0 + k * eighth)
+        if i % 2 == 1:
+            place(L["drums"], 0.45 * hat(True), t0 + 3.5 * beat)
+
+    layers, beat, n, total = song(126, BURN_CHORDS, bar_fn, BURN_LEAD, power_lead)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (0.75, 0.3, 0.25, 3), "lead": (1, 0.3, 0.3, 4), "pad": (1, 0.25, 0.2, 3)},
+                       {"bass": 0.34, "pad": 0.13, "arp": 0.09, "lead": 0.15, "drums": 0.45}, 1.6)
+
+
+# -- Hull Breach (combat) ---------------------------------------------------------
+#
+# The most frantic: B minor at 150 bpm, a sixteenth bass, a klaxon-like
+# ostinato, four-on-the-floor kicks and a snare roll into the loop. F sharp
+# major leads back to B minor.
+
+BREACH_CHORDS = [
+    ("B1", ["B2", "D3", "F#3", "C#4"]),
+    ("G1", ["B2", "D3", "G3", "A3"]),
+    ("A1", ["C#3", "E3", "A3", "B3"]),
+    ("F#1", ["C#3", "F#3", "A#3", "E4"]),
+    ("B1", ["D3", "F#3", "B3", "C#4"]),
+    ("G1", ["D3", "G3", "B3", "F#4"]),
+    ("E1", ["E3", "G3", "B3", "D4"]),
+    ("F#1", ["C#3", "F#3", "A#3", "C#4"]),
+]
+BREACH_LEAD = (
+    "F#5 - - - - - E5 D5 | D5 - - - B4 - - - | C#5 - - - E5 - A5 - | A#5 - - - - - . . | "
+    "B5 - - - A5 - F#5 - | G5 - - - F#5 - D5 - | E5 - - - D5 - B4 - | A#4 - - - C#5 - F#5 - "
+)
+BREACH_OSTINATO = [0, 12, 7, 12, 0, 12, 8, 12]
+
+
+def music_hull_breach():
+    def bar_fn(L, i, t0, r, voicing, second_half):
+        beat = 60.0 / 150
+        bar, sixteenth = 4 * beat, beat / 4
+        for nm in voicing:
+            place(L["pad"], pad_voice(note(nm), bar + 0.3), t0)
+        for k in range(16):
+            place(L["bass"], bass_note(r * 2 if k % 8 == 6 else r, sixteenth * 0.8, 2600 if second_half else 2000),
+                  t0 + k * sixteenth)
+        if i >= 2:
+            base = r * 4
+            for k in range(16):
+                semis = BREACH_OSTINATO[k % len(BREACH_OSTINATO)]
+                place(L["arp"], arp_note(base * 2 ** (semis / 12), sixteenth * 0.7), t0 + k * sixteenth)
+        last_bar = i % len(BREACH_CHORDS) == len(BREACH_CHORDS) - 1
+        for b in range(4):
+            place(L["drums"], kick(), t0 + b * beat)
+        for k in range(16):
+            place(L["drums"], (0.6 if k % 4 == 2 else 0.3) * hat(), t0 + k * sixteenth)
+        if i >= 4 or second_half:
+            place(L["drums"], 0.75 * snare(), t0 + beat)
+            if not last_bar:
+                place(L["drums"], 0.75 * snare(), t0 + 3 * beat)
+        if last_bar:
+            for k in range(8):
+                place(L["drums"], (0.3 + 0.07 * k) * snare(), t0 + 2 * beat + k * sixteenth)
+
+    layers, beat, n, total = song(150, BREACH_CHORDS, bar_fn, BREACH_LEAD, siren_note)
+    return finish_song(layers, beat, n, total,
+                       {"arp": (0.75, 0.3, 0.25, 3), "lead": (1, 0.3, 0.3, 4), "pad": (1, 0.25, 0.2, 3)},
+                       {"bass": 0.35, "pad": 0.12, "arp": 0.09, "lead": 0.16, "drums": 0.45}, 1.6)
+
+
 MUSIC = {
+    # Calm: shuffled while nothing is fighting.
     "cold_orbit": music_cold_orbit,
+    "ice_drift": music_ice_drift,
+    "deep_core": music_deep_core,
+    "far_beacon": music_far_beacon,
+    # Combat: shuffled while the ship on screen is in a fight.
     "red_alert": music_red_alert,
+    "broadside": music_broadside,
+    "hard_burn": music_hard_burn,
+    "hull_breach": music_hull_breach,
 }
 
 

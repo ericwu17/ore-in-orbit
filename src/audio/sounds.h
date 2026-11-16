@@ -7,7 +7,8 @@
 // time like the sprites:
 //
 //   sfx/<name>.wav     one effect per Sound, named in ORE_SOUNDS below
-//   music/<name>.wav   one track per Music, named in ORE_MUSIC
+//   music/<name>.wav   one track per Music, named in ORE_MUSIC (with its
+//                      mood and how many times it loops)
 //
 // To add a sound: add it to tools/make_sounds.py, run it, and add a line
 // here. audio.h plays them.
@@ -68,27 +69,52 @@ namespace audio {
     X(CombatSalvage, "combat_salvage")                  \
     X(CombatWeaponFound, "combat_weapon_found")
 
-// Every music track, the same way: the background, and the fight.
-#define ORE_MUSIC(X)         \
-    X(ColdOrbit, "cold_orbit") \
-    X(RedAlert, "red_alert")
+// When a track plays: while nothing is fighting, or while the ship on screen
+// is in a fight. Each mood's tracks are shuffled (audio/playlist.h).
+enum class MusicMood { Calm, Combat };
+inline constexpr int kMusicMoodCount = 2;
+
+// Every music track: X(enumerator, file name without .wav, mood, plays). Each
+// file is a seamless loop, played `plays` times through as one song (about a
+// minute and a half).
+#define ORE_MUSIC(X)                          \
+    X(ColdOrbit, "cold_orbit", Calm, 2)       \
+    X(IceDrift, "ice_drift", Calm, 2)         \
+    X(DeepCore, "deep_core", Calm, 2)         \
+    X(FarBeacon, "far_beacon", Calm, 2)       \
+    X(RedAlert, "red_alert", Combat, 3)       \
+    X(Broadside, "broadside", Combat, 3)      \
+    X(HardBurn, "hard_burn", Combat, 3)       \
+    X(HullBreach, "hull_breach", Combat, 3)
 
 #define ORE_AUDIO_ENUMERATOR(id, file) id,
 #define ORE_AUDIO_FILE(id, file) file,
+#define ORE_MUSIC_ENUMERATOR(id, file, mood, plays) id,
+#define ORE_MUSIC_FILE(id, file, mood, plays) file,
+#define ORE_MUSIC_MOOD(id, file, mood, plays) MusicMood::mood,
+#define ORE_MUSIC_PLAYS(id, file, mood, plays) plays,
 
 enum class Sound { ORE_SOUNDS(ORE_AUDIO_ENUMERATOR) };
-enum class Music { ORE_MUSIC(ORE_AUDIO_ENUMERATOR) };
+enum class Music { ORE_MUSIC(ORE_MUSIC_ENUMERATOR) };
 
 inline constexpr std::array kSoundNames = {ORE_SOUNDS(ORE_AUDIO_FILE)};
-inline constexpr std::array kMusicNames = {ORE_MUSIC(ORE_AUDIO_FILE)};
+inline constexpr std::array kMusicNames = {ORE_MUSIC(ORE_MUSIC_FILE)};
+inline constexpr std::array kMusicMoods = {ORE_MUSIC(ORE_MUSIC_MOOD)};
+inline constexpr std::array kMusicPlays = {ORE_MUSIC(ORE_MUSIC_PLAYS)};
 inline constexpr int kSoundCount = static_cast<int>(kSoundNames.size());
 inline constexpr int kMusicCount = static_cast<int>(kMusicNames.size());
 
 #undef ORE_AUDIO_ENUMERATOR
 #undef ORE_AUDIO_FILE
+#undef ORE_MUSIC_ENUMERATOR
+#undef ORE_MUSIC_FILE
+#undef ORE_MUSIC_MOOD
+#undef ORE_MUSIC_PLAYS
 
 // The file name, without folder or extension ("ui_click").
 inline const char* sound_name(Sound s) { return kSoundNames[static_cast<std::size_t>(s)]; }
 inline const char* music_name(Music m) { return kMusicNames[static_cast<std::size_t>(m)]; }
+inline MusicMood music_mood(Music m) { return kMusicMoods[static_cast<std::size_t>(m)]; }
+inline int music_plays(Music m) { return kMusicPlays[static_cast<std::size_t>(m)]; }
 
 }  // namespace audio
