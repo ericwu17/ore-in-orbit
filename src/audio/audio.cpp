@@ -8,6 +8,7 @@
 #include "audio/audio.h"
 
 #include "audio/embedded_sounds.h"
+#include "audio/playlist.h"
 
 #include <SDL.h>
 
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -31,15 +33,24 @@ struct Clip {
     std::vector<float> samples;
 };
 
-// A music track playing, looping: where it's got to, and its fade.
+// A song playing: where it's got to, how many more times through, and its
+// fade.
 struct Track {
     const Clip* clip = nullptr;  // null: free
+    Music music{};
     std::size_t pos = 0;
-    float level = 0.0f;   // 0 to 1, moving toward `target` by kFadeStep a sample
+    int plays_left = 1;   // counting this time through: at 1, the last
+    bool ending = false;  // fading out over its last kSongFadeOutMs
+    float level = 0.0f;   // 0 to 1, moving toward `target` by `step` a sample
     float target = 0.0f;  // 1: fading in (or playing), 0: fading out, then freed
+    float step = 0.0f;
 };
-// How far a track's level moves each sample: across 0..1 in kCrossfadeMs.
-constexpr float kFadeStep = 1000.0f / (static_cast<float>(kRate) * static_cast<float>(kCrossfadeMs));
+// How far a level moves each sample to cross 0..1 in `ms`.
+constexpr float FadeStep(unsigned ms) {
+    return 1000.0f / (static_cast<float>(kRate) * static_cast<float>(ms));
+}
+// The song fades out over the samples before its end.
+constexpr std::size_t kSongFadeOutSamples = std::size_t{kRate} * kSongFadeOutMs / 1000;
 
 // A clip playing: where it's got to, and how loud.
 struct Voice {
@@ -62,7 +73,9 @@ struct State {
 
     // The main thread's own.
     Volumes volumes;
-    std::optional<Music> playing;
+    std::optional<MusicMood> mood;  // what PlayMusic() last asked for; none: stopped
+    Playlist playlist;
+    Uint32 silent_since = 0;  // SDL_GetTicks() when the last song finished; 0: not yet
     std::array<Uint32, kSoundCount> last_start{};  // SDL_GetTicks() of each sound's last start
     std::uint64_t serial = 0;
 };
@@ -122,16 +135,24 @@ void Mix(void*, Uint8* bytes, int len) {
         if (!t.clip)
             continue;
         const std::vector<float>& s = t.clip->samples;
-        for (std::size_t i = 0; i < n && !s.empty(); ++i) {
+        for (std::size_t i = 0; i < n && t.clip; ++i) {
+            if (t.plays_left <= 1 && !t.ending && s.size() - t.pos <= kSongFadeOutSamples) {
+                t.ending = true;
+                t.target = 0.0f;
+                t.step = t.level / static_cast<float>(s.size() - t.pos);  // silent at the end
+            }
             if (t.level < t.target)
-                t.level = std::min(t.target, t.level + kFadeStep);
+                t.level = std::min(t.target, t.level + t.step);
             else if (t.level > t.target)
-                t.level = std::max(t.target, t.level - kFadeStep);
+                t.level = std::max(t.target, t.level - t.step);
             out[i] += s[t.pos] * t.level * g.music_gain;
-            if (++t.pos == s.size())
+            if (++t.pos == s.size()) {
                 t.pos = 0;  // the tracks are made to loop seamlessly
+                if (--t.plays_left <= 0)
+                    t = Track{};  // the song is over
+            }
         }
-        if (t.target == 0.0f && t.level == 0.0f)
+        if (t.clip && t.target == 0.0f && t.level == 0.0f)
             t = Track{};
     }
     for (Voice& v : g.voices) {
@@ -176,6 +197,7 @@ bool Init() {
         g.sounds[static_cast<std::size_t>(i)] = Decode(std::string("sfx/") + kSoundNames[static_cast<std::size_t>(i)] + ".wav");
     for (int i = 0; i < kMusicCount; ++i)
         g.music[static_cast<std::size_t>(i)] = Decode(std::string("music/") + kMusicNames[static_cast<std::size_t>(i)] + ".wav");
+    g.playlist = Playlist(std::random_device{}());
     SetVolumes(g.volumes);
     SDL_PauseAudioDevice(g.device, 0);
     return true;
@@ -211,37 +233,81 @@ void Play(Sound sound, float gain) {
     *voice = Voice{.clip = &g.sounds[index], .pos = 0, .gain = gain, .started = ++g.serial};
 }
 
-void PlayMusic(Music music) {
-    if (!g.device || g.playing == music)
-        return;
-    g.playing = music;
-    const Clip* clip = &g.music[static_cast<std::size_t>(music)];
-    DeviceLock lock;
-    // Everything else fades out; this one fades back in if it's still
-    // fading out, or else starts in a free slot (or the quieter one).
-    Track* slot = nullptr;
+namespace {
+
+// Starts `music` from the top, fading in over `fade_ms`, in a free slot (or
+// the quieter one). With the device locked.
+void StartSong(Music music, unsigned fade_ms) {
+    Track* slot = &g.tracks.front();
     for (Track& t : g.tracks) {
-        t.target = 0.0f;
-        if (t.clip == clip)
+        if (!t.clip) {
+            slot = &t;
+            break;
+        }
+        if (t.level < slot->level)
             slot = &t;
     }
-    if (!slot) {
-        slot = &g.tracks.front();
-        for (Track& t : g.tracks)
-            if (!t.clip || t.level < slot->level)
-                slot = &t;
-        *slot = Track{.clip = clip, .pos = 0, .level = 0.0f, .target = 1.0f};
+    const Clip* clip = &g.music[static_cast<std::size_t>(music)];
+    *slot = Track{.clip = clip->samples.empty() ? nullptr : clip,
+                  .music = music,
+                  .pos = 0,
+                  .plays_left = music_plays(music),
+                  .ending = false,
+                  .level = 0.0f,
+                  .target = 1.0f,
+                  .step = FadeStep(fade_ms)};
+}
+
+}  // namespace
+
+void PlayMusic(MusicMood mood) {
+    if (!g.device)
+        return;
+    DeviceLock lock;
+    if (g.mood != mood) {
+        // A new mood: everything playing fades out, and the new mood's
+        // music starts now, with no gap.
+        const bool was_stopped = !g.mood;
+        g.mood = mood;
+        g.silent_since = 0;
+        Track* resume = nullptr;
+        for (Track& t : g.tracks) {
+            t.target = 0.0f;
+            t.step = std::max(t.step, FadeStep(kCrossfadeMs));
+            if (t.clip && !t.ending && music_mood(t.music) == mood)
+                resume = &t;
+        }
+        if (resume) {
+            resume->target = 1.0f;
+            resume->step = FadeStep(kCrossfadeMs);
+        } else {
+            StartSong(g.playlist.Next(mood), was_stopped ? kSongFadeInMs : kCrossfadeMs);
+        }
+        return;
     }
-    slot->target = 1.0f;
+    // The same mood: once the song is over (faded out and freed), a gap of
+    // silence, then the next.
+    for (const Track& t : g.tracks)
+        if (t.clip)
+            return;
+    const Uint32 now = std::max<Uint32>(SDL_GetTicks(), 1);
+    if (g.silent_since == 0)
+        g.silent_since = now;
+    if (now - g.silent_since >= kSongGapMs) {
+        g.silent_since = 0;
+        StartSong(g.playlist.Next(mood), kSongFadeInMs);
+    }
 }
 
 void StopMusic() {
-    if (!g.device || !g.playing)
+    if (!g.device || !g.mood)
         return;
-    g.playing.reset();
+    g.mood.reset();
     DeviceLock lock;
-    for (Track& t : g.tracks)
+    for (Track& t : g.tracks) {
         t.target = 0.0f;
+        t.step = std::max(t.step, FadeStep(kCrossfadeMs));
+    }
 }
 
 Volumes GetVolumes() {
