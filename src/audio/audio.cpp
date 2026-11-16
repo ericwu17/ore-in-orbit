@@ -75,7 +75,6 @@ struct State {
     Volumes volumes;
     std::optional<MusicMood> mood;  // what PlayMusic() last asked for; none: stopped
     Playlist playlist;
-    Uint32 silent_since = 0;  // SDL_GetTicks() when the last song finished; 0: not yet
     std::array<Uint32, kSoundCount> last_start{};  // SDL_GetTicks() of each sound's last start
     std::uint64_t serial = 0;
 };
@@ -269,7 +268,6 @@ void PlayMusic(MusicMood mood) {
         // music starts now, with no gap.
         const bool was_stopped = !g.mood;
         g.mood = mood;
-        g.silent_since = 0;
         Track* resume = nullptr;
         for (Track& t : g.tracks) {
             t.target = 0.0f;
@@ -285,18 +283,12 @@ void PlayMusic(MusicMood mood) {
         }
         return;
     }
-    // The same mood: once the song is over (faded out and freed), a gap of
-    // silence, then the next.
+    // The same mood: once the song is over (faded out and freed), the next
+    // starts straight away.
     for (const Track& t : g.tracks)
         if (t.clip)
             return;
-    const Uint32 now = std::max<Uint32>(SDL_GetTicks(), 1);
-    if (g.silent_since == 0)
-        g.silent_since = now;
-    if (now - g.silent_since >= kSongGapMs) {
-        g.silent_since = 0;
-        StartSong(g.playlist.Next(mood), kSongFadeInMs);
-    }
+    StartSong(g.playlist.Next(mood), kSongFadeInMs);
 }
 
 void StopMusic() {
