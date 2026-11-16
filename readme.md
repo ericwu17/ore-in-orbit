@@ -560,8 +560,7 @@ One directory per layer under `src/`; includes name their layer
   - `playlist.h` — the music's shuffle (header-only, tested headless).
   - `audio.h/.cpp` — a small mixer: decoding the embedded WAVs, the music
     (songs fading in and out, crossfading on a change of mood) under any
-    number of effects, the
-    volumes.
+    number of effects, the volumes.
   - `embedded_sounds.h/.cpp` — the embedded WAV files, by path (in their
     own file: they're large).
 - `src/app/` — `main.cpp` (window, GL context, screen switching,
