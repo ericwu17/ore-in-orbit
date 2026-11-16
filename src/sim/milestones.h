@@ -1,15 +1,15 @@
-// milestones.h — the game's goals: deliver items to the bridge to unlock the
-// next tier of recipes, and bigger ship layouts (see ship_layout.h).
+// milestones.h — the game's goals: produce items to unlock the next tier of
+// recipes, and bigger ship layouts (see ship_layout.h).
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
 // The milestones come one at a time, in order. Items count toward the
-// current one when a belt (or building) delivers them into the bridge, not
-// when they are hand-crafted or refunded; they still go into the inventory,
-// so nothing is used up. What counts is net: an item an unloader takes out
-// of a bridge counts against it, so items going round from a bridge back
-// into one gain nothing. Completing one unlocks the recipes making the items
-// it lists. A recipe no milestone lists is unlocked from the start, unless
-// it makes the ammunition of a weapon the fleet has yet to find.
+// current one when they are produced: when a machine on any of the fleet's
+// ships, or a bridge hand-crafting, finishes a craft making them. Where they
+// go afterwards doesn't matter, and nothing is used up; moving items about
+// (belts, unloaders, cargo pods, refunds) counts for nothing. Completing one
+// unlocks the recipes making the items it lists. A recipe no milestone lists
+// is unlocked from the start, unless it makes the ammunition of a weapon the
+// fleet has yet to find.
 //
 // Weapons have no recipes at all: they are found, salvaged from beaten enemy
 // ships (see combat.h), and a new game starts with a burst laser. Finding a
@@ -28,7 +28,7 @@
 
 struct Milestone {
     const char* name;
-    std::vector<ItemStack> deliver;  // what to deliver to the bridge
+    std::vector<ItemStack> produce;  // what to produce
     std::vector<ItemKind> unlocks;   // the items whose recipes it unlocks
 };
 
@@ -57,9 +57,8 @@ private:
     friend struct SaveAccess;
 
     std::size_t current = 0;  // index of the milestone being worked on
-    // Delivered toward it, net of what was unloaded, per item kind: below 0
-    // when more were unloaded than delivered.
-    std::array<int, kItemKindCount> delivered{};
+    // Produced toward it, per item kind.
+    std::array<int, kItemKindCount> produced{};
     // The kinds of weapon the fleet has found, in the order it did.
     std::vector<ItemKind> found;
 
@@ -70,15 +69,16 @@ public:
     // The milestone being worked on, or null once every one is complete.
     const Milestone* current_milestone() const;
     bool all_complete() const { return current_milestone() == nullptr; }
-    // How many of `kind` have been delivered toward the current one, net.
-    int delivered_count(ItemKind kind) const { return delivered[static_cast<std::size_t>(kind)]; }
+    // How many of `kind` have been produced toward the current one.
+    int produced_count(ItemKind kind) const { return produced[static_cast<std::size_t>(kind)]; }
 
-    // Counts one item delivered to the bridge; true if that completed the
-    // current milestone (and moved on to the next).
-    bool on_delivered(ItemKind kind);
-    // Counts one item an unloader took out of a bridge against the current
-    // milestone.
-    void on_unloaded(ItemKind kind);
+    // Counts `count` of `kind` produced; true if that completed the current
+    // milestone (and moved on to the next). What's made past the last item a
+    // milestone needs doesn't carry over to the next.
+    bool on_produced(ItemKind kind, int count = 1);
+    // Counts every stack of a craft's outputs; true if that completed the
+    // current milestone.
+    bool on_produced(const std::vector<ItemStack>& stacks);
     // Completes the current milestone at once (the debug menu); false if
     // every one already is.
     bool complete_current();

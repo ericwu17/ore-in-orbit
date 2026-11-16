@@ -135,8 +135,8 @@ void World::advance_tick() {
         return;
     ++current_tick;
 
-    // A milestone completes as the fleet's ships tick (deliveries reach
-    // their bridges).
+    // A milestone completes as the fleet's ships tick (their machines and
+    // bridges finish crafts).
     // Resources run out as they do (collectors gather from their sector's
     // reserves): what was left before, to tell.
     std::vector<std::pair<int, Reserves>> before;

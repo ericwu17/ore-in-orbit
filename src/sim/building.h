@@ -173,8 +173,8 @@ private:
     // order they were asked for; at most one per kind (a count may be 0).
     std::vector<ItemStack> requests;
     // The milestones are the fleet's: every ship's bridge shares one
-    // Progress (see Fleet), and deliveries to any of them count. A bridge
-    // on its own (a lone Ship) has one of its own.
+    // Progress (see Fleet), and what any of them makes counts. A bridge on
+    // its own (a lone Ship) has one of its own.
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
 
 public:
@@ -182,13 +182,11 @@ public:
 
     bool removable() const override { return false; }
     // Advances the front craft job; a finished one puts its outputs in the
-    // inventory.
+    // inventory, and they count toward the current milestone.
     void tick() override;
-    // The ship's core: belts deliver anything into the inventory, and what
-    // they deliver counts toward the current milestone.
+    // The ship's core: belts deliver anything into the inventory.
     bool accepts(ItemKind) const override { return true; }
     void receive(ItemKind kind) override;
-    // What an unloader takes counts against the current milestone.
     const Inventory* storage() const override { return &inventory; }
     void unload(ItemKind kind) override;
 
@@ -598,7 +596,11 @@ public:
     bool on_standby() const { return standby; }
     void set_standby(bool on) { standby = on; }
 
-    void tick() override;
+    // Advances the craft under way, or starts one; a finished one's products
+    // count toward `progress`'s current milestone (if not null). The Ship
+    // passes its bridge's.
+    void craft(Progress* progress);
+    void tick() override { craft(nullptr); }
     std::vector<ItemStack> contents() const override;
     bool accepts(ItemKind kind) const override;
     void receive(ItemKind kind) override { input.add(kind); }

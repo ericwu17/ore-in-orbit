@@ -1,7 +1,7 @@
-// test_milestones.cpp — headless tests for the milestones: deliveries to the
-// bridge count toward the current one (hand-crafts and refunds don't), net
-// of what unloaders take out, completing one moves on and unlocks its
-// recipes, locked recipes can't be hand-crafted or picked for a machine, and
+// test_milestones.cpp — headless tests for the milestones: what machines and
+// hand-crafting produce counts toward the current one (moving items about,
+// into the bridge or out of it, doesn't), completing one moves on and
+// unlocks its recipes, locked recipes can't be hand-crafted or picked for a machine, and
 // every milestone can be reached with what the ones before it unlock, and
 // leaving home never waits on what home might run out of.
 #include "sim/building.h"
@@ -29,8 +29,8 @@ void test_table() {
     assert(!milestones.empty());
     std::array<int, kItemKindCount> unlocked_by{};
     for (const Milestone& m : milestones) {
-        assert(!m.deliver.empty() && !m.unlocks.empty());
-        for (const ItemStack& s : m.deliver)
+        assert(!m.produce.empty() && !m.unlocks.empty());
+        for (const ItemStack& s : m.produce)
             assert(s.count > 0);
         // Each item is unlocked once, and only items with a recipe.
         for (const ItemKind kind : m.unlocks) {
@@ -94,7 +94,7 @@ bool reachable(ItemKind kind, std::size_t before, int depth = 0) {
 void test_no_dead_ends() {
     const std::vector<Milestone>& milestones = all_milestones();
     for (std::size_t i = 0; i < milestones.size(); ++i)
-        for (const ItemStack& s : milestones[i].deliver) {
+        for (const ItemStack& s : milestones[i].produce) {
             if (!reachable(s.kind, i))
                 std::printf("milestone %zu can't get %s\n", i + 1, item_name(s.kind));
             assert(reachable(s.kind, i));
@@ -109,27 +109,29 @@ void test_no_dead_ends() {
     }
 }
 
-// Deliveries count, past what's needed too; the last one completes the
-// milestone, which resets the counts for the next.
+// What's produced counts, past what's needed too; the last one completes
+// the milestone, which resets the counts for the next.
 void test_progress() {
     Progress progress;
     const Milestone& first = all_milestones().front();
     assert(progress.current_milestone() == &first);
     assert(!progress.unlocked(ItemKind::Steel));
-    assert(!progress.on_delivered(ItemKind::Gear));  // not asked for
-    assert(progress.delivered_count(ItemKind::Gear) == 0);
+    assert(!progress.on_produced(ItemKind::Gear));  // not asked for
+    assert(progress.produced_count(ItemKind::Gear) == 0);
 
-    const ItemStack& a = first.deliver[0];
-    const ItemStack& b = first.deliver[1];
+    const ItemStack& a = first.produce[0];
+    const ItemStack& b = first.produce[1];
     for (int i = 0; i < a.count + 5; ++i)
-        assert(!progress.on_delivered(a.kind));
-    assert(progress.delivered_count(a.kind) == a.count + 5);
-    for (int i = 1; i < b.count; ++i)
-        assert(!progress.on_delivered(b.kind));
-    assert(progress.on_delivered(b.kind));
+        assert(!progress.on_produced(a.kind));
+    assert(progress.produced_count(a.kind) == a.count + 5);
+    // A craft making several counts them all.
+    assert(!progress.on_produced({{b.kind, b.count - 2}, {ItemKind::Gear, 1}}));
+    assert(progress.produced_count(b.kind) == b.count - 2);
+    assert(!progress.on_produced(b.kind));
+    assert(progress.on_produced(b.kind));
 
     assert(progress.current_index() == 1);
-    assert(progress.delivered_count(a.kind) == 0 && progress.delivered_count(b.kind) == 0);
+    assert(progress.produced_count(a.kind) == 0 && progress.produced_count(b.kind) == 0);
     for (const ItemKind kind : first.unlocks)
         assert(progress.unlocked(kind));
     assert(!progress.unlocked(ItemKind::Refinery));
@@ -138,7 +140,7 @@ void test_progress() {
     }
     assert(progress.all_complete());
     assert(progress.current_index() == all_milestones().size());
-    assert(!progress.on_delivered(ItemKind::Processor));
+    assert(!progress.on_produced(ItemKind::Processor));
     // Everything but weapons and what only finding one unlocks (see
     // test_combat).
     const auto found_only = [](ItemKind kind) { return is_weapon(kind) || weapon_unlocking(kind).has_value(); };
@@ -151,27 +153,16 @@ void test_progress() {
         assert(progress.unlocked(static_cast<ItemKind>(i)));
 }
 
-// What unloaders take out of a bridge counts against the milestone, below 0
-// if need be; a kind it doesn't ask for isn't counted either way.
-void test_unloaded() {
-    Progress progress;
-    const ItemStack& a = all_milestones().front().deliver[0];
-    progress.on_unloaded(a.kind);
-    progress.on_unloaded(a.kind);
-    assert(progress.delivered_count(a.kind) == -2);
-    progress.on_unloaded(ItemKind::Gear);
-    assert(progress.delivered_count(ItemKind::Gear) == 0);
-    for (int i = 0; i < a.count + 1; ++i)
-        assert(!progress.on_delivered(a.kind));
-    assert(progress.delivered_count(a.kind) == a.count - 1);
-}
-
-// Items going round from the bridge, through an unloader and belts, back
-// into it gain nothing: the count only dips while they're on their way.
-void test_unload_loop() {
+// Moving items about counts for nothing: neither items going round from the
+// bridge, through an unloader and belts, back into it, nor ones put straight
+// into it.
+void test_moving_doesnt_count() {
     World world;
     Ship& ship = world.flagship();
     const Progress& progress = ship.get_bridge().get_progress();
+    assert(ship.insert_item(kBridgeEdge, kBesideBridge, ItemKind::IronPlate));
+    assert(progress.produced_count(ItemKind::IronPlate) == 0);
+
     ship.inventory().add(ItemKind::Unloader, 1);
     const GridPos unloader{kBesideBridge.x, kBesideBridge.y + 1};
     assert(ship.place(ItemKind::Unloader, unloader, Direction::East) == BuildResult::Ok);
@@ -182,37 +173,37 @@ void test_unload_loop() {
     assert(ship.place(ItemKind::TransportBelt, kBesideBridge, Direction::West) == BuildResult::Ok);
 
     const int plates = ship.inventory().count(ItemKind::IronPlate);
-    int lowest = 0;
+    bool went_round = false;
     for (Tick t = 0; t < 10 * kTicksPerSecond; ++t) {
         world.advance_tick();
-        lowest = std::min(lowest, progress.delivered_count(ItemKind::IronPlate));
-        assert(progress.delivered_count(ItemKind::IronPlate) <= 0);
+        went_round = went_round || ship.inventory().count(ItemKind::IronPlate) < plates;
+        assert(progress.produced_count(ItemKind::IronPlate) == 0);
     }
-    assert(lowest < 0);  // it did go round
+    assert(went_round);
 
     assert(ship.remove_building(unloader) == BuildResult::Ok);
     for (Tick t = 0; t < 5 * kTicksPerSecond; ++t)
         world.advance_tick();
-    assert(progress.delivered_count(ItemKind::IronPlate) == 0);
+    assert(progress.produced_count(ItemKind::IronPlate) == 0);
     assert(ship.inventory().count(ItemKind::IronPlate) == plates);
 }
 
-// On the ship: what a neighbor puts into the bridge counts, hand-crafts
-// don't; locked recipes are refused by hand and in machines.
+// On the ship: hand-crafts count when they finish, and so do a machine's
+// crafts, whether or not its products go anywhere; locked recipes are
+// refused by hand and in machines.
 void test_on_ship() {
     World world;
     Ship& ship = world.flagship();
     Bridge& bridge = ship.get_bridge();
     const Progress& progress = bridge.get_progress();
 
-    assert(ship.insert_item(kBridgeEdge, kBesideBridge, ItemKind::IronPlate));
-    assert(progress.delivered_count(ItemKind::IronPlate) == 1);
     const Recipe& iron = *recipe_for(ItemKind::IronPlate);
     ship.inventory().add(ItemKind::IronOre, 1);
     assert(bridge.queue_craft(iron));
+    assert(progress.produced_count(ItemKind::IronPlate) == 0);  // not yet made
     for (Tick t = 0; t < iron.ticks; ++t)
         world.advance_tick();
-    assert(progress.delivered_count(ItemKind::IronPlate) == 1);
+    assert(progress.produced_count(ItemKind::IronPlate) == 1);
 
     // Steel waits for the first milestone, by hand and in a furnace.
     const Recipe& steel = *recipe_for(ItemKind::Steel);
@@ -220,15 +211,24 @@ void test_on_ship() {
     ship.inventory().add({{ItemKind::IronPlate, 10}, {ItemKind::Carbon, 2}, {ItemKind::Steel, 2},
                           {ItemKind::Gear, 2}});
     assert(!bridge.can_hand_craft(frame) && !bridge.queue_craft(frame));
+    // A furnace on its own, with nowhere to put out its plates.
     const GridPos furnace{kBesideBridge.x + 1, kBesideBridge.y + 2};
     assert(ship.place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);
     assert(!ship.set_recipe(furnace, &steel));
     assert(ship.set_recipe(furnace, &iron));
+    const GridPos fed_from{furnace.x - 1, furnace.y};
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    for (int i = 0; i < 2; ++i)
+        assert(ship.insert_item(furnace, fed_from, ItemKind::IronOre));
+    for (Tick t = 0; t < 3 * iron.ticks; ++t)
+        world.advance_tick();
+    assert(progress.produced_count(ItemKind::IronPlate) == 3);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates);  // still in the furnace
 
-    // Deliver the rest of the first milestone.
-    for (const ItemStack& s : all_milestones().front().deliver)
-        while (progress.current_index() == 0 && progress.delivered_count(s.kind) < s.count)
-            assert(ship.insert_item(kBridgeEdge, kBesideBridge, s.kind));
+    // Make the rest of the first milestone.
+    for (const ItemStack& s : all_milestones().front().produce)
+        while (progress.current_index() == 0 && progress.produced_count(s.kind) < s.count)
+            bridge.get_progress().on_produced(s.kind);
     assert(progress.current_index() == 1);
     assert(ship.set_recipe(furnace, &steel));
     // The frame waits for the second.
@@ -268,7 +268,7 @@ void test_travel_from_home() {
     std::array<double, kRawResourceCount> cost = raw_cost(
         ItemKind::FuelCell, static_cast<double>(kThrusterCharge * starter_layout().engines.size()));
     for (std::size_t m = 0; m <= *fuel_at; ++m)
-        for (const ItemStack& s : all_milestones()[m].deliver) {
+        for (const ItemStack& s : all_milestones()[m].produce) {
             const std::array<double, kRawResourceCount> part = raw_cost(s.kind, s.count);
             for (std::size_t i = 0; i < cost.size(); ++i)
                 cost[i] += part[i];
@@ -283,9 +283,8 @@ int main() {
     test_table();
     test_no_dead_ends();
     test_progress();
-    test_unloaded();
+    test_moving_doesnt_count();
     test_on_ship();
-    test_unload_loop();
     test_travel_from_home();
     std::puts("test_milestones: all passed");
     return 0;

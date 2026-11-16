@@ -109,12 +109,12 @@ goes wait for the next.
 
 ### Milestones
 
-Progress comes in milestones, shown in the right panel: deliver the items
-each one asks for to the bridge (by belt; hand-crafting doesn't count) to
-unlock the next tier of recipes. What counts is net: an item an unloader
-takes out of the bridge counts against the milestone, so sending items
-round from the bridge back into it gains nothing. Locked recipes show
-greyed out, marked with the milestone that unlocks them.
+Progress comes in milestones, shown in the right panel: produce the items
+each one asks for to unlock the next tier of recipes. An item counts the
+moment it's made, by a machine or by hand-crafting at the bridge; where it
+goes afterwards doesn't matter, and moving items about (belts, unloaders,
+cargo pods) counts for nothing. Locked recipes show greyed out, marked with
+the milestone that unlocks them.
 
 In order: First light, Heavy industry, Deep space (fuel cells, to travel),
 Escape velocity (focus crystals, the first weapon's ammunition), Frontier
@@ -136,11 +136,11 @@ ones have more engines.
 
 Every ship keeps running while another is on screen; the tabs above the grid
 (or `[` and `]`) switch between them, and double-clicking a tab renames that
-ship. Milestones are the fleet's: a delivery to any bridge counts, and a
+ship. Milestones are the fleet's: what any ship makes counts, and a
 recipe unlocked is unlocked on every ship. "Send cargo..." moves items from
 one bridge's inventory to another's, between ships in the same sector: each
-50 items use up a cargo pod, and they land 5 seconds later (cargo, like
-hand-crafting, doesn't count toward a milestone).
+50 items use up a cargo pod, and they land 5 seconds later (cargo doesn't
+count toward a milestone: it was counted when it was made).
 
 A ship can also be a provider (inspect its bridge and tick "Provide to
 ships in this sector"; its tab then shows "(P)"): once a second, it sends
@@ -485,7 +485,7 @@ One directory per layer under `src/`; includes name their layer
     and their settings), turning it, and pasting it all or nothing (each
     piece checked by `Ship::can_place` against the ones before it,
     `PlannedChanges`).
-  - `milestones.h/.cpp` — the milestones (what to deliver, what each
+  - `milestones.h/.cpp` — the milestones (what to produce, what each
     unlocks) and `Progress`, the fleet's way through them (every bridge
     shares one), which gates hand-crafting and machine recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a

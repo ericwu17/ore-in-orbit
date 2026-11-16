@@ -170,9 +170,8 @@ void test_other_sector() {
     assert(fleet.send(from, to, {{ItemKind::Gear, 5}}, 0) == FleetResult::OtherSector);
 }
 
-// Cargo goes into the inventory, but (like hand-crafting) doesn't count
-// toward the milestone; a delivery by belt to any ship does, and unlocks
-// recipes on every ship.
+// Cargo goes into the inventory, but doesn't count toward the milestone;
+// what any ship makes does, and unlocks recipes on every ship.
 void test_shared_progress() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -186,12 +185,20 @@ void test_shared_progress() {
     assert(fleet.send(from, to, {{ItemKind::IronPlate, 10}}, world.get_tick()) == FleetResult::Ok);
     run(world, kTransferTicks);
     assert(second.inventory().count(ItemKind::IronPlate) == 10);
-    assert(progress.delivered_count(ItemKind::IronPlate) == 0);
+    assert(progress.produced_count(ItemKind::IronPlate) == 0);
 
-    // Deliver the whole first milestone to the second ship's bridge.
-    for (const ItemStack& s : first.deliver)
-        for (int i = 0; i < s.count; ++i)
-            assert(second.insert_item(kBridgeEdge, kBesideBridge, s.kind));
+    // Hand-craft the whole first milestone on the second ship.
+    Bridge& bridge = second.get_bridge();
+    for (const ItemStack& s : first.produce) {
+        const Recipe& recipe = *recipe_for(s.kind);
+        assert(recipe.hand_craftable && recipe.outputs.size() == 1 && recipe.outputs.front().count == 1);
+        for (int i = 0; i < s.count; ++i) {
+            bridge.get_inventory().add(recipe.inputs);
+            assert(bridge.queue_craft(recipe));
+        }
+    }
+    while (progress.current_index() == 0 && !bridge.craft_queue().empty())
+        run(world, 1);
     assert(progress.current_index() == 1);
     // Steel is unlocked by it, on the flagship too.
     assert(world.flagship().get_bridge().get_progress().unlocked(ItemKind::Steel));

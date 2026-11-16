@@ -21,10 +21,10 @@
 // they go in whole pods: a part-filled pod goes only once it covers every
 // shortfall it carries, or once it has waited kPartialPodWait.
 //
-// The milestones are the fleet's: every bridge shares one Progress, so a
-// delivery to any of them counts, and a recipe unlocked is unlocked on every
-// ship. Cargo that arrives by pod goes straight into the inventory and,
-// like hand-crafting, doesn't count toward a milestone.
+// The milestones are the fleet's: every bridge shares one Progress, so what
+// any ship produces counts, and a recipe unlocked is unlocked on every ship.
+// Cargo that arrives by pod goes straight into the inventory, and counts for
+// nothing: it was counted when it was made.
 #pragma once
 
 #include "sim/building.h"

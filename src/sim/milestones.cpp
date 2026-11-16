@@ -71,34 +71,32 @@ const Milestone* Progress::current_milestone() const {
     return current < milestones.size() ? &milestones[current] : nullptr;
 }
 
-bool Progress::on_delivered(ItemKind kind) {
+bool Progress::on_produced(ItemKind kind, int count) {
     const Milestone* m = current_milestone();
     if (!m)
         return false;
     bool done = true;
-    for (const ItemStack& s : m->deliver) {
-        int& have = delivered[static_cast<std::size_t>(s.kind)];
+    for (const ItemStack& s : m->produce) {
+        int& have = produced[static_cast<std::size_t>(s.kind)];
         if (s.kind == kind)
-            ++have;
+            have += count;
         done = done && have >= s.count;
     }
     return done && complete_current();
 }
 
-void Progress::on_unloaded(ItemKind kind) {
-    const Milestone* m = current_milestone();
-    if (!m)
-        return;
-    for (const ItemStack& s : m->deliver)
-        if (s.kind == kind)
-            --delivered[static_cast<std::size_t>(kind)];
+bool Progress::on_produced(const std::vector<ItemStack>& stacks) {
+    bool completed = false;
+    for (const ItemStack& s : stacks)
+        completed = on_produced(s.kind, s.count) || completed;
+    return completed;
 }
 
 bool Progress::complete_current() {
     if (all_complete())
         return false;
     ++current;
-    delivered = {};
+    produced = {};
     return true;
 }
 

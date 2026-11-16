@@ -755,7 +755,7 @@ void DrawInspectorWindow(Fleet& fleet, FleetShip& shown_ship) {
 
 namespace {
 
-// The milestone being worked on: what to deliver, how much has been, and
+// The milestone being worked on: what to produce, how much has been, and
 // what it unlocks.
 void DrawMilestone(const Progress& progress) {
     if (!theme::CollapsingSection("Milestone"))
@@ -766,9 +766,9 @@ void DrawMilestone(const Progress& progress) {
         return;
     }
     ImGui::Text("%zu / %zu: %s", progress.current_index() + 1, all_milestones().size(), m->name);
-    ImGui::TextColored(theme::kTextDim, "Deliver to the bridge:");
-    for (const ItemStack& s : m->deliver) {
-        const int have = progress.delivered_count(s.kind);
+    ImGui::TextColored(theme::kTextDim, "Produce:");
+    for (const ItemStack& s : m->produce) {
+        const int have = progress.produced_count(s.kind);
         const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
         ImGui::AlignTextToFramePadding();
         IconImage(ItemIcon(s.kind), ImGui::GetFrameHeight());

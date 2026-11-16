@@ -182,14 +182,12 @@ Bridge::Bridge() : Building(std::nullopt, Direction::North, GridSize{kBridgeSize
 
 void Bridge::receive(ItemKind kind) {
     inventory.add(kind);
-    progress->on_delivered(kind);
 }
 
 void Bridge::unload(ItemKind kind) {
     const bool taken = inventory.take(kind);
     assert(taken);
     (void)taken;
-    progress->on_unloaded(kind);
 }
 
 bool Bridge::can_hand_craft(const Recipe& recipe) const {
@@ -244,6 +242,7 @@ void Bridge::tick() {
     if (++job.elapsed < job.recipe->ticks)
         return;
     inventory.add(job.recipe->outputs);
+    progress->on_produced(job.recipe->outputs);
     queue.pop_front();
 }
 
@@ -566,7 +565,7 @@ bool Machine::can_start() const {
     return true;
 }
 
-void Machine::tick() {
+void Machine::craft(Progress* progress) {
     if (!work) {
         if (!can_start())
             return;
@@ -579,6 +578,8 @@ void Machine::tick() {
     if (*work < recipe->ticks)
         return;
     output.add(recipe->outputs);
+    if (progress)
+        progress->on_produced(recipe->outputs);
     work.reset();
 }
 

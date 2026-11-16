@@ -178,27 +178,22 @@ void test_cargo() {
     assert(count(events, EventKind::CargoLanded, [&](const Event& e) { return e.ship == to; }) == 1);
 }
 
-// The last item a milestone wants, delivered by belt as the ship ticks,
+// The last item a milestone wants, hand-crafted as the ship ticks,
 // completes it: reported once.
 void test_milestone() {
     World world;
-    Ship& ship = world.flagship();
-    const GridPos bridge = layout_to_grid(starter_layout(), starter_layout().bridge);
-    const GridPos edge{bridge.x + kBridgeSize - 1, bridge.y};
-    const GridPos beside{bridge.x + kBridgeSize, bridge.y};
-    // All but one of what the first milestone wants, straight into the bridge.
-    std::vector<ItemStack> wanted = all_milestones().front().deliver;
+    Bridge& bridge = world.flagship().get_bridge();
+    // All but one of what the first milestone wants, made already.
+    std::vector<ItemStack> wanted = all_milestones().front().produce;
     const ItemKind last = wanted.back().kind;
     --wanted.back().count;
-    for (const ItemStack& s : wanted)
-        for (int i = 0; i < s.count; ++i)
-            assert(ship.insert_item(edge, beside, s.kind));
+    assert(!bridge.get_progress().on_produced(wanted));
     assert(world.get_fleet().get_progress().current_index() == 0);
-    // A belt beside the bridge, pointing into it, with the last item on it.
-    ship.inventory().add(ItemKind::TransportBelt);
-    assert(ship.place(ItemKind::TransportBelt, beside, Direction::West) == BuildResult::Ok);
-    assert(ship.insert_item(beside, {beside.x + 1, beside.y}, last));
-    const std::vector<Event> events = run(world, 5 * kTicksPerSecond);
+    // The last one, hand-crafted.
+    const Recipe& recipe = *recipe_for(last);
+    bridge.get_inventory().add(recipe.inputs);
+    assert(bridge.queue_craft(recipe));
+    const std::vector<Event> events = run(world, recipe.ticks);
     assert(world.get_fleet().get_progress().current_index() == 1);
     assert(count(events, EventKind::MilestoneComplete) == 1);
 }

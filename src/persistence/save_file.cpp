@@ -195,14 +195,14 @@ struct SaveAccess {
     }
 
     // The fleet's milestone progress: the milestone being worked on, and
-    // what has been delivered toward it, net, as item counts (below 0 when
-    // more were unloaded than delivered).
+    // what has been produced toward it, as item counts. The key is
+    // "delivered", from when milestones counted deliveries to the bridge.
     static Json save_progress(const Progress& progress) {
-        Json delivered = Json::object();
+        Json produced = Json::object();
         for (int i = 0; i < kItemKindCount; ++i)
-            if (const int n = progress.delivered[static_cast<std::size_t>(i)]; n != 0)
-                delivered[item_id(static_cast<ItemKind>(i))] = n;
-        Json j = {{"milestone", progress.current}, {"delivered", std::move(delivered)}};
+            if (const int n = progress.produced[static_cast<std::size_t>(i)]; n != 0)
+                produced[item_id(static_cast<ItemKind>(i))] = n;
+        Json j = {{"milestone", progress.current}, {"delivered", std::move(produced)}};
         // The kinds of weapon found.
         Json found = Json::array();
         for (const ItemKind w : progress.found)
@@ -223,31 +223,33 @@ struct SaveAccess {
         constexpr std::size_t kMilestonesBeforeReserves = 5;
         if (before_reserves && progress.current >= kMilestonesBeforeReserves)
             progress.current = all_milestones().size();
-        const Json& delivered = j.at("delivered");
-        if (!delivered.is_object())
-            throw LoadError("expected an object of item counts, not " + delivered.dump());
+        const Json& produced = j.at("delivered");
+        if (!produced.is_object())
+            throw LoadError("expected an object of item counts, not " + produced.dump());
         const Milestone* milestone = progress.current_milestone();
-        for (const auto& [id, count] : delivered.items()) {
+        for (const auto& [id, count] : produced.items()) {
             const std::optional<ItemKind> known = load_item(Json(id));
             if (!known)
                 continue;
             const ItemKind kind = *known;
-            const bool asked = milestone && std::any_of(milestone->deliver.begin(), milestone->deliver.end(),
+            const bool asked = milestone && std::any_of(milestone->produce.begin(), milestone->produce.end(),
                                                         [&](const ItemStack& d) { return d.kind == kind; });
             if (!asked && before_reserves)
                 continue;
             if (!asked)
-                throw LoadError(std::string(item_id(kind)) + " delivered, which the milestone doesn't ask for");
-            progress.delivered[static_cast<std::size_t>(kind)] =
-                static_cast<int>(load_int(count, -kMaxSavedCount, kMaxSavedCount));
+                throw LoadError(std::string(item_id(kind)) + " produced, which the milestone doesn't ask for");
+            // Below 0 in a save from when what unloaders took out of a
+            // bridge counted against a milestone: nothing does now.
+            progress.produced[static_cast<std::size_t>(kind)] =
+                std::max(0, static_cast<int>(load_int(count, -kMaxSavedCount, kMaxSavedCount)));
         }
         // A milestone completes as soon as every count reaches what it
         // needs, so they can't all have.
-        if (milestone && std::all_of(milestone->deliver.begin(), milestone->deliver.end(), [&](const ItemStack& d) {
-                return progress.delivered[static_cast<std::size_t>(d.kind)] >= d.count;
+        if (milestone && std::all_of(milestone->produce.begin(), milestone->produce.end(), [&](const ItemStack& d) {
+                return progress.produced[static_cast<std::size_t>(d.kind)] >= d.count;
             })) {
             if (!before_reserves)
-                throw LoadError("everything the milestone needs delivered, but not complete");
+                throw LoadError("everything the milestone needs produced, but not complete");
             progress.complete_current();  // what it asks for now was already there
         }
         // The weapons found (none, without the list).

@@ -80,7 +80,7 @@ World busy_world() {
     Progress& progress = world.flagship().get_bridge().get_progress();
     assert(progress.complete_current() && progress.complete_current());
     for (int i = 0; i < 3; ++i)
-        assert(!progress.on_delivered(ItemKind::AdvancedCircuit));
+        assert(!progress.on_produced(ItemKind::AdvancedCircuit));
     Ship& ship = world.flagship();
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
@@ -231,7 +231,7 @@ void test_round_trip() {
     assert(tender.name == "Tender");
     assert(&tender.ship.get_bridge().get_progress() == &fleet.get_progress());
     assert(&copy.get_bridge().get_progress() == &fleet.get_progress());
-    assert(fleet.get_progress().delivered_count(ItemKind::AdvancedCircuit) == 3);
+    assert(fleet.get_progress().produced_count(ItemKind::AdvancedCircuit) == 3);
     assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].to == tender.id);
 }
 
@@ -379,9 +379,9 @@ void test_refused() {
     });
     refused_after(save, "a milestone past the last", [](Json& j) { progress(j)["milestone"] = 99; });
     refused_after(save, "no milestone", [](Json& j) { progress(j).erase("milestone"); });
-    refused_after(save, "everything the milestone needs delivered, but not complete",
+    refused_after(save, "everything the milestone needs produced, but not complete",
                   [](Json& j) { progress(j)["delivered"] = {{"IronPlate", 50}, {"CopperPlate", 20}}; });
-    refused_after(save, "a delivery the milestone doesn't need",
+    refused_after(save, "a count the milestone doesn't need",
                   [](Json& j) { progress(j)["delivered"] = {{"Gear", 1}}; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Glass", "elapsed": 0}])");
@@ -677,7 +677,7 @@ void test_tunnel_round_trip() {
 
 // Unloaders keep their filter and where they are in their wait and their
 // turn through the kinds, so a loaded game unloads just as the original
-// does; and the milestone's count may be below 0.
+// does.
 void test_unloader_round_trip() {
     World world;
     Ship& ship = world.flagship();
@@ -695,7 +695,6 @@ void test_unloader_round_trip() {
         for (int i = 0; i < 10; ++i)
             assert(ship.insert_item(from, {x0 - 1, c + 8}, kind));
     run(world, kUnloaderTicks + 3);
-    ship.get_bridge().get_progress().on_unloaded(ItemKind::IronPlate);
 
     const std::string text = save_text(world);
     std::string error;
@@ -706,7 +705,6 @@ void test_unloader_round_trip() {
     const auto* u = dynamic_cast<const Unloader*>(copy.building_at(filtered));
     assert(u && u->facing() == Direction::East && u->get_filter() == ItemKind::Gear);
     assert(!dynamic_cast<const Unloader&>(*copy.building_at(unfiltered)).get_filter());
-    assert(loaded->world.get_fleet().get_progress().delivered_count(ItemKind::IronPlate) == -1);
     run(world, 40);
     run(loaded->world, 40);
     assert(save_text(loaded->world) == save_text(world));
@@ -771,6 +769,18 @@ void test_before_requests() {
     assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
 }
 
+// A count below 0, from when what unloaders took out of a bridge counted
+// against a milestone, loads as 0: nothing takes from it now.
+void test_before_production_counts() {
+    Json save = minimal();
+    progress(save)["delivered"] = {{"IronPlate", -4}, {"CopperPlate", 3}};
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    assert(loaded && error.empty());
+    const Progress& p = loaded->world.get_fleet().get_progress();
+    assert(p.produced_count(ItemKind::IronPlate) == 0 && p.produced_count(ItemKind::CopperPlate) == 3);
+}
+
 // What's left to gather in each sector loads back as it was; a save from
 // before resources ran out has as much as a new map would.
 void test_reserves_round_trip() {
@@ -799,7 +809,7 @@ void test_reserves_round_trip() {
     assert(map.at(1).left(ItemKind::IronOre) == 0 && map.at(1).left(ItemKind::CopperOre) > 0);
     const Progress& p = before->world.get_fleet().get_progress();
     assert(p.current_index() == milestone_index("Escape velocity"));
-    assert(p.delivered_count(ItemKind::Processor) == 0 && p.delivered_count(ItemKind::Glass) == 7);
+    assert(p.produced_count(ItemKind::Processor) == 0 && p.produced_count(ItemKind::Glass) == 7);
     // Every old milestone done: every one now is too.
     progress(old)["milestone"] = 5;
     progress(old)["delivered"] = Json::object();
@@ -921,6 +931,7 @@ int main() {
     test_unloader_round_trip();
     test_request_round_trip();
     test_before_requests();
+    test_before_production_counts();
     test_provider_round_trip();
     test_reserves_round_trip();
     test_determinism();
