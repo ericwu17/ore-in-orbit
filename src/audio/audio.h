@@ -31,7 +31,7 @@ constexpr int kMaxVoices = 24;
 // Plays `mood`'s music; call it every frame. Its tracks play in a shuffle
 // (playlist.h), one song at a time: each fades in over kSongFadeInMs, plays
 // its loop music_plays() times, fades out over its last kSongFadeOutMs, and
-// is followed by kSongGapMs of silence before the next. A change of mood
+// is followed straight away by the next. A change of mood
 // doesn't wait: whatever was playing fades out over kCrossfadeMs while one
 // of the new mood's tracks fades in over the same (a track of it still
 // fading out, from a moment ago, fades back in from where it had got to).
@@ -42,7 +42,6 @@ void StopMusic();
 constexpr unsigned kCrossfadeMs = 2000;
 constexpr unsigned kSongFadeInMs = 3000;
 constexpr unsigned kSongFadeOutMs = 6000;
-constexpr unsigned kSongGapMs = 10000;
 
 // The volumes, 0 to 1 (1: as made). The effects volume scales every
 // effect, the music volume the track. (The game's defaults are the

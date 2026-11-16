@@ -417,8 +417,8 @@ What plays when:
 
 - The calm tracks play on every screen, shuffled (each plays once before
   any repeats, never the same twice in a row): each song fades in over
-  three seconds, fades out over its last six, and ten seconds of silence
-  follow before the next. While the ship on screen is in a fight, the
+  three seconds and fades out over its last six, and the next follows
+  straight away. While the ship on screen is in a fight, the
   combat tracks take over the same way, except that the change doesn't
   wait: the calm song crossfades straight into a combat one over two
   seconds, and back again when the fight ends. Over a lost fleet the music
