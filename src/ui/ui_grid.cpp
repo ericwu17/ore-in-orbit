@@ -380,6 +380,9 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
         // Right click puts the tool away.
         if (hover_cell && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             LeaveBlueprintTool();
+            // The held blueprint is gone now: drop the spot computed from it,
+            // or the ghost below would be drawn from an empty optional.
+            paste_at.reset();
         } else if (bp.tool == Tool::Copy) {
             if (hover_cell && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 bp.copy_start = hover_cell;
@@ -540,7 +543,7 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
     // Pasting: a ghost of the blueprint, and why it can't go there if so.
     // Clipped to the grid.
     bp.paste_status.clear();
-    if (paste_at) {
+    if (paste_at && bp.tool == Tool::Paste && bp.held) {
         draw->PushClipRect(origin, ImVec2(origin.x + side, origin.y + side), true);  // within the canvas clip
         const PastePlan plan = DrawPasteGhost(draw, ship, *bp.held, *paste_at, origin, cell);
         draw->PopClipRect();
