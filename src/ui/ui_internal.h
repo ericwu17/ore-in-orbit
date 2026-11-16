@@ -210,6 +210,10 @@ FleetShip& CurrentShip(Fleet& fleet);
 // Shows `message` over the grid for kMessageSeconds. One in theme::kBad
 // (the default) says something failed, and buzzes (audio::Sound::UiError).
 void SetMessage(std::string message, ImVec4 color = theme::kBad);
+// An item's name in the middle of a sentence: "iron ore".
+std::string LowerItemName(ItemKind kind);
+// A count with thousands separated: "12,500".
+std::string Thousands(int n);
 // SetMessage() with why a build or removal didn't happen, and its own buzz
 // (audio::Sound::BuildInvalid).
 void SetBuildMessage(BuildResult result);
@@ -508,9 +512,9 @@ void PlayUi(audio::Sound sound, float gain = 1.0f);
 bool SoundCheckbox(const char* label, bool* v);
 // The effects and music volume sliders, `width` wide (the pause menu).
 void VolumeSliders(float width);
-// Plays the sounds of what happened in `world` since the last frame (its
-// events, taken), as heard from the ship on screen. Call once a frame while
-// playing, the game over or not.
-void PlayEventSounds(World& world);
+// Plays the sounds of `events`, what happened in `world` since the last
+// frame (World::take_events), as heard from the ship on screen. Call once a
+// frame while playing, the game over or not.
+void PlayEventSounds(const World& world, const std::vector<Event>& events);
 
 }  // namespace ui

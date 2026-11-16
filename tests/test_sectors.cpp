@@ -1,8 +1,8 @@
 // test_sectors.cpp — headless tests for the star map and travel: the map a
 // seed makes (the same every time, all of it reachable, home safe), what
 // the player knows of it, survey scanners, charging the layout's ion
-// thrusters with fuel cells, jumping, and collectors gathering at their
-// sector's yields.
+// thrusters with fuel cells, jumping, collectors gathering at their
+// sector's yields, and running a sector's resources out.
 #include "sim/building.h"
 #include "sim/fleet.h"
 #include "sim/sector.h"
@@ -83,13 +83,41 @@ void test_generate() {
             // Only home is visited; the others are surveyed only when visited.
             assert(s.visited == (i == 0) && s.surveyed == (i == 0));
         }
-        // Home: safe, everything at 100%; its neighbors an easy first step.
+        // Home: safe, everything at 100% but iridium, none of which is
+        // there; its neighbors an easy first step, with everything between
+        // them.
         const Sector& home = map.at(0);
         assert(home.name == "Home" && home.threat == 0);
-        for (const int y : home.yields)
-            assert(y == 100);
+        for (int r = 0; r < kRawResourceCount; ++r)
+            assert(home.yields[static_cast<std::size_t>(r)] == (kRawResources[r] == ItemKind::IridiumOre ? 0 : 100));
+        assert(home.reserves == kHomeReserves);
         for (const int n : home.neighbors)
             assert(map.at(n).threat <= 1);
+        for (int r = 0; r < kRawResourceCount; ++r)
+            assert(std::any_of(home.neighbors.begin(), home.neighbors.end(), [&](int n) {
+                return map.at(n).yields[static_cast<std::size_t>(r)] > 0;
+            }));
+        // Elsewhere, what there is comes at least as fast as at home, faster
+        // further out, and there's more of it.
+        double near_total = 0.0;
+        double far_total = 0.0;
+        int near_count = 0;
+        int far_count = 0;
+        for (int i = 1; i < map.size(); ++i) {
+            const Sector& s = map.at(i);
+            assert(s.reserves == starting_reserves(s, false));
+            for (std::size_t r = 0; r < s.yields.size(); ++r) {
+                const int y = s.yields[r];
+                assert(y == 0 || y >= 100);
+                assert((y == 0) == (s.reserves[r] == 0));
+                if (y == 0)
+                    continue;
+                assert(s.reserves[r] > home.reserves[r]);
+                (i <= map.size() / 2 ? near_total : far_total) += y;  // the index grows outward
+                ++(i <= map.size() / 2 ? near_count : far_count);
+            }
+        }
+        assert(far_total / far_count > near_total / near_count + 30.0);
     }
     // The same seed, the same map; another seed, another.
     const StarMap a = StarMap::generate(7);
@@ -253,6 +281,85 @@ void test_launch_in_sector() {
     assert(fleet.find(id)->ship.get_yields() == yields);
 }
 
+// A sector's resources run out: each catch takes one from its reserves,
+// and once a resource is gone, collectors aimed at it stall there for good
+// (and it's told, once); what else is there goes on.
+void test_run_out() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add(ItemKind::AsteroidCollector, 2);
+    assert(ship.place(ItemKind::AsteroidCollector, kCollectorA) == BuildResult::Ok);
+    assert(ship.place(ItemKind::AsteroidCollector, kCollectorB) == BuildResult::Ok);
+    assert(ship.set_collector_target(kCollectorA, ItemKind::IronOre));
+    assert(ship.set_collector_target(kCollectorB, ItemKind::Carbon));
+    const auto* iron = dynamic_cast<const Collector*>(ship.building_at(kCollectorA));
+    const auto* carbon = dynamic_cast<const Collector*>(ship.building_at(kCollectorB));
+    const Tick interval = iron->get_spec().interval;
+    const Sector& home = world.get_map().at(0);
+    assert(home.left(ItemKind::IronOre) == kHomeReserves[0] && !home.run_out(ItemKind::IronOre));
+    // Iridium was never there: not run out, just none.
+    assert(home.left(ItemKind::IridiumOre) == 0 && !home.run_out(ItemKind::IridiumOre));
+
+    world.drain_sector(0, 3);
+    assert(home.left(ItemKind::IronOre) == 3 && home.left(ItemKind::Carbon) == 3);
+    run(world, interval * 2);
+    assert(iron->stored() == 2 && home.left(ItemKind::IronOre) == 1 && !iron->is_exhausted());
+    (void)world.take_events();
+    run(world, interval * 5);
+    // Three caught in all, the last of it, and no more.
+    assert(iron->stored() == 3 && carbon->stored() == 3);
+    assert(home.left(ItemKind::IronOre) == 0 && home.run_out(ItemKind::IronOre));
+    assert(iron->is_exhausted() && carbon->is_exhausted());
+    const std::vector<Event> events = world.take_events();
+    const auto told = [&](ItemKind kind) {
+        return std::count_if(events.begin(), events.end(), [&](const Event& e) {
+            return e.kind == EventKind::ResourceRunOut && e.sector == 0 && e.item == kind;
+        });
+    };
+    assert(told(ItemKind::IronOre) == 1 && told(ItemKind::Carbon) == 1 && told(ItemKind::Silica) == 0);
+    run(world, interval * 5);
+    assert(iron->stored() == 3);
+    const std::vector<Event> later = world.take_events();
+    assert(std::none_of(later.begin(), later.end(), [](const Event& e) { return e.kind == EventKind::ResourceRunOut; }));
+
+    // Re-aimed at what's still there, it gathers again.
+    assert(ship.set_collector_target(kCollectorA, ItemKind::Silica));
+    run(world, interval * 2);
+    assert(!iron->is_exhausted() && iron->items().count(ItemKind::Silica) >= 1);
+    assert(home.left(ItemKind::Silica) < 3);
+}
+
+// Ships in one sector gather from the same reserves; a ship on its own
+// (not in a fleet) has no end of them.
+void test_shared_reserves() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    world.flagship().inventory().add(ItemKind::ShipStarterPack);
+    world.flagship().inventory().add(starter_layout().cost);
+    int id = 0;
+    assert(fleet.launch(fleet.flagship().id, starter_layout(), &id) == FleetResult::Ok);
+    for (Ship* ship : {&world.flagship(), &fleet.find(id)->ship}) {
+        ship->inventory().add(ItemKind::AsteroidCollector);
+        assert(ship->place(ItemKind::AsteroidCollector, kCollectorA) == BuildResult::Ok);
+        assert(ship->set_collector_target(kCollectorA, ItemKind::CopperOre));
+    }
+    world.drain_sector(0, 5);
+    const Tick interval = collector_spec(ItemKind::AsteroidCollector).interval;
+    run(world, interval * 10);
+    const auto caught = [](const Ship& ship) {
+        return dynamic_cast<const Collector*>(ship.building_at(kCollectorA))->stored();
+    };
+    assert(caught(world.flagship()) + caught(fleet.find(id)->ship) == 5);
+    assert(world.get_map().at(0).left(ItemKind::CopperOre) == 0);
+
+    Ship alone = Ship::new_game();
+    alone.inventory().add(ItemKind::AsteroidCollector);
+    assert(alone.place(ItemKind::AsteroidCollector, kCollectorA) == BuildResult::Ok);
+    for (Tick t = 0; t < interval * 4; ++t)
+        alone.tick();
+    assert(caught(alone) == 4);
+}
+
 }  // namespace
 
 int main() {
@@ -263,6 +370,8 @@ int main() {
     test_jump();
     test_yields();
     test_launch_in_sector();
+    test_run_out();
+    test_shared_reserves();
     std::puts("test_sectors: all passed");
     return 0;
 }

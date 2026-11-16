@@ -2,10 +2,12 @@
 // bridge count toward the current one (hand-crafts and refunds don't), net
 // of what unloaders take out, completing one moves on and unlocks its
 // recipes, locked recipes can't be hand-crafted or picked for a machine, and
-// every milestone can be reached with what the ones before it unlock.
+// every milestone can be reached with what the ones before it unlock, and
+// leaving home never waits on what home might run out of.
 #include "sim/building.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
+#include "sim/sector.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 #include "sim/world.h"
@@ -233,6 +235,48 @@ void test_on_ship() {
     assert(!bridge.can_hand_craft(frame));
 }
 
+// What `count` of `kind` take in raw resources, by kRawResources index.
+std::array<double, kRawResourceCount> raw_cost(ItemKind kind, double count) {
+    std::array<double, kRawResourceCount> cost{};
+    if (const std::optional<int> r = raw_resource_index(kind)) {
+        cost[static_cast<std::size_t>(*r)] = count;
+        return cost;
+    }
+    const Recipe* recipe = recipe_for(kind);
+    assert(recipe);
+    const double runs = count / recipe->outputs.front().count;
+    for (const ItemStack& in : recipe->inputs) {
+        const std::array<double, kRawResourceCount> part = raw_cost(in.kind, runs * in.count);
+        for (std::size_t i = 0; i < cost.size(); ++i)
+            cost[i] += part[i];
+    }
+    return cost;
+}
+
+// Home's resources run out, so leaving it can't wait on anything they might
+// not cover: fuel cells take only what home has, are unlocked before
+// Escape velocity (which a player who spent home's silica couldn't finish),
+// and the milestones up to them and a first jump take well under half of
+// what home holds.
+void test_travel_from_home() {
+    const std::optional<std::size_t> fuel_at = milestone_unlocking(ItemKind::FuelCell);
+    assert(fuel_at && *fuel_at < milestone_index("Escape velocity"));
+    const auto fuel = raw_cost(ItemKind::FuelCell, 1.0);
+    for (int r = 0; r < kRawResourceCount; ++r)
+        assert(fuel[static_cast<std::size_t>(r)] == 0.0 || kRawResources[r] == ItemKind::Carbon);
+
+    std::array<double, kRawResourceCount> cost = raw_cost(
+        ItemKind::FuelCell, static_cast<double>(kThrusterCharge * starter_layout().engines.size()));
+    for (std::size_t m = 0; m <= *fuel_at; ++m)
+        for (const ItemStack& s : all_milestones()[m].deliver) {
+            const std::array<double, kRawResourceCount> part = raw_cost(s.kind, s.count);
+            for (std::size_t i = 0; i < cost.size(); ++i)
+                cost[i] += part[i];
+        }
+    for (std::size_t i = 0; i < cost.size(); ++i)
+        assert(cost[i] * 2.0 <= kHomeReserves[i]);
+}
+
 }  // namespace
 
 int main() {
@@ -242,6 +286,7 @@ int main() {
     test_unloaded();
     test_on_ship();
     test_unload_loop();
+    test_travel_from_home();
     std::puts("test_milestones: all passed");
     return 0;
 }

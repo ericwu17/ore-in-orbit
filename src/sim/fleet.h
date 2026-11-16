@@ -32,6 +32,7 @@
 #include "sim/game_types.h"
 #include "sim/milestones.h"
 #include "sim/recipes.h"
+#include "sim/sector.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 
@@ -172,5 +173,7 @@ public:
     // One simulation step at tick `now`: every ship ticks, then the cargo
     // due by `now` lands (each landing reported in `events`), then (every
     // kDispatchInterval) providers send what is requested.
-    void tick(Tick now, EventLog& events);
+    // Each ship's collectors gather from its sector's reserves on `map`
+    // (null: no end to them).
+    void tick(Tick now, EventLog& events, StarMap* map = nullptr);
 };

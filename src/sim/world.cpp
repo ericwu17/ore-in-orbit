@@ -137,10 +137,22 @@ void World::advance_tick() {
 
     // A milestone completes as the fleet's ships tick (deliveries reach
     // their bridges).
+    // Resources run out as they do (collectors gather from their sector's
+    // reserves): what was left before, to tell.
+    std::vector<std::pair<int, Reserves>> before;
+    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
+        if (std::none_of(before.begin(), before.end(), [&](const auto& b) { return b.first == s->sector; }))
+            before.emplace_back(s->sector, map.at(s->sector).reserves);
     const std::size_t milestone = fleet.get_progress().current_index();
-    fleet.tick(current_tick, events);
+    fleet.tick(current_tick, events, &map);
     if (fleet.get_progress().current_index() > milestone)
         events.push({.kind = EventKind::MilestoneComplete});
+    for (const auto& [sector, was] : before)
+        for (int r = 0; r < kRawResourceCount; ++r) {
+            const auto i = static_cast<std::size_t>(r);
+            if (was[i] > 0 && map.at(sector).reserves[i] == 0)
+                events.push({.kind = EventKind::ResourceRunOut, .sector = sector, .item = kRawResources[r]});
+        }
     report_engines();
 
     fight();
@@ -207,6 +219,13 @@ bool World::defeat_enemy(int ship) {
             return true;
         }
     return false;
+}
+
+void World::drain_sector(int sector, int left) {
+    if (sector < 0 || sector >= map.size())
+        return;
+    for (int& r : map.at(sector).reserves)
+        r = std::min(r, std::max(left, 0));
 }
 
 void World::reveal_map() {

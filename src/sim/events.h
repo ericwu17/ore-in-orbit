@@ -35,6 +35,7 @@ enum class EventKind {
     ThrustersCharged,   // every engine of ship `ship` charged and online: it can jump
     Jumped,             // ship `ship` jumped, to sector `sector`
     SectorSurveyed,     // sector `sector` surveyed for the first time
+    ResourceRunOut,     // the last of raw resource `item` in sector `sector` was gathered
 };
 
 struct Event {
@@ -42,7 +43,7 @@ struct Event {
     int ship = 0;        // the player's ship it concerns (an id), 0 for none
     int sector = -1;     // where it happened, -1 for nowhere in particular
     bool enemy = false;  // in a fight: on (or by) the enemy ship
-    ItemKind item = ItemKind::BurstLaser;  // the weapon, for WeaponFired and shots
+    ItemKind item = ItemKind::BurstLaser;  // the weapon, for WeaponFired and shots; what ran out
 };
 
 class EventLog {

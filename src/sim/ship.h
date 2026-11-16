@@ -266,6 +266,9 @@ public:
     // belt's front item goes to what it points at (a tunnel's, to its exit),
     // then each building puts one item of output out to a neighbor, and
     // each ready unloader takes one out of storage. One shield layer down
-    // (if any) recharges.
-    void tick();
+    // (if any) recharges. Collectors gather from `reserves`, what's left of
+    // each raw resource where the ship is, taking what they catch out of
+    // it (see Collector::gather); null, as for a ship on its own, gives
+    // them no end of it.
+    void tick(Reserves* reserves = nullptr);
 };

@@ -118,6 +118,20 @@ void SetMessage(std::string message, ImVec4 color) {
     ShowMessage(std::move(message), color);
 }
 
+std::string LowerItemName(ItemKind kind) {
+    std::string name = item_name(kind);
+    if (!name.empty())
+        name[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
+    return name;
+}
+
+std::string Thousands(int n) {
+    std::string digits = std::to_string(n < 0 ? -static_cast<long long>(n) : n);
+    for (int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3)
+        digits.insert(static_cast<std::size_t>(i), ",");
+    return n < 0 ? "-" + digits : digits;
+}
+
 void SetBuildMessage(BuildResult result) {
     PlayUi(audio::Sound::BuildInvalid);
     ShowMessage(describe(result), theme::kBad);

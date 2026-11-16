@@ -11,8 +11,8 @@
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
 //     "world": { "tick": 3600, "rng": 12345,
 //       "star_map": { "sectors": [ { "name": "Home", "x": 0, "y": 0, "neighbors": [1, 2],
-//                                    "yields": {...}, "threat": 0, "enemy": null, "beaten": false, "visited": true,
-//                                    "surveyed": true }, ... ] },
+//                                    "yields": {...}, "reserves": {...}, "threat": 0, "enemy": null,
+//                                    "beaten": false, "visited": true, "surveyed": true }, ... ] },
 //       "fleet": {
 //         "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
 //         "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
