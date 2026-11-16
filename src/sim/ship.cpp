@@ -460,7 +460,7 @@ bool Ship::set_collector_target(GridPos p, ItemKind target) {
     auto* collector = dynamic_cast<Collector*>(building_at_mut(p));
     if (!collector || !collector->can_target(target))
         return false;
-    collector->set_target(target);
+    inventory().add(collector->set_target(target));
     update_yield(*collector);
     return true;
 }

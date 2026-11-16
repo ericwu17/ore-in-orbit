@@ -259,9 +259,10 @@ public:
     ItemKind get_target() const { return target; }
     // Whether it can be aimed at `kind` (one of its spec's targets).
     bool can_target(ItemKind kind) const;
-    // Aims it at `kind`, which can_target() must allow. What it already
-    // caught stays in the buffer.
-    void set_target(ItemKind kind);
+    // Aims it at `kind`, which can_target() must allow. Returns what it
+    // had caught, emptying the buffer, for the caller to refund (nothing if
+    // `kind` is already its target).
+    std::vector<ItemStack> set_target(ItemKind kind);
     // Whether it runs only while the bridge requests its target (see the
     // top of this file); new ones always run.
     bool get_only_when_requested() const { return only_when_requested; }
@@ -582,9 +583,10 @@ public:
 
     const Recipe* get_recipe() const { return recipe; }
     // Switches to `r` (null: none), which it must be able to run. Returns
-    // the ingredients it was holding (delivered, and those of a craft in
-    // progress, which is dropped), for the caller to refund. Products
-    // already made stay in the output buffer.
+    // everything it was holding (ingredients delivered, those of a craft in
+    // progress, which is dropped, and products waiting to go out), emptying
+    // both buffers, for the caller to refund (nothing if `r` is already its
+    // recipe).
     std::vector<ItemStack> set_recipe(const Recipe* r);
 
     // Whether it runs only while the bridge requests its recipe's product

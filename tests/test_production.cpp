@@ -61,8 +61,9 @@ void test_asteroid_rate_and_buffer() {
 }
 
 // A collector catches only what it's aimed at: iron ore when new, then
-// whatever it's switched to, with what it already caught left in its
-// buffer. Only the tractor array gathers iridium.
+// whatever it's switched to. Switching hands back what it already caught,
+// emptying its buffer; re-aiming it at its target changes nothing. Only the
+// tractor array gathers iridium.
 void test_targets() {
     const auto c = make_collector(ItemKind::AsteroidCollector);
     const CollectorSpec& spec = c->get_spec();
@@ -70,11 +71,15 @@ void test_targets() {
     tick(*c, spec.interval * 2);
     assert(c->items().count(ItemKind::IronOre) == 2);
 
-    c->set_target(ItemKind::Silica);
+    assert(c->set_target(ItemKind::IronOre).empty());
+    assert(c->stored() == 2);
+    const std::vector<ItemStack> refund = c->set_target(ItemKind::Silica);
+    assert(refund.size() == 1 && refund.front().kind == ItemKind::IronOre && refund.front().count == 2);
+    assert(c->stored() == 0);
     tick(*c, spec.interval * 3);
-    assert(c->items().count(ItemKind::IronOre) == 2);
+    assert(c->items().count(ItemKind::IronOre) == 0);
     assert(c->items().count(ItemKind::Silica) == 3);
-    assert(c->stored() == 5);
+    assert(c->stored() == 3);
 
     for (const ItemKind target : spec.targets)
         assert(item_category(target) == ItemCategory::RawResource);
@@ -99,13 +104,21 @@ void test_on_ship() {
         world.advance_tick();
     assert(c->stored() == 3);
 
-    // Aiming it goes through the ship; what it can't gather is refused.
+    // Aiming it goes through the ship, which takes back what it caught;
+    // what it can't gather is refused.
+    const int ore = ship.inventory().count(ItemKind::IronOre);
     assert(ship.set_collector_target(kOnHull, ItemKind::Carbon));
     assert(c->get_target() == ItemKind::Carbon);
+    assert(c->stored() == 0);
+    assert(ship.inventory().count(ItemKind::IronOre) == ore + 3);
     assert(!ship.set_collector_target(kOnHull, ItemKind::IridiumOre));
     assert(c->get_target() == ItemKind::Carbon);
     assert(!ship.set_collector_target(kBridgePos, ItemKind::Carbon));
 
+    // Removing it refunds what it caught since.
+    for (Tick t = 0; t < c->get_spec().interval * 3; ++t)
+        world.advance_tick();
+    assert(c->items().count(ItemKind::Carbon) == 3);
     const int items_before = ship.inventory().total() - ship.inventory().count(ItemKind::AsteroidCollector);
     const int collectors = ship.inventory().count(ItemKind::AsteroidCollector);
     assert(ship.remove_building(kOnHull) == BuildResult::Ok);

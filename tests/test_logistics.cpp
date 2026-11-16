@@ -234,19 +234,32 @@ void test_machine_recipe() {
     assert(furnace.get_output().count(ItemKind::IronPlate) == 2);
     assert(!furnace.crafting());
 
-    // Switching recipe refunds ingredients, even those of a craft under way;
-    // removing it refunds what it made.
+    // Picking the recipe it already runs changes nothing.
     assert(ship.insert_item(from_east, east, ItemKind::IronOre));
     assert(ship.insert_item(from_east, east, ItemKind::IronOre));
     run(world, 10);
     assert(furnace.crafting() && furnace.get_input().count(ItemKind::IronOre) == 1);
     const int ore = ship.inventory().count(ItemKind::IronOre);
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
+    assert(ship.set_recipe(p, &iron));
+    assert(furnace.crafting() && furnace.get_input().count(ItemKind::IronOre) == 1);
+    assert(ship.inventory().count(ItemKind::IronOre) == ore);
+
+    // Switching recipe empties it: ingredients, even those of a craft under
+    // way, and the products waiting to go out all go back to the bridge.
     assert(ship.set_recipe(p, nullptr));
     assert(ship.inventory().count(ItemKind::IronOre) == ore + 2);
-    assert(!furnace.crafting());
-    const int plates = ship.inventory().count(ItemKind::IronPlate);
-    assert(ship.remove_building(p) == BuildResult::Ok);
     assert(ship.inventory().count(ItemKind::IronPlate) == plates + 2);
+    assert(!furnace.crafting());
+    assert(furnace.get_input().total() == 0 && furnace.get_output().total() == 0);
+
+    // Removing it refunds what it made since.
+    assert(ship.set_recipe(p, &iron));
+    assert(ship.insert_item(from_east, east, ItemKind::IronOre));
+    run(world, iron.ticks);
+    assert(furnace.get_output().count(ItemKind::IronPlate) == 1);
+    assert(ship.remove_building(p) == BuildResult::Ok);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates + 3);
 }
 
 // Output waits while there's nowhere for it to go, and the machine stops

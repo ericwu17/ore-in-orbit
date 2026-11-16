@@ -272,9 +272,14 @@ bool Collector::can_target(ItemKind kind) const {
     return std::find(spec->targets.begin(), spec->targets.end(), kind) != spec->targets.end();
 }
 
-void Collector::set_target(ItemKind kind) {
+std::vector<ItemStack> Collector::set_target(ItemKind kind) {
     assert(can_target(kind));
+    if (kind == target)
+        return {};
+    std::vector<ItemStack> refund = caught.stacks();
+    caught = Inventory{};
     target = kind;
+    return refund;
 }
 
 void Collector::gather(int* left) {
@@ -542,10 +547,11 @@ int Machine::crafting_speed() const {
 
 std::vector<ItemStack> Machine::set_recipe(const Recipe* r) {
     assert(!r || can_run(*r));
-    std::vector<ItemStack> refund = input.stacks();
-    if (work)
-        refund.insert(refund.end(), recipe->inputs.begin(), recipe->inputs.end());
+    if (r == recipe)
+        return {};
+    std::vector<ItemStack> refund = contents();
     input = Inventory{};
+    output = Inventory{};
     work.reset();
     recipe = r;
     return refund;

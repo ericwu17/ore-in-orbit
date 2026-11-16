@@ -615,7 +615,7 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
             EndComboSearch();
             ImGui::EndCombo();
         }
-        ImGui::TextColored(theme::kTextDim, "Changing it returns held ingredients to the bridge.");
+        ImGui::TextColored(theme::kTextDim, "Changing it returns everything it holds to the bridge.");
         ImGui::Spacing();
     }
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {

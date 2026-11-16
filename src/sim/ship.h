@@ -242,8 +242,9 @@ public:
     // looks back through at most a few junctions and sorters in a row.
     bool can_send(GridPos from, Direction toward) const;
     // Sets the recipe of the machine covering `p` (null: none), refunding
-    // the ingredients it held to the inventory; false if there's no machine
-    // there, it can't run `recipe` or `recipe` isn't unlocked yet.
+    // everything it held (ingredients and products) to the inventory; false
+    // if there's no machine there, it can't run `recipe` or `recipe` isn't
+    // unlocked yet.
     bool set_recipe(GridPos p, const Recipe* recipe);
     // Sets the filter of the sorter or unloader at `p` (nullopt: none: every
     // item turns at a sorter, an unloader takes every kind); false if there's
@@ -252,8 +253,9 @@ public:
     // The storage (the bridge or a cargo hold) behind the unloader at `p`,
     // which it takes items out of; null if there's none, or no unloader.
     const Building* unload_source(GridPos p) const;
-    // Aims the collector at `p` at `target`; false if there's no collector
-    // there or it can't gather that.
+    // Aims the collector at `p` at `target`, refunding what it had caught to
+    // the inventory; false if there's no collector there or it can't gather
+    // that.
     bool set_collector_target(GridPos p, ItemKind target);
     // Sets whether the collector or machine at `p` runs only while the
     // bridge requests its product; false if there's neither there.
