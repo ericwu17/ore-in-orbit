@@ -351,12 +351,15 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
         ImGui::TextColored(theme::kTextDim,
                            "Visit it, or bring a ship with a survey scanner next door, to learn what's there.");
     } else {
-        ImGui::TextUnformatted("Threat");
-        ImGui::SameLine();
-        if (s.threat == 0)
-            ImGui::TextColored(theme::kGood, "none");
-        else
-            ThreatPips(s.threat);
+        // Once cleared, the threat is gone with its enemy: not shown.
+        if (!s.cleared()) {
+            ImGui::TextUnformatted("Threat");
+            ImGui::SameLine();
+            if (s.threat == 0)
+                ImGui::TextColored(theme::kGood, "none");
+            else
+                ThreatPips(s.threat);
+        }
         if (s.enemy) {
             const EnemyDesign& d = enemy_design(*s.enemy);
             ImGui::TextColored(theme::kBad, "Enemy ship: %s", d.name);
