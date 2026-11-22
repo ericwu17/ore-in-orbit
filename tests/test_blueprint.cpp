@@ -289,6 +289,27 @@ void test_unloaders() {
     assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
 }
 
+// A requester's filter comes with a copy, pastes onto new ones, and goes
+// through a string; a provider has none.
+void test_requesters() {
+    Ship ship = stocked_ship();
+    assert(ship.place(ItemKind::Requester, {x0, c}) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Provider, {x0 + 1, c}) == BuildResult::Ok);
+    assert(ship.set_filter({x0, c}, ItemKind::Steel));
+    assert(!ship.set_filter({x0 + 1, c}, ItemKind::Steel));
+    const std::optional<Blueprint> copy = copy_region(ship, {x0, c}, {x0 + 1, c});
+    assert(copy && copy->buildings.size() == 2);
+
+    const GridPos at{x0, c + 3};
+    assert(paste(ship, *copy, at).pasted);
+    const auto* requester = dynamic_cast<const Requester*>(ship.building_at(at));
+    assert(requester && requester->get_filter() == ItemKind::Steel);
+    assert(dynamic_cast<const Provider*>(ship.building_at({x0 + 1, c + 3})));
+
+    std::string error;
+    assert(blueprint_from_string(blueprint_to_string(*copy), error) == *copy);
+}
+
 // The blueprint string `text` with `change` made to its JSON.
 std::string changed(const std::string& text, const std::function<void(Json&)>& change) {
     Json j = Json::parse(text);
@@ -446,6 +467,7 @@ int main() {
     test_rotate();
     test_tunnels();
     test_unloaders();
+    test_requesters();
     test_strings();
     const fs::path dir = fs::temp_directory_path() / "ore-in-orbit-test-blueprints";
     fs::remove_all(dir);

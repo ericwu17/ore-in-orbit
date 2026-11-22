@@ -155,6 +155,9 @@ std::optional<BuildingSettings> SettingsOf(const Building& b) {
     } else if (const auto* unloader = dynamic_cast<const Unloader*>(&b)) {
         s.filter = unloader->get_filter();
         s.has_filter = true;
+    } else if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
+        s.filter = requester->get_filter();
+        s.has_filter = true;
     } else
         return std::nullopt;
     return s;

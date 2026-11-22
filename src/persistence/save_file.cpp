@@ -172,6 +172,14 @@ struct SaveAccess {
             j["next_out"] = direction_id(router->next_out);
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
+        } else if (const auto* provider = dynamic_cast<const Provider*>(&b)) {
+            j["stored"] = save_inventory(provider->stored);
+            j["cooldown"] = provider->cooldown;
+        } else if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
+            j["filter"] = save_optional_item(requester->filter);
+            j["buffer"] = save_inventory(requester->buffer);
+            j["cooldown"] = requester->cooldown;
+            j["last_received"] = requester->last_received;
         } else if (const auto* thruster = dynamic_cast<const Thruster*>(&b)) {
             j["fuel"] = thruster->fuel;
         } else if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {
@@ -367,6 +375,21 @@ struct SaveAccess {
             router->next_out = load_direction(j.at("next_out"));
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
+        } else if (auto* provider = dynamic_cast<Provider*>(&b)) {
+            provider->stored = load_inventory(j.at("stored"));
+            if (provider->stored.total() > kLinkBuffer)
+                throw LoadError("too many items in a provider");
+            provider->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
+        } else if (auto* requester = dynamic_cast<Requester*>(&b)) {
+            requester->filter = load_item(j.at("filter"));
+            requester->buffer = load_inventory(j.at("buffer"));
+            if (requester->buffer.total() > kLinkBuffer)
+                throw LoadError("too many items in a requester");
+            requester->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
+            // Saves from before requesters took turns by how long they'd
+            // waited have none: never, as for a new one.
+            if (const auto last = j.find("last_received"); last != j.end())
+                requester->last_received = load_tick(*last);
         } else if (auto* thruster = dynamic_cast<Thruster*>(&b)) {
             thruster->fuel = static_cast<int>(load_int(j.at("fuel"), 0, kThrusterCharge));
         } else if (auto* weapon = dynamic_cast<Weapon*>(&b)) {

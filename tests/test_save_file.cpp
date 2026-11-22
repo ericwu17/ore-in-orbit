@@ -15,6 +15,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -566,6 +567,16 @@ void test_refused() {
     refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
             "an unloader waiting longer than it ever does");
+    refused(with_building(R"({"kind": "Provider", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "stored": {"Gear": 21}, "cooldown": 0})"),
+            "a provider holding more than it can");
+    refused(with_building(R"({"kind": "Requester", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "filter": "Gear", "buffer": {"Gear": 21}, "cooldown": 0,
+                              "last_received": 0})"),
+            "a requester holding more than it can");
+    refused(with_building(R"({"kind": "Requester", "x": 70, "y": 64, "facing": "North", "output_side": 0,
+                              "filter": "Gear", "buffer": {}, "cooldown": 99, "last_received": 0})"),
+            "a requester waiting longer than it ever does");
 }
 
 // Cargo in flight names ships by id, and lands after the save's tick, by
@@ -708,6 +719,58 @@ void test_unloader_round_trip() {
     run(world, 40);
     run(loaded->world, 40);
     assert(save_text(loaded->world) == save_text(world));
+}
+
+// Providers keep what they hold and their wait, requesters their filter,
+// what waits to go out and their wait, so a loaded game links just as the
+// original does.
+void test_link_round_trip() {
+    World world;
+    Ship& ship = world.flagship();
+    ship.inventory().add({{ItemKind::Provider, 1}, {ItemKind::Requester, 1}});
+    const GridPos provider{x0, c + 11};
+    const GridPos requester{x0 + 3, c + 11};
+    assert(ship.place(ItemKind::Provider, provider) == BuildResult::Ok);
+    assert(ship.place(ItemKind::Requester, requester) == BuildResult::Ok);
+    assert(ship.set_filter(requester, ItemKind::Gear));
+    for (int i = 0; i < 15; ++i)
+        assert(ship.insert_item(provider, {x0 - 1, c + 11}, i % 3 ? ItemKind::Gear : ItemKind::Steel));
+    run(world, 2 * kLinkTicks + 2);
+    assert(dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().total() > 0);
+
+    const std::string text = save_text(world);
+    std::string error;
+    std::optional<LoadedSave> loaded = load_text(text, error);
+    assert(loaded && error.empty());
+    assert(save_text(loaded->world) == text);
+    const Ship& copy = loaded->world.flagship();
+    const auto& r = dynamic_cast<const Requester&>(*copy.building_at(requester));
+    assert(r.get_filter() == ItemKind::Gear && r.get_last_received() > 0);
+    assert(r.get_last_received() ==
+           dynamic_cast<const Requester&>(*ship.building_at(requester)).get_last_received());
+    assert(r.get_buffer().count(ItemKind::Gear) ==
+           dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().count(ItemKind::Gear));
+    assert(dynamic_cast<const Provider&>(*copy.building_at(provider)).get_stored().count(ItemKind::Steel) == 5);
+    run(world, 40);
+    run(loaded->world, 40);
+    assert(save_text(loaded->world) == save_text(world));
+
+    // A save from before requesters kept when they last pulled loads, as
+    // if they never had.
+    Json old = Json::parse(save_text(world));
+    int erased = 0;
+    const std::function<void(Json&)> erase = [&](Json& j) {
+        if (j.is_object() && j.contains("kind") && j["kind"] == "Requester")
+            erased += static_cast<int>(j.erase("last_received"));
+        if (j.is_structured())
+            for (Json& child : j)
+                erase(child);
+    };
+    erase(old);
+    assert(erased == 1);
+    std::optional<LoadedSave> before = load_text(old.dump(), error);
+    assert(before && error.empty());
+    assert(dynamic_cast<const Requester&>(*before->world.flagship().building_at(requester)).get_last_received() == 0);
 }
 
 // The bridge's requests keep their order and counts, and machines and
@@ -929,6 +992,7 @@ int main() {
     test_round_trip();
     test_tunnel_round_trip();
     test_unloader_round_trip();
+    test_link_round_trip();
     test_request_round_trip();
     test_before_requests();
     test_before_production_counts();

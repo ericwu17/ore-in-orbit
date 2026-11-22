@@ -82,6 +82,12 @@ std::vector<Recipe> make_recipes() {
         // Logistics (First light, Heavy industry).
         R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router).hand(),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
+        // Providers and requesters (Heavy industry): dear, as each pair is
+        // an express belt's worth of items between ships.
+        R(Assemble, 5).in(Steel, 15).in(Gear, 10).in(Circuit, 10).in(ExpressBelt, 5).out(Provider),
+        R(Assemble, 5)
+            .in(Steel, 15).in(Gear, 10).in(Circuit, 10).in(AdvancedCircuit, 2).in(ExpressBelt, 5)
+            .out(Requester),
 
         // Industry (Heavy industry, Deep space).
         R(Assemble, 5).in(Steel, 10).in(Circuit, 10).in(Glass, 10).out(Refinery),

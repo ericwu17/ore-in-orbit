@@ -80,6 +80,8 @@ BUILDINGS = {
     "Router":            (1, 1, "router", BELT, ""),
     "Unloader":          (1, 1, "unloader", STORAGE, ""),
     "CargoHold":         (2, 2, "tile", STORAGE, "C"),
+    "Provider":          (1, 1, "tile", STORAGE, "Pv"),
+    "Requester":         (1, 1, "tile", STORAGE, "Rq"),
     "AsteroidCollector": (2, 2, "tile", COLLECTOR, "A"),
     "TractorArray":      (3, 3, "tile", COLLECTOR, "TA"),
     "SolarFurnace":      (2, 2, "tile", MACHINE, "SF"),

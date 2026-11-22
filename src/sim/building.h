@@ -14,6 +14,8 @@
 //   ├── Router       spreads items out to its neighbors
 //   ├── Unloader     takes items out of the bridge or a cargo hold
 //   ├── CargoHold    item storage
+//   ├── Provider     belted items in, sends them to requesters in the sector
+//   ├── Requester    pulls its filter's item from providers in the sector
 //   ├── Machine      runs recipes: furnace, refinery, fabricators
 //   ├── Thruster     ion thruster (part of the ship's layout): charged with
 //   │                fuel cells for a jump
@@ -544,6 +546,77 @@ public:
     void receive(ItemKind kind) override { stored.add(kind); }
     const Inventory* storage() const override { return &stored; }
     void unload(ItemKind kind) override { stored.take(kind); }
+};
+
+// What a provider holds, and what a requester holds waiting to go out.
+constexpr int kLinkBuffer = 20;
+// Ticks a provider or requester waits after an item before the next: 12 a
+// second, all an express belt carries.
+constexpr Tick kLinkTicks = 5;
+
+// The provider: belts feed it any item, until it holds kLinkBuffer, and it
+// sends them on to requesters in its sector, on any ship of the fleet (its
+// own included), one every kLinkTicks (see Fleet::link). It puts nothing out
+// onto its own neighbors.
+class Provider : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    Inventory stored;
+    Tick cooldown = 0;  // ticks until it can send an item
+
+public:
+    Provider() : Building(ItemKind::Provider, Direction::North, footprint_of(ItemKind::Provider)) {}
+
+    const Inventory& get_stored() const { return stored; }
+    void tick() override;
+    std::vector<ItemStack> contents() const override { return stored.stacks(); }
+    bool accepts(ItemKind) const override { return stored.total() < kLinkBuffer; }
+    void receive(ItemKind kind) override { stored.add(kind); }
+    bool ready() const { return cooldown == 0; }
+    // It sent one `kind`, which it must hold, to a requester: wait.
+    void sent(ItemKind kind);
+};
+
+// The requester: set to an item (its filter), it pulls that item from the
+// providers in its sector, as many as they have, one every kLinkTicks (see
+// Fleet::link), and puts them out to its neighbors as a machine does its
+// products. Without a filter it pulls nothing; while kLinkBuffer of them
+// wait to go out, it pulls no more. Belts can't feed it.
+class Requester : public Building {
+private:
+    // Saving and loading (persistence/save_file.cpp) reads and restores
+    // the private state.
+    friend struct SaveAccess;
+
+    std::optional<ItemKind> filter;
+    Inventory buffer;   // pulled, waiting to go out
+    Tick cooldown = 0;  // ticks until it can pull an item
+    Tick last_received = 0;  // the tick it last pulled an item (0: never)
+
+public:
+    Requester() : Building(ItemKind::Requester, Direction::North, footprint_of(ItemKind::Requester)) {}
+
+    std::optional<ItemKind> get_filter() const { return filter; }
+    // Sets the filter. Returns what was waiting to go out, emptying the
+    // buffer, for the caller to refund (nothing if `item` is already its
+    // filter).
+    std::vector<ItemStack> set_filter(std::optional<ItemKind> item);
+    const Inventory& get_buffer() const { return buffer; }
+    void tick() override;
+    std::vector<ItemStack> contents() const override { return buffer.stacks(); }
+    Inventory* output_buffer() override { return &buffer; }
+    bool ready() const { return cooldown == 0; }
+    // Whether it pulls an item now: it has a filter, is ready, and has room.
+    bool wants() const { return filter && ready() && buffer.total() < kLinkBuffer; }
+    // The tick it last pulled an item (0: never): the one that has waited
+    // longest goes first (see Fleet::link).
+    Tick get_last_received() const { return last_received; }
+    // It pulled one `kind` from a provider at tick `now`: hold it to go out,
+    // and wait.
+    void received(ItemKind kind, Tick now);
 };
 
 // A machine's buffers, in crafts of its recipe: it takes ingredients until

@@ -390,9 +390,48 @@ void Fleet::dispatch(Tick now) {
     partial_since = std::move(still_partial);
 }
 
+void Fleet::link(Tick now) {
+    std::vector<std::pair<int, Provider*>> providers;  // with its sector
+    std::vector<std::pair<int, Requester*>> requesters;
+    for (const std::unique_ptr<FleetShip>& s : ships) {
+        for (const GridPos p : s->ship.placement_order()) {
+            Building* b = s->ship.building_anchored_at(p);
+            if (auto* provider = dynamic_cast<Provider*>(b))
+                providers.push_back({s->sector, provider});
+            else if (auto* requester = dynamic_cast<Requester*>(b))
+                requesters.push_back({s->sector, requester});
+        }
+    }
+    if (providers.empty() || requesters.empty())
+        return;
+    // Longest waiting first; stable, so ties keep fleet order.
+    std::stable_sort(requesters.begin(), requesters.end(), [](const auto& a, const auto& b) {
+        return a.second->get_last_received() < b.second->get_last_received();
+    });
+    for (const auto& [sector, requester] : requesters) {
+        if (!requester->wants())
+            continue;
+        const ItemKind kind = *requester->get_filter();
+        Provider* best = nullptr;
+        int most = 0;
+        for (const auto& [provider_sector, provider] : providers) {
+            const int held = provider->get_stored().count(kind);
+            if (provider_sector == sector && provider->ready() && held > most) {
+                best = provider;
+                most = held;
+            }
+        }
+        if (best) {
+            best->sent(kind);
+            requester->received(kind, now);
+        }
+    }
+}
+
 void Fleet::tick(Tick now, EventLog& events, StarMap* map) {
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick(map ? &map->at(s->sector).reserves : nullptr);
+    link(now);
     std::erase_if(transfers, [&](const Transfer& t) {
         if (t.arrives > now)
             return false;

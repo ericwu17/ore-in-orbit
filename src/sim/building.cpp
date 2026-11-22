@@ -536,6 +536,38 @@ void Unloader::unloaded(ItemKind kind) {
     next_kind = (static_cast<std::size_t>(kind) + 1) % static_cast<std::size_t>(kItemKindCount);
 }
 
+void Provider::tick() {
+    if (cooldown > 0)
+        --cooldown;
+}
+
+void Provider::sent(ItemKind kind) {
+    const bool taken = stored.take(kind);
+    assert(taken);
+    (void)taken;
+    cooldown = kLinkTicks;
+}
+
+std::vector<ItemStack> Requester::set_filter(std::optional<ItemKind> item) {
+    if (item == filter)
+        return {};
+    filter = item;
+    std::vector<ItemStack> refund = buffer.stacks();
+    buffer = Inventory{};
+    return refund;
+}
+
+void Requester::tick() {
+    if (cooldown > 0)
+        --cooldown;
+}
+
+void Requester::received(ItemKind kind, Tick now) {
+    buffer.add(kind);
+    cooldown = kLinkTicks;
+    last_received = now;
+}
+
 bool Machine::crafts(CraftCategory category) const {
     return machine_crafts(*item_kind(), category);
 }
@@ -649,6 +681,10 @@ std::unique_ptr<Building> make_building(ItemKind kind, Direction facing) {
         return std::make_unique<Unloader>(facing);
     case ItemKind::CargoHold:
         return std::make_unique<CargoHold>();
+    case ItemKind::Provider:
+        return std::make_unique<Provider>();
+    case ItemKind::Requester:
+        return std::make_unique<Requester>();
     case ItemKind::SolarFurnace:
     case ItemKind::Refinery:
     case ItemKind::FabricatorMk1:

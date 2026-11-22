@@ -69,6 +69,8 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
             copy.filter = sorter->get_filter();
         if (const auto* unloader = dynamic_cast<const Unloader*>(t.building))
             copy.filter = unloader->get_filter();
+        if (const auto* requester = dynamic_cast<const Requester*>(t.building))
+            copy.filter = requester->get_filter();
         blueprint.buildings.push_back(copy);
     }
     return blueprint;

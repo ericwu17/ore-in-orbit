@@ -4,8 +4,8 @@
 //
 // A blueprint holds what a player sets up, never what is going on: each
 // building's kind, place, facing and settings (a machine's recipe, a
-// collector's target, a sorter's or unloader's filter, whether a machine or
-// collector runs only on the bridge's request), but no items,
+// collector's target, a sorter's, unloader's or requester's filter, whether
+// a machine or collector runs only on the bridge's request), but no items,
 // buffers or progress, which pasting would otherwise conjure up. The
 // layout's own parts (the bridge and engines) are never in one, nor is hull:
 // the ship's is fixed, and pasting needs hull under every building.
@@ -32,7 +32,7 @@ struct BlueprintBuilding {
     Direction facing = Direction::North;    // North for those that don't turn
     const Recipe* recipe = nullptr;         // machines
     std::optional<ItemKind> target;         // collectors
-    std::optional<ItemKind> filter;         // sorters, unloaders
+    std::optional<ItemKind> filter;         // sorters, unloaders, requesters
     bool only_when_requested = false;       // collectors, machines
 
     bool operator==(const BlueprintBuilding&) const = default;

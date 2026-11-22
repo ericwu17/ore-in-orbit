@@ -142,16 +142,24 @@ one bridge's inventory to another's, between ships in the same sector: each
 50 items use up a cargo pod, and they land 5 seconds later (cargo doesn't
 count toward a milestone: it was counted when it was made).
 
-A ship can also be a provider (inspect its bridge and tick "Provide to
-ships in this sector"; its tab then shows "(P)"): once a second, it sends
+For bulk, providers and requesters (Heavy industry) link ships with no pods:
+belt items into a provider (it holds 20, of any kind), and set a requester
+to an item: it pulls that item from the providers in its sector, on any ship
+of the fleet, its own included, as long as they have it, and puts it out to
+its neighbors as a machine does. Each moves 12 items a second, as fast as an
+express belt carries them; more pairs move more. A requester with no item
+set is outlined in amber.
+
+A ship can also be a supplier (inspect its bridge and tick "Supply ships
+in this sector"; its tab then shows "(S)"): once a second, it sends
 the other ships in its sector what their bridges request and don't have,
 from what its own bridge holds beyond its own requests, in cargo pods of
 its own, as above. Cargo already on its
 way counts toward a request, so it isn't sent twice, and the bridge's
-inspector shows it as incoming. With more than one provider there, the one
+inspector shows it as incoming. With more than one supplier there, the one
 with the most of an item to spare sends it (the oldest, on a tie). Pods go
 full: a part-filled one goes only once it covers everything asked for, or
-after waiting 10 seconds for more. A provider short of pods says so, and
+after waiting 10 seconds for more. A supplier short of pods says so, and
 sends only what the pods it has can carry.
 
 ### The star map
@@ -259,12 +267,12 @@ weapon. Buildings mend slowly while no enemy is near.
   turning at corners. Belt tunnels go down one per click, showing what they
   would link to.
 - **Left click a building**: inspect it (in a window that keeps where you
-  move it and how you size it); pick a machine's recipe, a collector's target or a sorter's or
-  unloader's item, and whether a machine or collector runs only while the
+  move it and how you size it); pick a machine's recipe, a collector's target or a sorter's,
+  unloader's or requester's item, and whether a machine or collector runs only while the
   bridge requests it. Inspecting the bridge sets whether its ship is a
-  provider, and lists its item requests, to change, remove or add to, with
-  what's on its way in cargo pods. New machines, collectors, sorters and
-  unloaders start with the settings last picked for their kind (but always run, not
+  supplier, and lists its item requests, to change, remove or add to, with
+  what's on its way in cargo pods. New machines, collectors, sorters,
+  unloaders and requesters start with the settings last picked for their kind (but always run, not
   only on request).
 - **Right click / drag**: remove buildings and refund them (not the bridge
   or the engines, which are part of the ship's layout).
@@ -305,7 +313,7 @@ weapon. Buildings mend slowly while no enemy is near.
 Copy part of the ship (Ctrl+C, or Cmd+C on macOS, then drag a box over it)
 and paste it elsewhere (click; Ctrl/Cmd+V picks the last copy up again).
 A copy holds the buildings in the box with their settings — machine
-recipes, collector targets, sorter and unloader filters and whether machines
+recipes, collector targets, sorter, unloader and requester filters and whether machines
 and collectors run only on request — but never the
 items in them, nor the hull (the ship's layout fixes that). A building
 partly inside the box comes whole; the bridge and the engines never come. R
@@ -358,7 +366,8 @@ Every building and item is drawn from a PNG in `assets/sprites/`:
   `SideRight` / `SideBoth` (fed from behind and that side, or both) and
   `Merge` (from both sides, not behind), e.g. `TransportBeltCurveLeft.png`.
   The shape comes from every neighbor that can send items in (belts,
-  unloaders, machines, collectors, routers, fed junctions and sorters).
+  unloaders, machines, collectors, requesters, routers, fed junctions and
+  sorters).
   Items on them follow the shape: round the corner, or in from the side.
   A side's items always start at the back edge and ride the curve in, so
   they take as long to cross whatever feeds the belt from behind.
@@ -462,7 +471,7 @@ One directory per layer under `src/`; includes name their layer
     and running only on them (`product_of`), each kind's footprint
     (`footprint_of`, e.g. 2x2 collectors), the collectors' rates and buffers
     (`CollectorSpec`), belts (`Conveyor`, `Tunnel`), unloaders and the
-    storage they take from, machines and which recipes they run, the
+    storage they take from, providers and requesters, machines and which recipes they run, the
     `make_building` factory and `Inventory` (the bridge's, and building
     buffers).
   - `recipes.h/.cpp` — every `Recipe` (inputs, outputs, time, the
@@ -491,7 +500,8 @@ One directory per layer under `src/`; includes name their layer
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships
-    (`Transfer`), and providers topping up requests (`dispatch`).
+    (`Transfer`), supplier ships topping up requests (`dispatch`, the
+    code's `provides`), and requesters pulling from providers (`link`).
   - `enemies.h/.cpp` — the enemy ships' designs (`EnemyClass`,
     `EnemyDesign`: layout, weapons, shields, targeting priorities, threats,
     weapons they may carry).

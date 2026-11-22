@@ -19,6 +19,9 @@
 // straight on to a neighbor in the same step; junctions and routers hold
 // items a moment, then pass them on. A belt tunnel carries items underground
 // to its other end. Unloaders take items out of the storage behind them.
+// Providers and requesters link ships in a sector: the Fleet moves items
+// from one to the other (see Fleet::link); a requester puts its items out
+// as a machine does.
 #pragma once
 
 #include "sim/building.h"
@@ -235,10 +238,11 @@ public:
     // next to it toward `toward`, as tick() moves them (whether that cell
     // takes them is insert_item's business): a belt or an unloader pointing
     // that way (not a tunnel's entrance, whose items go underground); a
-    // machine or collector, out of any side; a router, out of any side (it
-    // skips only the one its current item came in by, which changes from
-    // item to item); a junction, if something can send into it from the far
-    // side; a sorter, if something can send into it from any other side. It
+    // machine, collector or requester, out of any side; a router, out of
+    // any side (it skips only the one its current item came in by, which
+    // changes from item to item); a junction, if something can send into it
+    // from the far side; a sorter, if something can send into it from any
+    // other side. It
     // looks back through at most a few junctions and sorters in a row.
     bool can_send(GridPos from, Direction toward) const;
     // Sets the recipe of the machine covering `p` (null: none), refunding
@@ -246,9 +250,10 @@ public:
     // if there's no machine there, it can't run `recipe` or `recipe` isn't
     // unlocked yet.
     bool set_recipe(GridPos p, const Recipe* recipe);
-    // Sets the filter of the sorter or unloader at `p` (nullopt: none: every
-    // item turns at a sorter, an unloader takes every kind); false if there's
-    // neither there.
+    // Sets the filter of the sorter, unloader or requester at `p` (nullopt:
+    // none: every item turns at a sorter, an unloader takes every kind, a
+    // requester pulls nothing); false if there's none of those there. A
+    // requester's new filter refunds what it held to the inventory.
     bool set_filter(GridPos p, std::optional<ItemKind> item);
     // The storage (the bridge or a cargo hold) behind the unloader at `p`,
     // which it takes items out of; null if there's none, or no unloader.

@@ -26,6 +26,8 @@ const char* TileLabel(ItemKind kind) {
     case ItemKind::AsteroidCollector: return "A";
     case ItemKind::TractorArray:      return "TA";
     case ItemKind::CargoHold:         return "C";
+    case ItemKind::Provider:          return "Pv";
+    case ItemKind::Requester:         return "Rq";
     case ItemKind::SolarFurnace:      return "SF";
     case ItemKind::Refinery:          return "R";
     case ItemKind::FabricatorMk1:     return "F1";
@@ -49,7 +51,9 @@ ImVec4 TileColor(ItemKind kind) {
     switch (kind) {
     case ItemKind::AsteroidCollector:
     case ItemKind::TractorArray:      return theme::kTileCollector;
-    case ItemKind::CargoHold:         return theme::kTileStorage;
+    case ItemKind::CargoHold:
+    case ItemKind::Provider:
+    case ItemKind::Requester:         return theme::kTileStorage;
     case ItemKind::SurveyScanner:
     case ItemKind::IonThruster:
     case ItemKind::ShieldProjector:   return theme::kTileSystem;

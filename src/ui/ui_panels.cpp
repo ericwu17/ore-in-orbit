@@ -450,6 +450,30 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : hold->get_stored().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
+    if (const auto* provider = dynamic_cast<const Provider*>(&b)) {
+        ImGui::TextColored(theme::kTextDim,
+                           "Belt items into it: it sends them to requesters on any ship in this sector, "
+                           "this one included, up to %d a second",
+                           static_cast<int>(kTicksPerSecond / kLinkTicks));
+        ImGui::Text("Stored: %d / %d", provider->get_stored().total(), kLinkBuffer);
+        for (const ItemStack& s : provider->get_stored().stacks())
+            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
+    }
+    if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
+        const std::optional<ItemKind> filter = requester->get_filter();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Filter:");
+        ImGui::SameLine();
+        AmountLine(filter ? ItemIcon(*filter) : Icon{}, filter ? item_name(*filter) : "none", theme::kText, false);
+        if (filter)
+            ImGui::TextColored(theme::kTextDim,
+                               "Pulls %s from providers on any ship in this sector, up to %d a second, "
+                               "and puts it out to its neighbors",
+                               item_name(*filter), static_cast<int>(kTicksPerSecond / kLinkTicks));
+        else
+            ImGui::TextColored(theme::kWarnText, "No filter: pick the item it pulls from providers");
+        ImGui::Text("Waiting to go out: %d / %d", requester->get_buffer().total(), kLinkBuffer);
+    }
     const auto* producer_collector = dynamic_cast<const Collector*>(&b);
     const auto* producer_machine = dynamic_cast<const Machine*>(&b);
     if ((producer_collector && producer_collector->on_standby()) ||
@@ -467,13 +491,13 @@ namespace {
 constexpr int kNewRequest = 100;
 
 // The bridge's item requests, in its inspector: one row per item asked for,
-// with its count to change and how many are on their way (from providers,
+// with its count to change and how many are on their way (from suppliers,
 // or sent), and a picker to ask for another.
 void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
     ImGui::SeparatorText("Requests");
     ImGui::TextColored(theme::kTextDim,
                        "How many of each item to keep in the bridge. Machines and collectors set to run only on "
-                       "request stop once it has them, and provider ships in this sector send what's missing.");
+                       "request stop once it has them, and supplier ships in this sector send what's missing.");
     // A copy: a row can remove its request.
     const std::vector<ItemStack> requests = bridge.get_requests();
     if (requests.empty())
@@ -551,13 +575,14 @@ bool HasSettings(const Building& b) {
     return settings && settings->has_filter;
 }
 
-// The bridge's provider setting, in its inspector: whether this ship sends
-// other ships in its sector what they request, and whether it's short of
-// cargo pods to.
-void DrawProvider(Fleet& fleet, const FleetShip& shown) {
-    ImGui::SeparatorText("Provider");
+// The bridge's supplier setting (FleetShip::provides), in its inspector:
+// whether this ship sends other ships in its sector what their bridges
+// request, and whether it's short of cargo pods to. Players know it as
+// supplying, not providing, so it isn't mistaken for the Provider building.
+void DrawSupplier(Fleet& fleet, const FleetShip& shown) {
+    ImGui::SeparatorText("Supplier");
     bool provides = shown.provides;
-    if (SoundCheckbox("Provide to ships in this sector", &provides))
+    if (SoundCheckbox("Supply ships in this sector", &provides))
         fleet.set_provides(shown.id, provides);
     ImGui::SetItemTooltip("Send other ships in this sector what their bridges request, from what this\n"
                           "bridge holds beyond its own requests, in cargo pods (%d items a pod)",
@@ -567,13 +592,14 @@ void DrawProvider(Fleet& fleet, const FleetShip& shown) {
 }
 
 // The inspector window's settings column (HasSettings): for the bridge,
-// whether its ship is a provider and its item requests; for a machine, the
+// whether its ship is a supplier and its item requests; for a machine, the
 // recipe picker; for a collector, what it gathers (for both, whether they run
-// only on request); for a sorter or an unloader, the filter picker.
+// only on request); for a sorter, an unloader or a requester, the filter
+// picker.
 void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
     Ship& ship = shown.ship;
     if (dynamic_cast<const Bridge*>(&b)) {
-        DrawProvider(fleet, shown);
+        DrawSupplier(fleet, shown);
         DrawRequests(ship.get_bridge(), fleet, shown.id);
         return;
     }

@@ -13,7 +13,7 @@ const std::vector<Milestone>& all_milestones() {
          {FilterSorter, ReverseSorter, Router, Unloader, Steel}},
         {"Heavy industry",
          {{Circuit, 100}, {Steel, 50}},
-         {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel}},
+         {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame, ExpressBelt, BeltTunnel, Provider, Requester}},
         // Travel: fuel cells, from carbon alone. Home's resources run out,
         // so leaving it must never wait on a milestone that asks for more
         // (a player who spent home's silica couldn't finish Escape velocity,

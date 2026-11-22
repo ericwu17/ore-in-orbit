@@ -84,6 +84,8 @@ enum class ItemKind {
     Router,
     Unloader,
     CargoHold,
+    Provider,
+    Requester,
     // Placeable: collectors.
     AsteroidCollector,
     TractorArray,

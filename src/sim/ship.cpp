@@ -443,6 +443,8 @@ bool Ship::set_filter(GridPos p, std::optional<ItemKind> item) {
         sorter->set_filter(item);
     else if (auto* unloader = dynamic_cast<Unloader*>(b))
         unloader->set_filter(item);
+    else if (auto* requester = dynamic_cast<Requester*>(b))
+        inventory().add(requester->set_filter(item));
     else
         return false;
     return true;
@@ -488,7 +490,8 @@ bool can_send(const Ship& ship, GridPos from, Direction toward, int depth) {
         return tunnel->is_exit() && tunnel->facing() == toward;
     if (dynamic_cast<const Conveyor*>(b) || dynamic_cast<const Unloader*>(b))
         return b->facing() == toward;
-    if (dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) || dynamic_cast<const Router*>(b))
+    if (dynamic_cast<const Machine*>(b) || dynamic_cast<const Collector*>(b) || dynamic_cast<const Router*>(b) ||
+        dynamic_cast<const Requester*>(b))
         return true;
     if (depth <= 0)
         return false;

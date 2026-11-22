@@ -21,6 +21,12 @@
 // they go in whole pods: a part-filled pod goes only once it covers every
 // shortfall it carries, or once it has waited kPartialPodWait.
 //
+// Providers and requesters (buildings: see building.h) are the bulk way:
+// belts feed a provider, and every requester set to an item pulls it from
+// the providers in its sector, on any ship of the fleet (its own included),
+// as long as they have it (link). Each moves one item every kLinkTicks, an
+// express belt's worth; nothing is used up, and nothing is in flight.
+//
 // The milestones are the fleet's: every bridge shares one Progress, so what
 // any ship produces counts, and a recipe unlocked is unlocked on every ship.
 // Cargo that arrives by pod goes straight into the inventory, and counts for
@@ -120,6 +126,13 @@ private:
     // Tops up every ship's requests from the providers in its sector (see
     // the top of this file).
     void dispatch(Tick now);
+    // Each requester that wants an item now pulls one of its filter's kind
+    // from the ready provider in its sector holding the most of it (ties:
+    // the first found, oldest ship first). The requester that has waited
+    // longest since its last item goes first (ties: oldest ship, then
+    // oldest building), so providers short of items share them out evenly,
+    // however many requesters there are.
+    void link(Tick now);
 
 public:
     // No ships yet (loading fills it in). Games start from new_game().
@@ -170,9 +183,10 @@ public:
     // the cargo on its way to it with it (see Transfer).
     void remove(int id);
 
-    // One simulation step at tick `now`: every ship ticks, then the cargo
-    // due by `now` lands (each landing reported in `events`), then (every
-    // kDispatchInterval) providers send what is requested.
+    // One simulation step at tick `now`: every ship ticks, then requesters
+    // pull from providers (link), then the cargo due by `now` lands (each
+    // landing reported in `events`), then (every kDispatchInterval)
+    // providing ships send what bridges request.
     // Each ship's collectors gather from its sector's reserves on `map`
     // (null: no end to them).
     void tick(Tick now, EventLog& events, StarMap* map = nullptr);

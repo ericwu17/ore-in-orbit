@@ -495,10 +495,13 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                                                            : sprites::BeltShape::Straight);
                 const ImVec2 max = FootprintMax(min, cell, b->footprint());
                 // A tunnel with nowhere to send its items, an unloader with
-                // nothing to take them from, a collector with nothing to
-                // gather (none here, or run out).
+                // nothing to take them from, a requester with nothing to
+                // ask for, a collector with nothing to gather (none here,
+                // or run out).
                 const auto* unloader = dynamic_cast<const Unloader*>(b);
+                const auto* requester = dynamic_cast<const Requester*>(b);
                 if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})) ||
+                    (requester && !requester->get_filter()) ||
                     (collector && (collector->is_exhausted() || collector->get_yield() == 0)))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
                 if (collector)
@@ -509,6 +512,8 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                     DrawFilterIcon(draw, sorter->get_filter(), min, cell);
                 if (unloader)
                     DrawFilterIcon(draw, unloader->get_filter(), min, cell);
+                if (requester)
+                    DrawFilterIcon(draw, requester->get_filter(), min, cell);
                 DrawCombatStatus(draw, *b, min, max, cell);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
                 if (b == InspectedBuilding(ship))

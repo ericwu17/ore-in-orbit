@@ -10,9 +10,12 @@
 #include "sim/ship_layout.h"
 #include "sim/world.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <chrono>
 #include <cstdio>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -497,6 +500,211 @@ void test_waited_pod_goes_with_first_pod() {
     assert(fleet.in_flight_to(requester, ItemKind::Gear) == 30);
 }
 
+// --- Providers and requesters ---------------------------------------------
+
+// Places a `kind` (stocked for it) on the first free hull cell of `ship`
+// where `fits` also holds, scanning row by row; returns where.
+template <typename Fits>
+GridPos place_somewhere(Ship& ship, ItemKind kind, Fits fits) {
+    ship.inventory().add(kind, 1);
+    for (int y = 0; y < ship.size(); ++y)
+        for (int x = 0; x < ship.size(); ++x)
+            if (ship.can_place(kind, {x, y}) == BuildResult::Ok && fits(GridPos{x, y})) {
+                assert(ship.place(kind, {x, y}) == BuildResult::Ok);
+                return {x, y};
+            }
+    assert(false && "no room on the ship");
+    return {};
+}
+
+GridPos place_somewhere(Ship& ship, ItemKind kind) {
+    return place_somewhere(ship, kind, [](GridPos) { return true; });
+}
+
+// Whether nothing stands next to `p` but, perhaps, on `except`: a requester
+// there puts its items out only where the test means it to.
+bool alone(const Ship& ship, GridPos p, std::optional<Direction> except = std::nullopt) {
+    for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+        if (d != except && ship.building_at(neighbor(p, d)))
+            return false;
+    return true;
+}
+
+// A requester with a cargo hold just east of it, to put its items into;
+// returns the requester's cell (the hold is one cell east).
+GridPos place_requester_into_hold(Ship& ship) {
+    ship.inventory().add(ItemKind::CargoHold, 1);
+    const GridPos at = place_somewhere(ship, ItemKind::Requester, [&](GridPos p) {
+        return alone(ship, p, Direction::East) && ship.can_place(ItemKind::CargoHold, {p.x + 1, p.y}) == BuildResult::Ok;
+    });
+    assert(ship.place(ItemKind::CargoHold, {at.x + 1, at.y}) == BuildResult::Ok);
+    return at;
+}
+
+Provider& provider_at(Ship& ship, GridPos p) {
+    return dynamic_cast<Provider&>(*ship.building_anchored_at(p));
+}
+
+const Requester& requester_at(const Ship& ship, GridPos p) {
+    return dynamic_cast<const Requester&>(*ship.building_anchored_at(p));
+}
+
+int held_in_hold(const Ship& ship, GridPos requester) {
+    return dynamic_cast<const CargoHold&>(*ship.building_at({requester.x + 1, requester.y})).get_stored().total();
+}
+
+// Fills the provider up with `kind`, as belts feeding it flat out would.
+void top_up(Provider& provider, ItemKind kind) {
+    while (provider.accepts(kind))
+        provider.receive(kind);
+}
+
+// Runs `ticks`, keeping the provider at `p` on `ship` full of `kind`.
+void run_fed(World& world, Ship& ship, GridPos p, ItemKind kind, Tick ticks) {
+    for (Tick t = 0; t < ticks; ++t) {
+        top_up(provider_at(ship, p), kind);
+        world.advance_tick();
+    }
+}
+
+// A requester pulls its item from a provider on another ship in the sector,
+// at an express belt's rate, and puts it out to its neighbors.
+void test_link_between_ships() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Ship& from = world.flagship();
+    Ship& to = fleet.find(launch_second(world))->ship;
+    const GridPos provider = place_somewhere(from, ItemKind::Provider);
+    const GridPos requester = place_requester_into_hold(to);
+
+    // A provider holds kLinkBuffer, of any kind.
+    Provider& p = provider_at(from, provider);
+    top_up(p, ItemKind::Gear);
+    assert(p.get_stored().total() == kLinkBuffer && !p.accepts(ItemKind::Circuit));
+
+    // No filter: nothing moves.
+    run(world, kTicksPerSecond);
+    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
+
+    // Set to another item: still nothing.
+    assert(to.set_filter(requester, ItemKind::Circuit));
+    run(world, kTicksPerSecond);
+    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
+
+    assert(to.set_filter(requester, ItemKind::Gear));
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);  // warm up
+    const int before = held_in_hold(to, requester);
+    assert(before > 0);
+    constexpr Tick kSeconds = 5;
+    run_fed(world, from, provider, ItemKind::Gear, kSeconds * kTicksPerSecond);
+    const int per_second = static_cast<int>(kTicksPerSecond / kLinkTicks);
+    assert(per_second == 12);
+    const int moved = held_in_hold(to, requester) - before;
+    assert(std::abs(moved - per_second * static_cast<int>(kSeconds)) <= 1);
+}
+
+// Only within a sector.
+void test_link_other_sector() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Ship& from = world.flagship();
+    const int id = launch_second(world);
+    Ship& to = fleet.find(id)->ship;
+    const GridPos provider = place_somewhere(from, ItemKind::Provider);
+    const GridPos requester = place_requester_into_hold(to);
+    assert(to.set_filter(requester, ItemKind::Gear));
+    fleet.find(id)->sector = 3;
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(held_in_hold(to, requester) == 0);
+    fleet.find(id)->sector = fleet.flagship().sector;
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(held_in_hold(to, requester) > 0);
+}
+
+// A provider serves requesters on its own ship too.
+void test_link_same_ship() {
+    World world;
+    Ship& ship = world.flagship();
+    const GridPos provider = place_somewhere(ship, ItemKind::Provider);
+    const GridPos requester = place_requester_into_hold(ship);
+    assert(ship.set_filter(requester, ItemKind::Gear));
+    run_fed(world, ship, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(held_in_hold(ship, requester) > 0);
+}
+
+// With nowhere to put its items, a requester pulls kLinkBuffer and stops;
+// a new filter refunds what it held to the bridge.
+void test_requester_buffer() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Ship& from = world.flagship();
+    Ship& to = fleet.find(launch_second(world))->ship;
+    const GridPos provider = place_somewhere(from, ItemKind::Provider);
+    const GridPos requester =
+        place_somewhere(to, ItemKind::Requester, [&](GridPos p) { return alone(to, p); });
+    assert(to.set_filter(requester, ItemKind::Gear));
+    top_up(provider_at(from, provider), ItemKind::Gear);
+    run(world, 10 * kTicksPerSecond);
+    assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kLinkBuffer);
+    assert(provider_at(from, provider).get_stored().total() == 0);
+
+    const int gears = to.inventory().count(ItemKind::Gear);
+    assert(to.set_filter(requester, ItemKind::Circuit));
+    assert(requester_at(to, requester).get_buffer().total() == 0);
+    assert(to.inventory().count(ItemKind::Gear) == gears + kLinkBuffer);
+}
+
+// Two requesters on one provider share what it sends, which is no more
+// than its own rate.
+void test_requesters_share() {
+    World world;
+    Fleet& fleet = world.get_fleet();
+    Ship& from = world.flagship();
+    Ship& to = fleet.find(launch_second(world))->ship;
+    const GridPos provider = place_somewhere(from, ItemKind::Provider);
+    const GridPos a = place_requester_into_hold(to);
+    const GridPos b = place_requester_into_hold(to);
+    assert(to.set_filter(a, ItemKind::Gear) && to.set_filter(b, ItemKind::Gear));
+    constexpr Tick kSeconds = 5;
+    run_fed(world, from, provider, ItemKind::Gear, kSeconds * kTicksPerSecond);
+    const int got_a = held_in_hold(to, a);
+    const int got_b = held_in_hold(to, b);
+    const int rate = static_cast<int>(kTicksPerSecond / kLinkTicks) * static_cast<int>(kSeconds);
+    assert(got_a + got_b <= rate + 1 && got_a + got_b >= rate - 2);
+    assert(got_a >= rate / 4 && got_b >= rate / 4);
+}
+
+// However many requesters share one provider, each gets as many as the
+// others, give or take one: the one that has waited longest goes first.
+// (Taking turns by the tick instead starved all but one or two of them when
+// there were a multiple of 5, kLinkTicks, of them.)
+void test_requesters_share_evenly() {
+    for (const int n : {2, 3, 4, 5, 6, 7, 10}) {
+        World world;
+        Fleet& fleet = world.get_fleet();
+        Ship& from = world.flagship();
+        Ship& to = fleet.find(launch_second(world))->ship;
+        const GridPos provider = place_somewhere(from, ItemKind::Provider);
+        std::vector<GridPos> requesters;
+        for (int i = 0; i < n; ++i) {
+            requesters.push_back(
+                place_somewhere(to, ItemKind::Requester, [&](GridPos p) { return alone(to, p); }));
+            assert(to.set_filter(requesters.back(), ItemKind::Gear));
+        }
+        // Short enough that none fills up (and stops asking).
+        run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+        int least = kLinkBuffer;
+        int most = 0;
+        for (const GridPos r : requesters) {
+            const int got = requester_at(to, r).get_buffer().total();
+            least = std::min(least, got);
+            most = std::max(most, got);
+        }
+        assert(most < kLinkBuffer);
+        assert(most - least <= 1);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -519,6 +727,12 @@ int main() {
     test_podless_provider_steps_aside();
     test_large_request_after_pods();
     test_waited_pod_goes_with_first_pod();
+    test_link_between_ships();
+    test_link_other_sector();
+    test_link_same_ship();
+    test_requester_buffer();
+    test_requesters_share();
+    test_requesters_share_evenly();
     std::puts("test_fleet: all passed");
     return 0;
 }

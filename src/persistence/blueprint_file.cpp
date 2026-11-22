@@ -103,7 +103,8 @@ void load_building(const Json& j, Blueprint& blueprint, std::vector<bool>& taken
             throw LoadError(std::string(item_id(kind)) + " can't gather " + item_id(*b.target));
     }
     if (const auto filter = j.find("filter"); filter != j.end()) {
-        if (!dynamic_cast<const Sorter*>(building.get()) && !dynamic_cast<const Unloader*>(building.get()))
+        if (!dynamic_cast<const Sorter*>(building.get()) && !dynamic_cast<const Unloader*>(building.get()) &&
+            !dynamic_cast<const Requester*>(building.get()))
             throw LoadError(std::string(item_id(kind)) + " has no filter");
         b.filter = load_item(*filter);
     }

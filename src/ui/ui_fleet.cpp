@@ -41,7 +41,7 @@ void DrawFleetStrip(World& world) {
         } else {
             const bool attacked = world.engagement_in(s->sector) != nullptr;
             const std::string label =
-                s->name + (s->provides ? " (P)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
+                s->name + (s->provides ? " (S)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
             if (attacked && s->id != f.current)
                 ImGui::PushStyleColor(ImGuiCol_Text, theme::kBad);
             if (theme::SegmentedButton(label.c_str(), s->id == f.current))
@@ -56,7 +56,7 @@ void DrawFleetStrip(World& world) {
             const ShipLayout* layout = s->ship.get_layout();
             ImGui::SetItemTooltip("%s, a %s, in %s%s%s\nDouble-click to rename", s->name.c_str(),
                                   layout ? layout->name : "ship", sector.name.c_str(),
-                                  s->provides ? "\nProvider: sends what other ships here request" : "",
+                                  s->provides ? "\nSupplier: sends what other ships here request" : "",
                                   attacked ? "\nIn a fight with an enemy ship!" : "");
         }
         ImGui::PopID();
