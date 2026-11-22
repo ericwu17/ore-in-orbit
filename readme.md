@@ -165,14 +165,12 @@ sends only what the pods it has can carry.
 ### The star map
 
 Beyond home lies a star map of sectors (M, or the Map button above the grid),
-a new one for each game. Each sector has its own yields of the raw resources
-(as a % of home's: a collector aimed at something a sector lacks stalls
-there) and a threat, both growing with the distance from home: a sector
-next door gathers about half as fast again as home, one at the edge of the
-map about two and a half times as fast, give or take 15%, though any sector
-may lack a resource or two. Between them, home's neighbors have every raw
-resource, iridium included. A sector a ship
-has been to is visited; its neighbors show on the map, and their yields and
+a new one for each game. Each sector has its own raw resources (any sector
+but home may lack one or two, and a collector aimed at something a sector
+lacks stalls there) and a threat, growing with the distance from home.
+Collectors gather at the same pace wherever they are. Between them, home's
+neighbors have every raw resource, iridium included. A sector a ship has
+been to is visited; its neighbors show on the map, and their resources and
 threat once surveyed: visited, or next to a ship with a survey scanner.
 
 #### Running out
@@ -183,8 +181,8 @@ catch a collector makes there takes one; ships in the same sector share
 them. When one is gone it's gone for good: collectors aimed at it there
 stall (outlined in amber), and the game says so. Home holds 7,000 iron ore,
 1,200 copper ore, 1,100 silica and 1,700 carbon, and no iridium. Other
-sectors hold half as much again as home at a yield of 100% (and 1,500
-iridium ore), scaled by their yields, so the richer they are, the more.
+sectors hold half as much again as home of what they have: 10,500 iron ore,
+1,800 copper ore, 1,650 silica, 2,550 carbon and 1,500 iridium ore.
 
 Home's amounts come from the sums in raw resources of what it takes to
 reach Escape velocity: the milestones up to it, a factory of a fair size
@@ -480,12 +478,12 @@ One directory per layer under `src/`; includes name their layer
   - `ship.h/.cpp` — `Ship`: the build grid (its layout's hull, and
     buildings stored at their top-left cell), placement / removal rules,
     the starting ship, linking belt tunnels, and moving items between
-    neighboring buildings each tick; the yields of the sector it's in, which
-    its collectors gather at, taking what they catch out of its reserves.
+    neighboring buildings each tick; its collectors take what they catch
+    out of the reserves of the sector it's in.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
     hull, bridge and engines, its cost, and the milestone that unlocks it.
-  - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, yields, what's
-    left to gather, threat, what the player knows of each), generating it
+  - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, what's left to
+    gather, threat, what the player knows of each), generating it
     from a seed, and how much of each resource home and the other sectors
     start with.
   - `rng.h` — `Rng`: a small random number generator whose whole state is

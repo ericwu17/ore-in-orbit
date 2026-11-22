@@ -88,7 +88,6 @@ FleetResult Fleet::launch(int from, const ShipLayout& layout, int* launched) {
     assert(taken);
     (void)taken;
     Ship ship = Ship::from_layout(layout);
-    ship.set_yields(source.ship.get_yields());  // the same sector's
     FleetShip& added = add("Ship " + std::to_string(next_id), std::move(ship), source.sector);
     if (launched)
         *launched = added.id;

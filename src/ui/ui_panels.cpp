@@ -313,18 +313,13 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
     if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
         const CollectorSpec& spec = collector->get_spec();
         const double seconds = static_cast<double>(spec.interval) / static_cast<double>(kTicksPerSecond);
-        if (collector->get_yield() == 0) {
-            ImGui::TextColored(theme::kWarnText, "No %s in this sector: aim it at something else",
-                               item_name(collector->get_target()));
-        } else if (collector->is_exhausted()) {
+        if (collector->is_exhausted()) {
             ImGui::TextColored(theme::kWarnText,
-                               "This sector's %s has run out: aim it at something else, or take the ship elsewhere",
+                               "No %s left in this sector: aim it at something else, or take the ship elsewhere",
                                LowerItemName(collector->get_target()).c_str());
         } else {
-            ImGui::TextColored(theme::kTextDim, "Gathers %s: %.0f / min (%d%% of home)",
-                               item_name(collector->get_target()), collector->rate_per_second() * 60.0,
-                               collector->get_yield());
-            ImGui::TextColored(theme::kTextDim, "At home: 1 every %.1f s", seconds);
+            ImGui::TextColored(theme::kTextDim, "Gathers %s: %.0f / min (1 every %.1f s)",
+                               item_name(collector->get_target()), collector->rate_per_second() * 60.0, seconds);
         }
         const bool full = collector->full();
         ImGui::ProgressBar(full ? 1.0f : collector->catch_progress(), ImVec2(bar_w, 0.0f), full ? "Buffer full" : "");

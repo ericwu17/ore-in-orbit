@@ -77,8 +77,6 @@ private:
     // reloaded game starts watching afresh).
     std::vector<std::pair<int, bool>> ready_seen;
 
-    // Every ship's collectors gather at its sector's yields.
-    void update_yields();
     // Ships with a survey scanner survey the sectors next to theirs.
     void scan();
     // The fleet's ships in sector `sector`.

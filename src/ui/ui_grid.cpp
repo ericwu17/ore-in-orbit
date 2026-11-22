@@ -502,7 +502,7 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                 const auto* requester = dynamic_cast<const Requester*>(b);
                 if ((tunnel && !tunnel->linked()) || (unloader && !ship.unload_source({x, y})) ||
                     (requester && !requester->get_filter()) ||
-                    (collector && (collector->is_exhausted() || collector->get_yield() == 0)))
+                    (collector && collector->is_exhausted()))
                     draw->AddRect(min, max, theme::U32(theme::kWarn), 0.0f, 0, std::max(1.0f, cell * 0.08f));
                 if (collector)
                     DrawCollectorStatus(draw, *collector, min, max, cell);

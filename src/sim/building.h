@@ -240,12 +240,10 @@ private:
     friend struct SaveAccess;
 
     const CollectorSpec* spec;
-    // Toward the next catch, in hundredths of a tick at a yield of 100%
-    // (a catch at spec->interval * 100).
+    // Ticks toward the next catch (a catch at spec->interval).
     Tick progress = 0;
     Inventory caught;   // raw resources
     ItemKind target;    // what it catches, one of spec->targets
-    int yield = 100;    // of `target` where the ship is: % of the home sector's
     bool only_when_requested = false;
     bool standby = false;  // kept by the Ship (not saved)
     // Its target has run out where the ship is (not saved: the next
@@ -270,7 +268,7 @@ public:
     // On standby, it gathers nothing (its buffer still empties).
     bool on_standby() const { return standby; }
     void set_standby(bool on) { standby = on; }
-    // Gathers at the yield last set, unless the buffer is full or it's on
+    // Gathers one every spec->interval ticks, unless the buffer is full or it's on
     // standby, from an endless supply (a ship on its own; Ship::tick gives
     // a fleet's ships their sector's reserves, see gather()).
     void tick() override { gather(nullptr); }
@@ -280,10 +278,6 @@ public:
     void gather(int* left);
     // Its target ran out where the ship is, when it last tried to gather.
     bool is_exhausted() const { return exhausted; }
-    // The yield of its target where the ship is (see Ship::set_yields): it
-    // gathers that many % as fast as at home; 0 stalls it.
-    int get_yield() const { return yield; }
-    void set_yield(int percent) { yield = percent; }
     std::vector<ItemStack> contents() const override { return caught.stacks(); }
     Inventory* output_buffer() override { return &caught; }
 
@@ -293,7 +287,7 @@ public:
     int stored() const { return caught.total(); }
     int capacity() const { return spec->capacity; }
     bool full() const { return stored() >= capacity(); }
-    // Items gathered per second while not full, at its yield.
+    // Items gathered per second while not full.
     double rate_per_second() const;
     // How far along the next catch is, 0 to 1.
     float catch_progress() const;

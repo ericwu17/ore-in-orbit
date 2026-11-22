@@ -285,21 +285,20 @@ void Collector::gather(int* left) {
     exhausted = left && *left <= 0;
     if (full() || standby || exhausted)
         return;
-    progress += static_cast<Tick>(yield);
-    if (progress < spec->interval * 100)
+    if (++progress < spec->interval)
         return;
-    progress -= spec->interval * 100;
+    progress = 0;
     caught.add(target);
     if (left)
         --*left;
 }
 
 double Collector::rate_per_second() const {
-    return static_cast<double>(kTicksPerSecond) * yield / 100.0 / static_cast<double>(spec->interval);
+    return static_cast<double>(kTicksPerSecond) / static_cast<double>(spec->interval);
 }
 
 float Collector::catch_progress() const {
-    return static_cast<float>(progress) / static_cast<float>(spec->interval * 100);
+    return static_cast<float>(progress) / static_cast<float>(spec->interval);
 }
 
 const WeaponSpec& weapon_spec(ItemKind kind) {

@@ -30,14 +30,7 @@ bool engines_ready(const Ship& ship) {
 
 }  // namespace
 
-World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {
-    update_yields();
-}
-
-void World::update_yields() {
-    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
-        s->ship.set_yields(map.at(s->sector).yields);
-}
+World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {}
 
 void World::scan() {
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
@@ -259,7 +252,6 @@ JumpResult World::jump(int ship, int sector) {
     s.ship.burn_thrusters();
     stand_down(s);
     s.sector = sector;
-    s.ship.set_yields(map.at(sector).yields);
     map.visit(sector);
     events.push({.kind = EventKind::Jumped, .ship = ship, .sector = sector});
     return JumpResult::Ok;

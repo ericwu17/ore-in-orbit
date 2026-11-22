@@ -116,8 +116,6 @@ Building* Ship::building_anchored_at(GridPos p) {
 }
 
 void Ship::add_building(GridPos p, std::unique_ptr<Building> building) {
-    if (auto* collector = dynamic_cast<Collector*>(building.get()))
-        update_yield(*collector);
     const GridSize size = building->footprint();
     for (int y = p.y; y < p.y + size.h; ++y)
         for (int x = p.x; x < p.x + size.w; ++x) {
@@ -173,18 +171,6 @@ TunnelPreview Ship::tunnel_preview(GridPos p, Direction facing) const {
         if (!dynamic_cast<const Tunnel&>(*building_at(*behind)).is_exit())
             return {behind, true};
     return {tunnel_along(p, facing, facing), false};
-}
-
-void Ship::update_yield(Collector& collector) const {
-    const std::optional<int> i = raw_resource_index(collector.get_target());
-    collector.set_yield(i ? yields[static_cast<std::size_t>(*i)] : 0);
-}
-
-void Ship::set_yields(const Yields& sector_yields) {
-    yields = sector_yields;
-    for (const GridPos p : placed)
-        if (auto* collector = dynamic_cast<Collector*>(at(buildings, p).get()))
-            update_yield(*collector);
 }
 
 int Ship::hull_count() const {
@@ -463,7 +449,6 @@ bool Ship::set_collector_target(GridPos p, ItemKind target) {
     if (!collector || !collector->can_target(target))
         return false;
     inventory().add(collector->set_target(target));
-    update_yield(*collector);
     return true;
 }
 

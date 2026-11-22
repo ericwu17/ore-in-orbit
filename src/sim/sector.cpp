@@ -14,23 +14,9 @@ std::optional<int> raw_resource_index(ItemKind kind) {
     return std::nullopt;
 }
 
-int Sector::yield(ItemKind kind) const {
-    const std::optional<int> i = raw_resource_index(kind);
-    return i ? yields[static_cast<std::size_t>(*i)] : 0;
-}
-
 int Sector::left(ItemKind kind) const {
     const std::optional<int> i = raw_resource_index(kind);
     return i ? reserves[static_cast<std::size_t>(*i)] : 0;
-}
-
-Reserves starting_reserves(const Sector& s, bool home) {
-    Reserves r{};
-    for (std::size_t i = 0; i < r.size(); ++i) {
-        if (s.yields[i] > 0)
-            r[i] = home ? kHomeReserves[i] : kSectorReserves[i] * s.yields[i] / 100;
-    }
-    return r;
 }
 
 bool StarMap::linked(int a, int b) const {
@@ -79,15 +65,6 @@ std::string make_name(Rng& rng) {
     return std::string(pick(kStarts)) + pick(kEnds) + " " + pick(kKinds);
 }
 
-// The yield of a resource a sector `far` out has (0 at home, 1 at the map's
-// edge): up from home's 100% steadily with the distance, to 250% at the
-// edge, give or take 15%, in steps of 5%.
-int rich_yield(float far, Rng& rng) {
-    const float jitter = 0.85f + 0.3f * rng.unit();
-    const float y = (100.0f + 150.0f * far) * jitter;
-    return std::max(5, static_cast<int>(std::lround(y / 5.0f)) * 5);
-}
-
 void link(std::vector<Sector>& sectors, int a, int b) {
     std::vector<int>& na = sectors[static_cast<std::size_t>(a)].neighbors;
     if (a == b || std::find(na.begin(), na.end(), b) != na.end())
@@ -106,8 +83,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
     // Home at the middle, the rest scattered around it.
     Sector home;
     home.name = "Home";
-    home.yields.fill(100);
-    home.yields[static_cast<std::size_t>(*raw_resource_index(ItemKind::IridiumOre))] = 0;  // found elsewhere
+    home.reserves = kHomeReserves;  // no iridium: that's found elsewhere
     sectors.push_back(home);
     for (int tries = 0; static_cast<int>(sectors.size()) < kStarMapSize && tries < 100'000; ++tries) {
         Sector s;
@@ -173,7 +149,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
         link(sectors, best_a, best_b);
     }
 
-    // Names, yields and threat, growing with the distance from home.
+    // Names, resources, and threat growing with the distance from home.
     for (int i = 1; i < n; ++i) {
         Sector& s = sectors[static_cast<std::size_t>(i)];
         const float far = distance(s, home) / kMapRadius;  // 0 to 1
@@ -182,20 +158,19 @@ StarMap StarMap::generate(std::uint64_t seed) {
             unique = std::none_of(sectors.begin(), sectors.begin() + i,
                                   [&](const Sector& other) { return other.name == s.name; });
         }
+        // Each resource, likely; iridium less so near home. Two at least.
         int present = 0;
         for (int r = 0; r < kRawResourceCount; ++r) {
             const bool iridium = kRawResources[r] == ItemKind::IridiumOre;
-            int& y = s.yields[static_cast<std::size_t>(r)];
-            if (rng.chance(iridium ? 0.45f - far * 0.3f : 0.25f))
-                y = 0;
-            else
-                y = rich_yield(far, rng);
-            present += y > 0 ? 1 : 0;
+            if (!rng.chance(iridium ? 0.45f - far * 0.3f : 0.25f)) {
+                s.reserves[static_cast<std::size_t>(r)] = kSectorReserves[static_cast<std::size_t>(r)];
+                ++present;
+            }
         }
         while (present < 2) {
-            int& y = s.yields[static_cast<std::size_t>(rng.range(0, kRawResourceCount - 1))];
-            if (y == 0) {
-                y = rich_yield(far, rng);
+            const auto r = static_cast<std::size_t>(rng.range(0, kRawResourceCount - 1));
+            if (s.reserves[r] == 0) {
+                s.reserves[r] = kSectorReserves[r];
                 ++present;
             }
         }
@@ -214,18 +189,12 @@ StarMap StarMap::generate(std::uint64_t seed) {
     // if none has it).
     for (int r = 0; r < kRawResourceCount; ++r) {
         const std::vector<int>& next_door = sectors[0].neighbors;
-        const auto has = [&](int i) {
-            return sectors[static_cast<std::size_t>(i)].yields[static_cast<std::size_t>(r)] > 0;
-        };
+        const auto i = static_cast<std::size_t>(r);
+        const auto has = [&](int s) { return sectors[static_cast<std::size_t>(s)].reserves[i] > 0; };
         if (!next_door.empty() && std::none_of(next_door.begin(), next_door.end(), has)) {
             const int nearest = *std::min_element(next_door.begin(), next_door.end());  // the index grows outward
-            Sector& s = sectors[static_cast<std::size_t>(nearest)];
-            s.yields[static_cast<std::size_t>(r)] = rich_yield(distance(s, home) / kMapRadius, rng);
+            sectors[static_cast<std::size_t>(nearest)].reserves[i] = kSectorReserves[i];
         }
-    }
-    for (int i = 0; i < n; ++i) {
-        Sector& s = sectors[static_cast<std::size_t>(i)];
-        s.reserves = starting_reserves(s, i == 0);
     }
     map.visit(0);
     return map;

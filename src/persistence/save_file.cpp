@@ -318,8 +318,8 @@ struct SaveAccess {
             }
         } else if (auto* c = dynamic_cast<Collector*>(&b)) {
             // A catch takes progress back down when it reaches the
-            // interval (in hundredths of a tick).
-            c->progress = load_progress(j.at("progress"), c->spec->interval * 100);
+            // interval; any more than that is taken as a catch about due.
+            c->progress = std::min(load_tick(j.at("progress")), c->spec->interval - 1);
             if (const std::optional<ItemKind> target = load_item(j.at("target"))) {
                 if (!c->can_target(*target))
                     throw LoadError(std::string(item_id(*c->item_kind())) + " can't gather " + item_id(*target));
@@ -676,23 +676,19 @@ struct SaveAccess {
     }
 
     // Every sector, home first: where it is on the map, its links (by
-    // index), its yields and what's left to gather (by raw resource), its
+    // index), what's left to gather (by raw resource), its
     // threat, and what the player knows of it.
     static Json save_map(const StarMap& map) {
         Json sectors = Json::array();
         for (const Sector& s : map.sectors) {
-            Json yields = Json::object();
             Json reserves = Json::object();
-            for (int r = 0; r < kRawResourceCount; ++r) {
-                yields[item_id(kRawResources[r])] = s.yields[static_cast<std::size_t>(r)];
+            for (int r = 0; r < kRawResourceCount; ++r)
                 reserves[item_id(kRawResources[r])] = s.reserves[static_cast<std::size_t>(r)];
-            }
             sectors.push_back({
                 {"name", s.name},
                 {"x", s.x},
                 {"y", s.y},
                 {"neighbors", s.neighbors},
-                {"yields", std::move(yields)},
                 {"reserves", std::move(reserves)},
                 {"threat", s.threat},
                 {"enemy", s.enemy ? Json(enemy_id(*s.enemy)) : Json(nullptr)},
@@ -722,30 +718,18 @@ struct SaveAccess {
             s.y = load_float(js.at("y"), 10'000.0f);
             for (const Json& link : load_array(js.at("neighbors"), "sector links"))
                 s.neighbors.push_back(static_cast<int>(load_int(link, 0, n - 1)));
-            const Json& yields = js.at("yields");
-            for (int r = 0; r < kRawResourceCount; ++r)
-                s.yields[static_cast<std::size_t>(r)] =
-                    static_cast<int>(load_int(yields.at(item_id(kRawResources[r])), 0, 1'000));
-            if (yields.size() != static_cast<std::size_t>(kRawResourceCount))
-                throw LoadError("a yield for something that isn't a raw resource");
-            // Saves from before resources ran out: as much as a new map has,
-            // and home, which had iridium then, has none now.
-            const bool home = map.sectors.empty();
+            // Saves from before resources ran out: home as a new map's, and
+            // every other sector with all of every resource.
             if (const auto reserves = js.find("reserves"); reserves != js.end()) {
                 before_reserves = false;
                 for (int r = 0; r < kRawResourceCount; ++r) {
-                    const auto i = static_cast<std::size_t>(r);
                     const Json& left = reserves->at(item_id(kRawResources[r]));
-                    s.reserves[i] = static_cast<int>(load_int(left, 0, 100'000'000));
-                    if (s.reserves[i] > 0 && s.yields[i] == 0)
-                        throw LoadError("reserves of a resource the sector has none of");
+                    s.reserves[static_cast<std::size_t>(r)] = static_cast<int>(load_int(left, 0, 100'000'000));
                 }
                 if (reserves->size() != static_cast<std::size_t>(kRawResourceCount))
                     throw LoadError("reserves of something that isn't a raw resource");
             } else {
-                if (home)
-                    s.yields[static_cast<std::size_t>(*raw_resource_index(ItemKind::IridiumOre))] = 0;
-                s.reserves = starting_reserves(s, home);
+                s.reserves = map.sectors.empty() ? kHomeReserves : kSectorReserves;
             }
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
             if (const Json& enemy = js.at("enemy"); !enemy.is_null()) {
@@ -823,7 +807,6 @@ struct SaveAccess {
                 if (!fight || !fight->ship.building_anchored_at(*s->target))
                     throw LoadError("a ship targeting nothing there");
             }
-        world.update_yields();
         return world;
     }
 };
