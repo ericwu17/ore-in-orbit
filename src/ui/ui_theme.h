@@ -153,9 +153,11 @@ void DrawHazardStripes(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec4 color, f
 void DrawHaloText(ImDrawList* draw, ImVec2 pos, ImU32 color, ImU32 halo, const char* text);
 
 // A field of stars over `min`..`max` (clipped to it), in three layers, far
-// to near: dimmer and smaller far away, all drifting slowly left, the near
-// ones fastest. `pan` (a view's offset, in pixels) moves them too, each
-// layer by less than the view moves, so a panned view has depth.
-void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan = ImVec2(0.0f, 0.0f), float alpha = 1.0f);
+// to near: dimmer and smaller far away. With `animate`, they drift slowly
+// left, the near ones fastest, and twinkle; without, they hold still.
+// `pan` (a view's offset, in pixels) moves them too, each layer by less
+// than the view moves, so a panned view has depth.
+void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan = ImVec2(0.0f, 0.0f), float alpha = 1.0f,
+                   bool animate = true);
 
 }  // namespace ui::theme

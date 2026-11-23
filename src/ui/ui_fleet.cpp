@@ -477,8 +477,9 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->PushClipRect(canvas_min, canvas_max, true);
     draw->AddRectFilled(canvas_min, canvas_max, theme::U32(theme::kInset));
-    // Stars behind the map, moving with it (less than it does) as it pans.
-    theme::DrawStarfield(draw, canvas_min, canvas_max, m.offset, 0.8f);
+    // Stars behind the map, still but for moving with it (less than it
+    // does) as it pans.
+    theme::DrawStarfield(draw, canvas_min, canvas_max, m.offset, 0.8f, false);
     draw->AddRect(canvas_min, canvas_max, theme::U32(theme::kBevelDark));
     // Range rings round home, and cross hairs through it, like a plotting
     // table.

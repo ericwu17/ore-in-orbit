@@ -421,7 +421,7 @@ float StarHash(std::uint32_t i, std::uint32_t salt) {
 
 }  // namespace
 
-void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan, float alpha) {
+void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan, float alpha, bool animate) {
     const float w = max.x - min.x;
     const float h = max.y - min.y;
     if (w <= 0.0f || h <= 0.0f || alpha <= 0.0f)
@@ -439,7 +439,7 @@ void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan, float a
         {16000.0f, 9.0f, 0.6f, 1.3f, 0.9f},
     };
     const float scale = ImGui::GetFrameHeight() / 20.0f;  // follows DPI scaling
-    const float time = static_cast<float>(ImGui::GetTime());
+    const float time = animate ? static_cast<float>(ImGui::GetTime()) : 0.0f;
     draw->PushClipRect(min, max, true);
     for (std::uint32_t layer = 0; layer < 3; ++layer) {
         const Layer& l = kLayers[layer];
@@ -453,7 +453,7 @@ void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan, float a
             const float y = std::fmod(StarHash(n, 2) * h + shift_y, h);
             const ImVec2 p(min.x + (x < 0.0f ? x + w : x), min.y + (y < 0.0f ? y + h : y));
             // A slow twinkle, each star at its own rate.
-            const float twinkle = 0.75f + 0.25f * std::sin(time * (0.5f + 1.5f * StarHash(n, 3)) + 6.28f * StarHash(n, 4));
+            const float twinkle = !animate ? 0.85f : 0.75f + 0.25f * std::sin(time * (0.5f + 1.5f * StarHash(n, 3)) + 6.28f * StarHash(n, 4));
             const float a = l.brightness * twinkle * (0.6f + 0.4f * StarHash(n, 5)) * alpha;
             // A few have a tint: cold blue or warm amber.
             const float tint = StarHash(n, 6);
