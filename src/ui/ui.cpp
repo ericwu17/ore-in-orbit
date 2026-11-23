@@ -417,6 +417,7 @@ void DrawKeysWindow() {
 // The end of a game whose fleet is lost: the news, and the way out.
 void DrawFleetLost(Screen& screen) {
     BeginFullscreenPage("##fleet_lost");
+    DrawPageStarfield();
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float fh = ImGui::GetFrameHeight();
     ImGui::SetCursorPosY(viewport->WorkSize.y * 0.35f);

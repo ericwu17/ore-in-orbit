@@ -51,6 +51,9 @@ namespace ui {
 // A borderless, transparent window covering the whole display, for a screen's
 // contents, plus any `extra` window flags. Pair with ImGui::End().
 void BeginFullscreenPage(const char* id, ImGuiWindowFlags extra = 0);
+// Stars behind a full-screen page (the menus, the fleet-lost screen),
+// across the whole display, under every window.
+void DrawPageStarfield();
 
 // Text centered horizontally in the current window, at the cursor's height.
 void CenteredText(const char* text, ImVec4 color);

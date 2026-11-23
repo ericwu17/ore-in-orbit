@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdint>
 #include <string>
 
 // Generated from imgui/misc/fonts/Roboto-Medium.ttf and Cousine-Regular.ttf
@@ -401,6 +403,65 @@ void DrawHaloText(ImDrawList* draw, ImVec2 pos, ImU32 color, ImU32 halo, const c
     for (const auto& o : kOffsets)
         draw->AddText(ImVec2(pos.x + o[0], pos.y + o[1]), halo, text);
     draw->AddText(pos, color, text);
+}
+
+namespace {
+
+// A number in [0, 1) from `i` and `salt`, the same every frame: where a
+// star is and how it twinkles.
+float StarHash(std::uint32_t i, std::uint32_t salt) {
+    std::uint32_t x = i * 0x9E3779B1u ^ salt * 0x85EBCA77u;
+    x ^= x >> 15;
+    x *= 0x2C1B3C6Du;
+    x ^= x >> 12;
+    x *= 0x297A2D39u;
+    x ^= x >> 15;
+    return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
+}
+
+}  // namespace
+
+void DrawStarfield(ImDrawList* draw, ImVec2 min, ImVec2 max, ImVec2 pan, float alpha, bool animate) {
+    const float w = max.x - min.x;
+    const float h = max.y - min.y;
+    if (w <= 0.0f || h <= 0.0f || alpha <= 0.0f)
+        return;
+    struct Layer {
+        float per_star;  // square pixels of sky per star
+        float drift;     // pixels per second, leftward
+        float parallax;  // how much of `pan` it follows
+        float radius;
+        float brightness;
+    };
+    static constexpr Layer kLayers[] = {
+        {2600.0f, 1.5f, 0.15f, 0.6f, 0.35f},
+        {6500.0f, 4.0f, 0.35f, 0.9f, 0.6f},
+        {16000.0f, 9.0f, 0.6f, 1.3f, 0.9f},
+    };
+    const float scale = ImGui::GetFrameHeight() / 20.0f;  // follows DPI scaling
+    const float time = animate ? static_cast<float>(ImGui::GetTime()) : 0.0f;
+    draw->PushClipRect(min, max, true);
+    for (std::uint32_t layer = 0; layer < 3; ++layer) {
+        const Layer& l = kLayers[layer];
+        const int count = std::min(600, static_cast<int>(w * h / (l.per_star * scale * scale)));
+        const float shift_x = pan.x * l.parallax - time * l.drift * scale;
+        const float shift_y = pan.y * l.parallax;
+        for (int i = 0; i < count; ++i) {
+            const std::uint32_t n = static_cast<std::uint32_t>(i) + layer * 1000u;
+            // Each star's place in the sky, wrapped round so the field tiles.
+            const float x = std::fmod(StarHash(n, 1) * w + shift_x, w);
+            const float y = std::fmod(StarHash(n, 2) * h + shift_y, h);
+            const ImVec2 p(min.x + (x < 0.0f ? x + w : x), min.y + (y < 0.0f ? y + h : y));
+            // A slow twinkle, each star at its own rate.
+            const float twinkle = !animate ? 0.85f : 0.75f + 0.25f * std::sin(time * (0.5f + 1.5f * StarHash(n, 3)) + 6.28f * StarHash(n, 4));
+            const float a = l.brightness * twinkle * (0.6f + 0.4f * StarHash(n, 5)) * alpha;
+            // A few have a tint: cold blue or warm amber.
+            const float tint = StarHash(n, 6);
+            const ImVec4 color = tint < 0.12f ? kSteelHover : tint < 0.2f ? kAccentHover : kText;
+            draw->AddCircleFilled(p, std::max(0.5f, l.radius * scale), U32(color, a), 6);
+        }
+    }
+    draw->PopClipRect();
 }
 
 }  // namespace ui::theme

@@ -79,6 +79,7 @@ using namespace ui;
 
 void DrawMainMenu(Screen& screen) {
     BeginFullscreenPage("##main_menu");
+    DrawPageStarfield();
 
     const float fh = ImGui::GetFrameHeight();  // follows font size / DPI scaling
     const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
@@ -129,6 +130,7 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
     bool commit_rename = false;
 
     BeginFullscreenPage("##save_select");
+    DrawPageStarfield();
     const float fh = ImGui::GetFrameHeight();
     const float width = std::min(ImGui::GetContentRegionAvail().x, fh * 32.0f);
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
@@ -277,6 +279,7 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
 
 void DrawCredits(Screen& screen) {
     BeginFullscreenPage("##credits");
+    DrawPageStarfield();
     const float width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight() * 32.0f);
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
     ImGui::BeginChild("##credits_list", ImVec2(width, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
