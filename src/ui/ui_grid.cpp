@@ -514,7 +514,7 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                     DrawFilterIcon(draw, unloader->get_filter(), min, cell);
                 if (requester)
                     DrawFilterIcon(draw, requester->get_filter(), min, cell);
-                DrawCombatStatus(draw, *b, min, max, cell);
+                DrawCombatStatus(draw, *b, min, max, cell, now, true);
                 DrawBuildingDamage(draw, *b, min, max, cell, now);
                 if (b == InspectedBuilding(ship))
                     DrawCornerBrackets(draw, min, max, theme::U32(theme::kAccent), cell);

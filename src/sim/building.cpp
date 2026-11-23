@@ -351,7 +351,7 @@ void Weapon::charge_up(bool free, int pace) {
     charge = std::min(charge + pace, static_cast<int>(spec->charge) * kChargeScale);
 }
 
-void Weapon::fire(bool free) {
+void Weapon::fire(bool free, Tick now) {
     assert(charged());
     if (!free) {
         assert(powered());
@@ -359,6 +359,7 @@ void Weapon::fire(bool free) {
         --ammo;
     }
     charge = 0;
+    fired_at = now;
 }
 
 void Weapon::tick() {

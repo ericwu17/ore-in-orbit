@@ -42,14 +42,43 @@ void DrawBeam(ImDrawList* draw, const Ship& ship, GridPos cell, Direction sweep,
     draw->AddLine(CellCenter(origin, cell_px, cell), CellCenter(origin, cell_px, end), color, width);
 }
 
+// How long a weapon's muzzle flash lasts after it fires.
+constexpr Tick kMuzzleFlashTicks = 10;
+
+// A weapon firing (`w`, on its tile `min`..`max`), `age` ticks ago: its
+// tile lights up in the shot's color, a white-hot flash bursts at the
+// muzzle, on the side it fires to (`fires_right`), and a streak leaves it.
+void DrawMuzzleFlash(ImDrawList* draw, const Weapon& w, ImVec2 min, ImVec2 max, float cell, Tick age,
+                     bool fires_right) {
+    const float t = static_cast<float>(age) / static_cast<float>(kMuzzleFlashTicks);
+    const float fade = 1.0f - t;
+    const ImVec4 color = ShotColor(*w.item_kind(), !fires_right);
+    draw->AddRectFilled(min, max, theme::U32(color, 0.45f * fade * fade));
+    const float dir = fires_right ? 1.0f : -1.0f;
+    const ImVec2 muzzle(fires_right ? max.x : min.x, (min.y + max.y) * 0.5f);
+    // The flash: a bright core in a colored bloom, quick to grow and fade.
+    const float r = std::max(3.0f, cell * (0.35f + 0.45f * t));
+    draw->AddCircleFilled(muzzle, r * 1.6f, theme::U32(color, 0.35f * fade));
+    draw->AddCircleFilled(muzzle, r, theme::U32(theme::kText, 0.9f * fade * fade));
+    // The shot leaving, out past the hull toward the other ship.
+    const float head = cell * (0.6f + 5.0f * t);
+    const float len = cell * 1.4f * fade;
+    draw->AddLine(ImVec2(muzzle.x + dir * (head - len), muzzle.y), ImVec2(muzzle.x + dir * head, muzzle.y),
+                  theme::U32(color, fade), std::max(2.0f, cell * 0.2f));
+}
+
 }  // namespace
 
-void DrawCombatStatus(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell) {
+void DrawCombatStatus(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now,
+                      bool fires_right) {
     if (const auto* w = dynamic_cast<const Weapon*>(&b)) {
         DrawCornerItem(draw, min, max, cell, w->get_spec().ammo);
         DrawBufferGauge(draw, min, max, cell, w->charge_fraction());
         if (w->get_stun() > 0)
             draw->AddRectFilled(min, max, theme::U32(theme::kTeal, 0.3f));
+        if (const std::optional<Tick> fired = w->get_fired_at(); fired && now >= *fired &&
+                                                                   now - *fired < kMuzzleFlashTicks)
+            DrawMuzzleFlash(draw, *w, min, max, cell, now - *fired, fires_right);
     } else if (const auto* s = dynamic_cast<const ShieldProjector*>(&b)) {
         const ImVec2 c((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
         const float r = (max.x - min.x) * 0.38f;
@@ -264,7 +293,7 @@ void DrawEnemyPanel(World& world, FleetShip& shown, ImVec2 avail) {
             const auto* thruster = dynamic_cast<const Thruster*>(&b);
             DrawBuilding(draw, min, cell, b.footprint(), b.item_kind(), b.facing(),
                          thruster && thruster->offline() ? 0.4f : 1.0f);
-            DrawCombatStatus(draw, b, min, max, cell);
+            DrawCombatStatus(draw, b, min, max, cell, now, false);
             DrawBuildingDamage(draw, b, min, max, cell, now);
             if (hovered == p)
                 draw->AddRect(min, max, theme::U32(theme::kAccent, 0.6f), 0.0f, 0, 2.0f);

@@ -771,6 +771,8 @@ private:
     int ammo = 0;     // rounds
     int charge = 0;   // toward a volley, in kChargeScale-ths of a tick
     Tick stun = 0;    // ticks until it can charge again
+    // When it last fired, for the UI's muzzle flash (not saved).
+    std::optional<Tick> fired_at;
 
 public:
     explicit Weapon(ItemKind k);
@@ -779,6 +781,7 @@ public:
     int get_fuel() const { return fuel; }
     int get_ammo() const { return ammo; }
     Tick get_stun() const { return stun; }
+    std::optional<Tick> get_fired_at() const { return fired_at; }
     // Fuel and ammunition for a volley.
     bool powered() const { return fuel > 0 && ammo > 0; }
     // How far charged, 0 to 1.
@@ -788,9 +791,9 @@ public:
     // as fast as its spec), while it can: powered (or `free`: an enemy's,
     // which needs neither fuel nor ammunition) and not stunned.
     void charge_up(bool free, int pace = kChargeScale);
-    // Fires the charged volley: burns a fuel cell and a round (unless
-    // `free`), and starts charging the next.
-    void fire(bool free);
+    // Fires the charged volley at tick `now`: burns a fuel cell and a round
+    // (unless `free`), and starts charging the next.
+    void fire(bool free, Tick now);
     // Loses its charge (its ship's fight over: see World::stand_down).
     void discharge() { charge = 0; }
     void stun_for(Tick ticks) { stun = std::max(stun, ticks); }

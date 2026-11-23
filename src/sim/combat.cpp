@@ -376,7 +376,7 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
                     s->target ? s->target : pick_target(enemy, default_player_priorities(), 0.0f, rng);
                 if (!target)
                     continue;
-                w->fire(false);
+                w->fire(false, now);
                 fire_volley(fight.shots, enemy, *w->item_kind(), *target, true, s->id, rng, now);
                 events.push({.kind = EventKind::WeaponFired,
                              .ship = s->id,
@@ -402,7 +402,7 @@ std::optional<Salvage> combat_tick(Engagement& fight, const std::vector<FleetShi
             const std::optional<GridPos> target = pick_target(at.ship, design.priorities, kRandomTargetChance, rng);
             if (!target)
                 continue;
-            w->fire(true);
+            w->fire(true, now);
             fire_volley(fight.shots, at.ship, *w->item_kind(), *target, false, at.id, rng, now);
             events.push({.kind = EventKind::WeaponFired,
                          .ship = at.id,

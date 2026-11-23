@@ -479,8 +479,11 @@ void DrawBuildingDamage(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 
 // ui_combat.cpp
 
 // A weapon's charge and ammunition, or a shield projector's layer, on its
-// tile (`min`..`max`); nothing for other buildings.
-void DrawCombatStatus(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell);
+// tile (`min`..`max`); nothing for other buildings. A weapon that fired in
+// the last few ticks before `now` flashes, its shot leaving to the right
+// (`fires_right`: a player's ship, the enemy being on that side) or left.
+void DrawCombatStatus(ImDrawList* draw, const Building& b, ImVec2 min, ImVec2 max, float cell, Tick now,
+                      bool fires_right);
 // The fight over `ship`'s grid (drawn at `origin`, `cell` px per cell, on
 // the canvas `canvas_min`..`canvas_max`): its shield bubble, the shots on
 // their way to it (from the right, on a player's ship, `ship_id`; from the
