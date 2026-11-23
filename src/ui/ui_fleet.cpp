@@ -404,9 +404,10 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
             ImGui::TextColored(theme::kBad, "%d knocked offline", static_cast<int>(offline));
         const JumpResult can = world.can_jump(current.id, index);
         ImGui::BeginDisabled(can != JumpResult::Ok);
-        if (theme::PrimaryButton("Jump here", ImVec2(-1.0f, 0.0f)) &&
-            world.jump(current.id, index) == JumpResult::Ok)
-            SetMessage(current.name + " jumped to " + s.name, theme::kGood);
+        // The jump transition (ui.cpp) shows it went: it closes the map and
+        // names where the ship came out.
+        if (theme::PrimaryButton("Jump here", ImVec2(-1.0f, 0.0f)))
+            world.jump(current.id, index);
         ImGui::EndDisabled();
         if (can != JumpResult::Ok)
             ImGui::TextColored(theme::kWarnText, "%s", describe(can));

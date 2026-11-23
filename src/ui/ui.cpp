@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <deque>
 
 namespace ui {
@@ -28,9 +29,10 @@ MilestoneBanner g_banner;
 // A banner plate centered across the grid (`grid_min`, `grid_size`): a band
 // along its top in `band` (hazard stripes when `hazard`), `title` in mono
 // in `color`, and `subtitle` under it. At the top of the grid, or with
-// `bottom`, at its bottom. Returns its height.
+// `bottom`, at its bottom; `offset` pixels further in (under another
+// banner). Returns its height.
 float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 band, bool hazard, ImVec2 grid_min,
-                 ImVec2 grid_size, bool bottom) {
+                 ImVec2 grid_size, bool bottom, float offset = 0.0f) {
     const float fh = ImGui::GetFrameHeight();
     const float pad = fh * 0.45f;
     const float band_h = std::max(4.0f, fh * 0.28f);
@@ -40,7 +42,7 @@ float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 b
     const ImVec2 ss = ImGui::CalcTextSize(subtitle);
     const float w = std::max(ts.x, ss.x) + pad * 2.0f;
     const float h = band_h + ts.y + ss.y + pad * 2.0f;
-    const float y = bottom ? grid_min.y + grid_size.y - h - fh * 0.6f : grid_min.y + fh * 0.6f;
+    const float y = bottom ? grid_min.y + grid_size.y - h - fh * 0.6f - offset : grid_min.y + fh * 0.6f + offset;
     const ImVec2 min(grid_min.x + std::floor((grid_size.x - w) * 0.5f), y);
     const ImVec2 max(min.x + w, min.y + h);
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -60,8 +62,9 @@ float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 b
 }
 
 // Announces a milestone just completed, for a few seconds, at the top of
-// the grid (`grid_min`, `grid_size`).
-void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
+// the grid (`grid_min`, `grid_size`). Returns its height (0 when there's
+// none).
+float DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
     const std::size_t current = progress.current_index();
     MilestoneBanner& banner = g_banner;
     if (banner.progress != &progress)
@@ -70,11 +73,112 @@ void DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
         banner.until = ImGui::GetTime() + 5.0;
     banner.seen = current;
     if (current == 0 || ImGui::GetTime() >= banner.until)
-        return;
+        return 0.0f;
 
     const std::string title = std::string("MILESTONE COMPLETE: ") + all_milestones()[current - 1].name;
     const char* subtitle = progress.all_complete() ? "Every milestone done!" : "New recipes unlocked";
-    DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
+    return DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
+}
+
+// The shown ship's last jump: which ship, to where, and when
+// (ImGui::GetTime()) it went. Drawn over the grid by DrawJumpTransition.
+struct JumpTransition {
+    int ship = 0;  // 0: none yet
+    int sector = -1;
+    double at = -100.0;
+};
+JumpTransition g_jump;
+
+// How the jump plays out, in seconds after it: the star streaks build up
+// to the flash at kJumpFlash, the flash fades by kJumpEnd, and the banner
+// naming where the ship came out stays up until kJumpBannerEnd.
+constexpr double kJumpFlash = 0.45;
+constexpr double kJumpEnd = 0.95;
+constexpr double kJumpBannerEnd = 3.2;
+
+// A number in [0, 1) from `i` and `salt`, the same every frame: where a
+// streak runs, how long and how fast it is.
+float Hash01(std::uint32_t i, std::uint32_t salt) {
+    std::uint32_t x = i * 0x9E3779B1u ^ salt * 0x85EBCA77u;
+    x ^= x >> 15;
+    x *= 0x2C1B3C6Du;
+    x ^= x >> 12;
+    x *= 0x297A2D39u;
+    x ^= x >> 15;
+    return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
+}
+
+// Starts the jump transition when the ship shown (`shown`) has just
+// jumped, and closes the star map so the player sees it.
+void StartJumpTransition(const std::vector<Event>& events, int shown) {
+    for (const Event& e : events) {
+        if (e.kind != EventKind::Jumped || e.ship != shown)
+            continue;
+        g_jump = {e.ship, e.sector, ImGui::GetTime()};
+        if (g_map.shown)
+            ShowStarMap(false);
+    }
+}
+
+// The jump, over the grid (`grid_min`, `grid_size`), while the ship shown
+// (`shown`) is the one that jumped: teal star streaks racing past, faster
+// and denser until a white flash, which fades to show the new sector.
+void DrawJumpTransition(int shown, ImVec2 grid_min, ImVec2 grid_size) {
+    const double age = ImGui::GetTime() - g_jump.at;
+    if (g_jump.ship != shown || age < 0.0 || age >= kJumpEnd || grid_size.x <= 0.0f || grid_size.y <= 0.0f)
+        return;
+    const ImVec2 grid_max(grid_min.x + grid_size.x, grid_min.y + grid_size.y);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->PushClipRect(grid_min, grid_max, true);
+    const float t = static_cast<float>(age);
+    const float flash = static_cast<float>(kJumpFlash);
+    // 0 to 1 up to the flash, then back down to 0 at the end.
+    const float build = std::min(1.0f, t / flash);
+    const float fade = t < flash ? 1.0f : 1.0f - (t - flash) / static_cast<float>(kJumpEnd - kJumpFlash);
+    // Space darkens behind the streaks as the drive spins up.
+    draw->AddRectFilled(grid_min, grid_max, theme::U32(theme::kBackdrop, 0.75f * build * fade));
+    // The streaks: each runs along its own row, from the right edge to the
+    // left, longer and quicker as the jump builds; more of them join in.
+    constexpr int kStreaks = 90;
+    const int shown_streaks = static_cast<int>(kStreaks * (0.25f + 0.75f * build));
+    const float h = std::max(1.0f, ImGui::GetFrameHeight() * 0.08f);
+    for (int i = 0; i < shown_streaks; ++i) {
+        const std::uint32_t n = static_cast<std::uint32_t>(i);
+        const float y = grid_min.y + Hash01(n, 1) * grid_size.y;
+        const float speed = (0.8f + 1.6f * Hash01(n, 2)) * (0.5f + 2.5f * build * build);
+        const float len = grid_size.x * (0.04f + 0.30f * Hash01(n, 3)) * (0.3f + 1.7f * build);
+        const float span = grid_size.x + len;
+        const float head = grid_max.x - std::fmod(Hash01(n, 4) * span + t * speed * grid_size.x, span);
+        const bool white = Hash01(n, 5) < 0.25f;
+        const float a = (0.35f + 0.65f * Hash01(n, 6)) * fade;
+        const ImU32 bright = theme::U32(white ? theme::kText : theme::kTeal, a);
+        const ImU32 clear = theme::U32(white ? theme::kText : theme::kTeal, 0.0f);
+        draw->AddRectFilledMultiColor(ImVec2(head, y), ImVec2(head + len, y + h), bright, clear, clear, bright);
+    }
+    // The flash: up fast just before kJumpFlash, then fading out.
+    const float flash_in = std::clamp((t - flash * 0.7f) / (flash * 0.3f), 0.0f, 1.0f);
+    const float flash_a = t < flash ? flash_in : fade * fade;
+    if (flash_a > 0.0f)
+        draw->AddRectFilled(grid_min, grid_max, theme::U32(theme::kText, 0.9f * flash_a));
+    draw->PopClipRect();
+}
+
+// After the flash, while the ship shown (`shown`) is the one that jumped,
+// a banner at the top of the grid naming where it came out, `offset` under
+// any other banner there.
+void DrawJumpBanner(const World& world, int shown, ImVec2 grid_min, ImVec2 grid_size, float offset) {
+    const double age = ImGui::GetTime() - g_jump.at;
+    if (g_jump.ship != shown || age < kJumpFlash || age >= kJumpBannerEnd || g_jump.sector < 0 ||
+        g_jump.sector >= world.get_map().size())
+        return;
+    const Sector& sector = world.get_map().at(g_jump.sector);
+    const std::string title = "ARRIVED: " + sector.name;
+    const char* subtitle = sector.hostile()  ? "Hostile contact!"
+                           : sector.cleared() ? "Cleared of hostiles"
+                                              : "No hostiles here";
+    DrawBanner(title.c_str(), subtitle, sector.hostile() ? theme::kBad : theme::kTeal,
+               sector.hostile() ? theme::kBad : theme::kTeal, false, grid_min, grid_size, false,
+               offset > 0.0f ? offset + ImGui::GetFrameHeight() * 0.3f : 0.0f);
 }
 
 // The fight, along the bottom of the grid: the enemy the ship shown is
@@ -178,6 +282,7 @@ void LeaveGame(Screen& screen) {
     g_fleet = {};
     g_map = {};
     g_banner = {};
+    g_jump = {};
     g_salvage.clear();
     g_build.craft_in_fight = false;  // the next game's first fight opens on the enemy
     g_build.inspected.reset();
@@ -392,6 +497,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
 
     FleetShip& current = CurrentShip(world.get_fleet());
     Ship& ship = current.ship;
+    StartJumpTransition(events, current.id);
     if (!paused) {
         if (ShortcutPressed(ImGuiKey_LeftBracket))
             CycleShip(world.get_fleet(), -1);
@@ -480,9 +586,14 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     } else {
         DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), grid_avail);
     }
-    DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
+    const float milestone_h = DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
     const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, grid_avail);
     DrawToast(grid_min, grid_avail, battle_h);
+    // The jump over all of that, then where the ship came out.
+    if (!g_map.shown) {
+        DrawJumpTransition(shown.id, grid_min, grid_avail);
+        DrawJumpBanner(world, shown.id, grid_min, grid_avail, milestone_h);
+    }
     DrawSalvageWindow(world, grid_min, grid_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
     ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y));
