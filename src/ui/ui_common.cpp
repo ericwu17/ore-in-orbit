@@ -18,6 +18,12 @@ void BeginFullscreenPage(const char* id, ImGuiWindowFlags extra) {
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | extra);
 }
 
+void DrawPageStarfield() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    theme::DrawStarfield(ImGui::GetBackgroundDrawList(), viewport->WorkPos,
+                         ImVec2(viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y));
+}
+
 void CenteredText(const char* text, ImVec4 color) {
     const float width = ImGui::CalcTextSize(text).x;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
