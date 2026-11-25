@@ -24,6 +24,13 @@ git submodule update --init   # Dear ImGui, ImPlot
 make && ./ore-in-orbit
 ```
 
+`make app` packages it as `build/Ore in Orbit.app`, with SDL bundled inside
+(`tools/macos/make_app.sh`). Built against Homebrew's SDL, that bundle only
+runs on your macOS version or newer. The `macOS app` GitHub Actions workflow
+builds SDL from source (`tools/macos/build_sdl.sh`) to make an app for macOS
+11 and later on Apple Silicon, and uploads it as the run's artifact. It's
+ad-hoc signed, so on another Mac you need to right-click > Open it the first time.
+
 Linux:
 
 ```sh

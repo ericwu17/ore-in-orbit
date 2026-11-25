@@ -25,3 +25,14 @@ LIBS  = -framework OpenGL
 LIBS += $(shell sdl2-config --libs)
 
 include Makefile.common
+
+# `make app` packages the game as "build/Ore in Orbit.app" (bundled SDL, icon,
+# ad-hoc signature): see tools/macos/make_app.sh. The bundle needs the same
+# macOS as the SDL it was linked against, which for Homebrew's SDL is this
+# machine's version. For a bundle that runs on older macOS, build SDL with
+# tools/macos/build_sdl.sh, put its bin/ first on PATH and build with
+# MACOSX_DEPLOYMENT_TARGET set, as .github/workflows/macos-app.yml does.
+app: $(EXE)
+	tools/macos/make_app.sh $(EXE) "$(BUILD_DIR)/Ore in Orbit.app"
+
+.PHONY: app

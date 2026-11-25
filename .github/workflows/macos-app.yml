@@ -1,0 +1,61 @@
+# Builds "Ore in Orbit.app" on every push and uploads it, zipped, as the
+# run's "Ore-in-Orbit-macOS" artifact (Actions tab > the run > Artifacts).
+#
+# Runs on macOS 11 (Big Sur) and later, Apple Silicon. Homebrew's SDL only
+# runs on the runner's macOS version or newer, so SDL is built from source
+# with MACOSX_DEPLOYMENT_TARGET (tools/macos/build_sdl.sh) and cached, and the
+# game is compiled with the same target.
+#
+# The app is ad-hoc signed, not notarized: on another Mac, right-click >
+# Open the first time to get past Gatekeeper.
+
+name: macOS app
+
+on:
+  push:
+  workflow_dispatch:   # also allows a manual run from the Actions tab
+
+env:
+  # 11.0 is the first macOS on Apple Silicon, so the lowest useful target for
+  # an arm64 build. Clang and CMake both read this variable.
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+jobs:
+  app:
+    runs-on: macos-15   # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true   # imgui and implot
+
+      # SDL takes a few minutes to build: reuse it until the versions in
+      # build_sdl.sh or the deployment target change.
+      - name: Cache SDL
+        id: sdl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/sdl
+          key: sdl-${{ runner.os }}-${{ runner.arch }}-macos${{ env.MACOSX_DEPLOYMENT_TARGET }}-${{ hashFiles('tools/macos/build_sdl.sh') }}
+
+      - name: Build SDL
+        if: steps.sdl-cache.outputs.cache-hit != 'true'
+        run: tools/macos/build_sdl.sh ~/sdl
+
+      # Its sdl2-config goes first on PATH, ahead of any Homebrew SDL on the runner.
+      - name: Use the built SDL
+        run: echo "$HOME/sdl/bin" >> "$GITHUB_PATH"
+
+      # make_app.sh fails if anything in the bundle still points outside it,
+      # and prints the macOS version the bundle needs.
+      - name: Build app
+        run: make -j"$(sysctl -n hw.ncpu)" app
+
+      # ditto keeps the bundle's permissions and signature (upload-artifact's
+      # own zip drops the executable bit).
+      - name: Zip app
+        run: ditto -c -k --keepParent "build/Ore in Orbit.app" Ore-in-Orbit-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ore-in-Orbit-macOS
+          path: Ore-in-Orbit-macOS.zip
