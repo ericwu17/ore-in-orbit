@@ -20,6 +20,8 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::IronPlate, 20},
     {ItemKind::CopperPlate, 10},
     {ItemKind::BurstLaser, 1},
+    // One provider, to make the first delivery with.
+    {ItemKind::Provider, 1},
     // Fuel for the thrusters, which draw it from here: four jumps of the
     // skiff's two thrusters (a full charge, and three more here).
     {ItemKind::FuelCell, 4 * kThrusterCharge * 2},

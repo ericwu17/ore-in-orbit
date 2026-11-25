@@ -137,8 +137,9 @@ Locked recipes show greyed out, marked with the tech that unlocks them
 ("T2"), and a request asking for something locked waits for its tech.
 
 Fuel cells (pressed from carbon in a fabricator) and providers are there
-from the start, so the first deliveries, the nearest next to home, are the
-first reason to jump. The techs, cheapest first: Steelworks (steel, filter
+from the start (a new game has one provider ready to place, and more can
+be hand-crafted), so the first deliveries, the nearest next to home, are
+the first reason to jump. The techs, cheapest first: Steelworks (steel, filter
 and reverse sorters, routers, unloaders); then Refining (the refinery,
 plastic, silicon, advanced circuits, frames) and Logistics (express belts,
 belt tunnels, cargo pods), in either order; Deep space (Fabricator Mk2,

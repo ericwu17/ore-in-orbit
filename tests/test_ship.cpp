@@ -67,6 +67,8 @@ void test_new_game() {
     for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
                                 ItemKind::FabricatorMk1})
         assert(ship.inventory().count(kind) > 0);
+    // And one provider, for the first delivery.
+    assert(ship.inventory().count(ItemKind::Provider) == 1);
     for (const ItemStack& s : ship.inventory().stacks())
         if (const Recipe* r = recipe_for(s.kind); r && is_placeable(s.kind))
             assert(r->hand_craftable);
