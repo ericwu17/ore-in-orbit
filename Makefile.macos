@@ -32,7 +32,14 @@ include Makefile.common
 # machine's version. For a bundle that runs on older macOS, build SDL with
 # tools/macos/build_sdl.sh, put its bin/ first on PATH and build with
 # MACOSX_DEPLOYMENT_TARGET set, as .github/workflows/macos-app.yml does.
-app: $(EXE)
-	tools/macos/make_app.sh $(EXE) "$(BUILD_DIR)/Ore in Orbit.app"
+#
+# The app is an optimized (-O2) build, made by a nested make in its own
+# build directory, so it never mixes objects with the everyday -O0 build.
+RELEASE_DIR = $(BUILD_DIR)/release
+RELEASE_EXE = $(RELEASE_DIR)/$(notdir $(EXE))
+
+app:
+	$(MAKE) -f Makefile.macos BUILD_DIR=$(RELEASE_DIR) EXE=$(RELEASE_EXE) OPTFLAGS=-O2
+	tools/macos/make_app.sh $(RELEASE_EXE) "$(BUILD_DIR)/Ore in Orbit.app"
 
 .PHONY: app

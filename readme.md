@@ -25,7 +25,8 @@ make && ./ore-in-orbit
 ```
 
 `make app` packages it as `build/Ore in Orbit.app`, with SDL bundled inside
-(`tools/macos/make_app.sh`). Built against Homebrew's SDL, that bundle only
+(`tools/macos/make_app.sh`). Unlike a plain `make`, which stays unoptimized
+for debugging, the app is an `-O2` build (made separately in `build/release/`). Built against Homebrew's SDL, that bundle only
 runs on your macOS version or newer. The `macOS app` GitHub Actions workflow
 builds SDL from source (`tools/macos/build_sdl.sh`) to make an app for macOS
 11 and later on Apple Silicon, and uploads it as the run's artifact. It's

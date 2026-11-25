@@ -26,6 +26,11 @@ IMPLOT_DIR = implot
 THIRD_PARTY_DIR = third_party
 
 CXXFLAGS = -std=c++20 -g
+# Optimization level: none by default, for debugging. Release builds set it on
+# the command line, e.g. `make OPTFLAGS=-O2 BUILD_DIR=...` (`make app` on macOS
+# does), in a separate BUILD_DIR, since objects aren't rebuilt when it changes.
+OPTFLAGS =
+CXXFLAGS += $(OPTFLAGS)
 # Only src/ itself: our includes name their layer ("sim/world.h").
 CXXFLAGS += -Isrc
 # Vendored headers are treated as system headers so they can't trip the
