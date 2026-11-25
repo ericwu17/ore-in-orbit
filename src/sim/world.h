@@ -4,7 +4,6 @@
 // Travel: a ship jumps from its sector to a linked one, at once, when every
 // ion thruster its layout has is online and charged with fuel cells; the
 // jump burns all their fuel.
-// Survey scanners survey the sectors next to the ship's, once a second.
 //
 // Combat (see combat.h): the player's ships in a sector with an enemy ship
 // fight it; a ship whose bridge is destroyed is lost, and with the last one,
@@ -15,7 +14,7 @@
 // Collectors gather from their sector's reserves (see sector.h), and what
 // runs out there is gone for good.
 //
-// What happens along the way (fights, cargo landing, milestones, jumps...)
+// What happens along the way (fights, cargo landing, deliveries, jumps...)
 // is recorded as events (see events.h), for the UI to take each frame.
 #pragma once
 
@@ -76,9 +75,9 @@ private:
     // tick, by ship id, to report them becoming ready (not saved: a
     // reloaded game starts watching afresh).
     std::vector<std::pair<int, bool>> ready_seen;
+    // The whole map is shown (the debug menu; not saved).
+    bool revealed = false;
 
-    // Ships with a survey scanner survey the sectors next to theirs.
-    void scan();
     // The fleet's ships in sector `sector`.
     std::vector<FleetShip*> ships_in(int sector);
     // Starts a fight wherever a ship of the fleet meets an enemy, ends
@@ -115,8 +114,11 @@ public:
     const Ship& flagship() const { return fleet.flagship().ship; }
 
     const StarMap& get_map() const { return map; }
-    // Surveys every sector at once (the debug menu).
-    void reveal_map();
+    // Whether sector `i` is shown on the map, with what's there: known (see
+    // StarMap::known), or taking an open delivery, or the map revealed.
+    bool shown(int i) const;
+    // Shows every sector (the debug menu), until the game is reloaded.
+    void reveal_map() { revealed = true; }
     // Leaves `left` of each raw resource in sector `sector`, of those it
     // has, at most (the debug menu); one already run out stays so.
     void drain_sector(int sector, int left);

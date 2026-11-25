@@ -4,7 +4,7 @@
 //
 //   Building (abstract)
 //   ├── Bridge       the ship's command center; owns the inventory and the
-//   │                item requests, follows the fleet's milestone progress,
+//   │                item requests, follows the fleet's delivery progress,
 //   │                hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts
@@ -21,8 +21,7 @@
 //   │                fuel cells for a jump
 //   ├── Weapon       lasers, missiles, ...: fire at enemy ships, on the fuel
 //   │                cells and ammunition belts bring
-//   ├── ShieldProjector  one shield layer round the ship
-//   └── ShipSystem   survey scanner
+//   └── ShieldProjector  one shield layer round the ship
 //
 // One class per family, not per building: each building's footprint and
 // whether it rotates is data (footprint_of, is_rotatable), looked up by item
@@ -43,7 +42,7 @@
 #pragma once
 
 #include "sim/game_types.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 
 #include <algorithm>
@@ -174,9 +173,9 @@ private:
     // How many of each item the player wants kept in the inventory, in the
     // order they were asked for; at most one per kind (a count may be 0).
     std::vector<ItemStack> requests;
-    // The milestones are the fleet's: every ship's bridge shares one
-    // Progress (see Fleet), and what any of them makes counts. A bridge on
-    // its own (a lone Ship) has one of its own.
+    // The deliveries are the fleet's: every ship's bridge shares one
+    // Progress (see Fleet), and what any of them unlocks is unlocked on
+    // all. A bridge on its own (a lone Ship) has one of its own.
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
 
 public:
@@ -184,7 +183,7 @@ public:
 
     bool removable() const override { return false; }
     // Advances the front craft job; a finished one puts its outputs in the
-    // inventory, and they count toward the current milestone.
+    // inventory.
     void tick() override;
     // The ship's core: belts deliver anything into the inventory.
     bool accepts(ItemKind) const override { return true; }
@@ -663,11 +662,8 @@ public:
     bool on_standby() const { return standby; }
     void set_standby(bool on) { standby = on; }
 
-    // Advances the craft under way, or starts one; a finished one's products
-    // count toward `progress`'s current milestone (if not null). The Ship
-    // passes its bridge's.
-    void craft(Progress* progress);
-    void tick() override { craft(nullptr); }
+    // Advances the craft under way, or starts one.
+    void tick() override;
     std::vector<ItemStack> contents() const override;
     bool accepts(ItemKind kind) const override;
     void receive(ItemKind kind) override { input.add(kind); }
@@ -834,12 +830,6 @@ public:
     void knock_down() { recharge = kShieldRecharge; }
     void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
     void tick() override;
-};
-
-// The survey scanner: surveys the sectors next to the ship's (see World).
-class ShipSystem : public Building {
-public:
-    explicit ShipSystem(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 };
 
 // Which building kinds handle a category (the machines; hand-crafting at the

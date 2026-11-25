@@ -1,9 +1,9 @@
 // test_ship_layout.cpp — headless tests for the ship layout table: every
 // layout fits the build grid, with its bridge and engines on its hull and
 // clear of each other; ids are unique; the starter is the smallest; and the
-// bigger ones unlock in milestone order.
+// bigger ones unlock with ever deeper deliveries.
 #include "sim/building.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 
@@ -68,29 +68,30 @@ void test_table() {
 }
 
 void test_unlocks() {
-    // The starter from the start; the rest by their milestone, in order.
+    // The starter from the start; the rest by their delivery, each deeper
+    // in the tree than the one before.
     Progress progress;
-    assert(!starter_layout().milestone && layout_unlocked(starter_layout(), progress));
-    std::size_t previous = 0;
+    assert(!starter_layout().delivery && layout_unlocked(starter_layout(), progress));
+    int previous = 0;
     for (const ShipLayout& layout : all_layouts()) {
-        if (!layout.milestone)
+        if (!layout.delivery)
             continue;
-        assert(*layout.milestone < all_milestones().size() && *layout.milestone >= previous);
-        previous = *layout.milestone;
+        assert(*layout.delivery < all_deliveries().size() && delivery_tier(*layout.delivery) > previous);
+        previous = delivery_tier(*layout.delivery);
         assert(!layout_unlocked(layout, progress));
     }
-    while (progress.complete_current()) {
-    }
+    while (!progress.open_deliveries().empty())
+        assert(progress.complete(progress.open_deliveries().front()));
     for (const ShipLayout& layout : all_layouts())
         assert(layout_unlocked(layout, progress));
 
-    // Exactly when its milestone is done.
+    // Exactly when its delivery is done.
     const ShipLayout& hauler = *find_layout("hauler");
     Progress partway;
-    while (partway.current_index() < *hauler.milestone)
-        assert(partway.complete_current());
+    while (!partway.open(*hauler.delivery))
+        assert(partway.complete(partway.open_deliveries().front()));
     assert(!layout_unlocked(hauler, partway));
-    assert(partway.complete_current());
+    assert(partway.complete(*hauler.delivery));
     assert(layout_unlocked(hauler, partway));
     assert(!find_layout("battlestar"));
 }

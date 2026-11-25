@@ -609,8 +609,6 @@ void Ship::tick(Reserves* reserves) {
         if (auto* collector = dynamic_cast<Collector*>(&b)) {
             const std::optional<int> i = raw_resource_index(collector->get_target());
             collector->gather(reserves && i ? &(*reserves)[static_cast<std::size_t>(*i)] : nullptr);
-        } else if (auto* machine = dynamic_cast<Machine*>(&b)) {
-            machine->craft(&bridge->get_progress());
         } else {
             b.tick();
         }

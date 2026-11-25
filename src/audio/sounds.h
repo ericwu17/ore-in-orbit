@@ -38,14 +38,13 @@ namespace audio {
     X(BuildInvalid, "build_invalid")                    \
     X(BuildBlueprintPlace, "build_blueprint_place")     \
     X(GameCraftQueued, "game_craft_queued")             \
-    X(GameMilestoneComplete, "game_milestone_complete") \
+    X(GameDeliveryComplete, "game_delivery_complete")   \
     X(GameCargoLaunch, "game_cargo_launch")             \
     X(GameCargoLand, "game_cargo_land")                 \
     X(GameShipBuilt, "game_ship_built")                 \
     X(GameShipSwitch, "game_ship_switch")               \
     X(GameThrustersCharged, "game_thrusters_charged")   \
     X(GameJump, "game_jump")                            \
-    X(GameSectorSurveyed, "game_sector_surveyed")       \
     X(GameMapOpen, "game_map_open")                     \
     X(GameEnemyDetected, "game_enemy_detected")         \
     X(GameOver, "game_over")                            \

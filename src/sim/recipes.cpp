@@ -58,7 +58,6 @@ std::vector<Recipe> make_recipes() {
         R(Refine, 1).in(Carbon, 2).out(Plastic),
         R(Refine, 2).in(Silica).in(Carbon).out(Silicon),
         R(Refine, 4).in(IridiumOre, 2).out(IridiumPlate),
-        R(Refine, 2).in(Carbon, 4).out(FuelCell),
 
         // Components (all hand-craftable).
         R(Assemble, 0.5).in(IronPlate, 2).out(Gear).hand(),
@@ -79,17 +78,22 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 0.5).in(IronPlate, 2).in(TransportBelt, 2).out(Junction).hand(),
         R(Assemble, 3).in(IronPlate, 8).in(Gear, 4).in(Circuit, 3).out(FabricatorMk1).hand(),
 
-        // Logistics (First light, Heavy industry).
+        // Travel and deliveries, from the start: fuel cells, pressed from
+        // carbon in a fabricator, and the provider, which hands goods over
+        // to a delivery in its sector (see deliveries.h).
+        R(Assemble, 2).in(Carbon, 4).out(FuelCell),
+        R(Assemble, 3).in(IronPlate, 10).in(Gear, 6).in(Circuit, 6).in(TransportBelt, 4).out(Provider).hand(),
+
+        // Logistics (First light, Supply lines).
         R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router).hand(),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
-        // Providers and requesters (Heavy industry): dear, as each pair is
-        // an express belt's worth of items between ships.
-        R(Assemble, 5).in(Steel, 15).in(Gear, 10).in(Circuit, 10).in(ExpressBelt, 5).out(Provider),
+        // Requesters (Deep space): dear, as each one paired with a provider
+        // is an express belt's worth of items between ships.
         R(Assemble, 5)
             .in(Steel, 15).in(Gear, 10).in(Circuit, 10).in(AdvancedCircuit, 2).in(ExpressBelt, 5)
             .out(Requester),
 
-        // Industry (Heavy industry, Deep space).
+        // Industry (Heavy industry, Supply lines, Deep space).
         R(Assemble, 5).in(Steel, 10).in(Circuit, 10).in(Glass, 10).out(Refinery),
         R(Assemble, 8).in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).out(FabricatorMk2),
         R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(Steel).out(ExpressBelt),
@@ -98,7 +102,6 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 15)
             .in(AsteroidCollector).in(StructuralFrame, 10).in(AdvancedCircuit, 10)
             .out(TractorArray).hand(),
-        R(Assemble, 8).in(StructuralFrame, 5).in(AdvancedCircuit, 5).in(Glass, 4).out(SurveyScanner),
         R(Assemble, 12).in(FabricatorMk2).in(Processor, 4).in(IridiumPlate, 5).out(FabricatorMk3),
 
         // Fleet: a new ship (launched from the bridge), and the pods that
@@ -109,8 +112,8 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 2).in(Steel, 2).in(Circuit).out(CargoPod, 2).hand(),
 
         // Ammunition and shields. Weapons have no recipes: they are found
-        // (see milestones.h). Focus crystals and the shield projector come
-        // with milestones; the rest of the ammunition with its weapon. A
+        // (see deliveries.h). Focus crystals and the shield projector come
+        // with deliveries; the rest of the ammunition with its weapon. A
         // round is dear, a volley's worth of refined parts, so firing has
         // to be paid for by the factory.
         R(Assemble, 4).in(Glass, 4).in(CopperPlate, 4).in(Circuit, 2).out(FocusCrystal),

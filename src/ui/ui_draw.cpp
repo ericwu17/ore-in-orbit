@@ -33,7 +33,6 @@ const char* TileLabel(ItemKind kind) {
     case ItemKind::FabricatorMk1:     return "F1";
     case ItemKind::FabricatorMk2:     return "F2";
     case ItemKind::FabricatorMk3:     return "F3";
-    case ItemKind::SurveyScanner:     return "SS";
     case ItemKind::IonThruster:       return "IT";
     case ItemKind::ShieldProjector:   return "SH";
     case ItemKind::BurstLaser:        return "BL";
@@ -54,7 +53,6 @@ ImVec4 TileColor(ItemKind kind) {
     case ItemKind::CargoHold:
     case ItemKind::Provider:
     case ItemKind::Requester:         return theme::kTileStorage;
-    case ItemKind::SurveyScanner:
     case ItemKind::IonThruster:
     case ItemKind::ShieldProjector:   return theme::kTileSystem;
     case ItemKind::BurstLaser:

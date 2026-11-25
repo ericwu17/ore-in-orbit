@@ -89,7 +89,6 @@ BUILDINGS = {
     "FabricatorMk1":     (3, 3, "tile", MACHINE, "F1"),
     "FabricatorMk2":     (3, 3, "tile", MACHINE, "F2"),
     "FabricatorMk3":     (3, 3, "tile", MACHINE, "F3"),
-    "SurveyScanner":     (2, 2, "tile", SYSTEM, "SS"),
     "IonThruster":       (2, 3, "tile", SYSTEM, "IT"),
     "ShieldProjector":   (2, 2, "tile", SYSTEM, "SH"),
     "BurstLaser":        (2, 2, "turret", TURRET, "BL"),

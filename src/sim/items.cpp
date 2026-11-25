@@ -22,7 +22,6 @@ const char* item_name(ItemKind kind) {
     case ItemKind::FabricatorMk1:     return "Fabricator Mk1";
     case ItemKind::FabricatorMk2:     return "Fabricator Mk2";
     case ItemKind::FabricatorMk3:     return "Fabricator Mk3";
-    case ItemKind::SurveyScanner:     return "Survey scanner";
     case ItemKind::IonThruster:       return "Ion thruster";
     case ItemKind::ShieldProjector:   return "Shield projector";
     case ItemKind::BurstLaser:        return "Burst laser";
@@ -82,7 +81,6 @@ const char* item_id(ItemKind kind) {
     case ItemKind::FabricatorMk1:     return "FabricatorMk1";
     case ItemKind::FabricatorMk2:     return "FabricatorMk2";
     case ItemKind::FabricatorMk3:     return "FabricatorMk3";
-    case ItemKind::SurveyScanner:     return "SurveyScanner";
     case ItemKind::IonThruster:       return "IonThruster";
     case ItemKind::ShieldProjector:   return "ShieldProjector";
     case ItemKind::BurstLaser:        return "BurstLaser";

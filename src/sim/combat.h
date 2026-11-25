@@ -29,14 +29,14 @@
 // shot: materials and fuel by the sector's threat, ammunition for its
 // weapons, some of its weapons that are still standing, and maybe a weapon
 // from its hold, one the fleet hasn't found if it can. Salvage is the only
-// way to get weapons (see milestones.h).
+// way to get weapons (see deliveries.h).
 #pragma once
 
 #include "sim/enemies.h"
 #include "sim/events.h"
 #include "sim/fleet.h"
 #include "sim/game_types.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/rng.h"
 #include "sim/ship.h"
 

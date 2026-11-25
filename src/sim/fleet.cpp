@@ -427,10 +427,43 @@ void Fleet::link(Tick now) {
     }
 }
 
+void Fleet::deliver(EventLog& events, const StarMap& map) {
+    for (const std::unique_ptr<FleetShip>& s : ships) {
+        std::vector<std::size_t> here = map.deliveries_at(s->sector);
+        std::erase_if(here, [&](std::size_t d) { return !progress->open(d); });
+        if (here.empty())
+            continue;
+        for (const GridPos p : s->ship.placement_order()) {
+            auto* provider = dynamic_cast<Provider*>(s->ship.building_anchored_at(p));
+            if (!provider || !provider->ready())
+                continue;
+            const auto hand_over = [&] {
+                for (const std::size_t d : here)
+                    for (const ItemStack& want : all_deliveries()[d].wants)
+                        if (provider->get_stored().count(want.kind) > 0 && progress->wanted(d, want.kind) > 0) {
+                            provider->sent(want.kind);
+                            if (progress->deliver(d, want.kind))
+                                events.push({.kind = EventKind::DeliveryComplete,
+                                             .ship = s->id,
+                                             .sector = s->sector,
+                                             .delivery = static_cast<int>(d)});
+                            return;
+                        }
+            };
+            hand_over();
+            std::erase_if(here, [&](std::size_t d) { return !progress->open(d); });
+            if (here.empty())
+                break;
+        }
+    }
+}
+
 void Fleet::tick(Tick now, EventLog& events, StarMap* map) {
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick(map ? &map->at(s->sector).reserves : nullptr);
     link(now);
+    if (map)
+        deliver(events, *map);
     std::erase_if(transfers, [&](const Transfer& t) {
         if (t.arrives > now)
             return false;

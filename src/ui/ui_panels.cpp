@@ -1,5 +1,5 @@
 // ui_panels.cpp — the game screen's side panels: the build palette (left)
-// and the craft panel (right), with the milestone and hand-crafting; and the
+// and the craft panel (right), with the deliveries and hand-crafting; and the
 // inspector window (see ui_internal.h).
 #include "ui/ui_internal.h"
 
@@ -203,29 +203,29 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
     ImGui::EndTooltip();
 }
 
-// Which milestone unlocks a recipe not unlocked yet ("Unlocks with
-// milestone 2: Heavy industry"), for its tooltip; empty once it is.
+// Which delivery unlocks a recipe not unlocked yet ("Unlocks with the
+// delivery Heavy industry"), for its tooltip; empty once it is.
 std::string LockedHint(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
     if (const std::optional<ItemKind> w = weapon_unlocking(recipe.outputs.front().kind))
         return std::string("Unlocks once the fleet finds a ") + item_name(*w) +
                ": salvage one from a beaten enemy ship";
-    const std::size_t i = *milestone_unlocking(recipe.outputs.front().kind);
-    return "Unlocks with milestone " + std::to_string(i + 1) + ": " + all_milestones()[i].name;
+    const std::size_t i = *delivery_unlocking(recipe.outputs.front().kind);
+    return std::string("Unlocks with the delivery ") + all_deliveries()[i].name + " (see Deliveries)";
 }
 
-// The corner badge on a locked recipe's icon ("M2"); empty once unlocked.
+// The corner badge on a locked recipe's icon ("D2"); empty once unlocked.
 std::string LockedBadge(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
     if (weapon_unlocking(recipe.outputs.front().kind))
         return "W";
-    return "M" + std::to_string(*milestone_unlocking(recipe.outputs.front().kind) + 1);
+    return "D" + std::to_string(*delivery_unlocking(recipe.outputs.front().kind) + 1);
 }
 
 // One icon button per hand-craftable recipe whose main output is in
-// `category`; the locked ones faded, with the milestone that unlocks them.
+// `category`; the locked ones faded, with the delivery that unlocks them.
 void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
     const float size = ImGui::GetFrameHeight() * 1.9f;
     IconFlow flow;
@@ -398,8 +398,6 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                                                    : "Belt fuel cells into it to charge it");
         ImGui::TextColored(theme::kTextDim, "Part of the ship's layout: it can't be removed");
     }
-    if (kind == ItemKind::SurveyScanner)
-        ImGui::TextColored(theme::kTextDim, "Surveys the sectors next to the ship's");
     if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {
         const WeaponSpec& spec = weapon->get_spec();
         ImGui::TextColored(theme::kTextDim, "%s", spec.blurb);
@@ -776,36 +774,62 @@ void DrawInspectorWindow(Fleet& fleet, FleetShip& shown_ship) {
 
 namespace {
 
-// The milestone being worked on: what to produce, how much has been, and
-// what it unlocks.
-void DrawMilestone(const Progress& progress) {
-    if (!theme::CollapsingSection("Milestone"))
+// The open deliveries: where each is taken, what it wants, how much has
+// been delivered, and what it unlocks; and how to make one from `current`.
+void DrawDeliveries(const World& world, const FleetShip& current) {
+    const Progress& progress = world.get_fleet().get_progress();
+    const std::size_t total = all_deliveries().size();
+    const std::string label = "Deliveries (" + std::to_string(progress.done_count()) + " / " +
+                              std::to_string(total) + ")###deliveries";
+    if (!theme::CollapsingSection(label.c_str()))
         return;
-    const Milestone* m = progress.current_milestone();
-    if (!m) {
-        ImGui::TextColored(theme::kGood, "All milestones complete");
+    if (progress.all_complete()) {
+        ImGui::TextColored(theme::kGood, "Every delivery made");
         return;
     }
-    ImGui::Text("%zu / %zu: %s", progress.current_index() + 1, all_milestones().size(), m->name);
-    ImGui::TextColored(theme::kTextDim, "Produce:");
-    for (const ItemStack& s : m->produce) {
-        const int have = progress.produced_count(s.kind);
-        const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
-        ImGui::AlignTextToFramePadding();
-        IconImage(ItemIcon(s.kind), ImGui::GetFrameHeight());
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::ProgressBar(static_cast<float>(have) / static_cast<float>(s.count), ImVec2(-1.0f, 0.0f),
-                           overlay.c_str());
+    const StarMap& map = world.get_map();
+    const bool has_provider = current.ship.has_building(ItemKind::Provider);
+    ImGui::PushTextWrapPos(0.0f);
+    bool first = true;
+    for (const std::size_t d : progress.open_deliveries()) {
+        const Delivery& delivery = all_deliveries()[d];
+        const int sector = map.delivery_sector(d);
+        const bool here = sector == current.sector;
+        if (!first)
+            ImGui::Separator();
+        first = false;
+        ImGui::PushID(static_cast<int>(d));
+        ImGui::Text("D%zu: %s", d + 1, delivery.name);
+        ImGui::TextColored(here ? theme::kGood : theme::kTextDim, "%s %s%s", here ? "Here, in" : "To",
+                           sector >= 0 ? map.at(sector).name.c_str() : "?",
+                           here ? "" : " (see the map, M)");
+        for (const ItemStack& s : delivery.wants) {
+            const int have = progress.delivered(d, s.kind);
+            const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
+            ImGui::AlignTextToFramePadding();
+            IconImage(ItemIcon(s.kind), ImGui::GetFrameHeight());
+            ImGui::SetItemTooltip("%s", item_name(s.kind));
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::ProgressBar(static_cast<float>(have) / static_cast<float>(s.count), ImVec2(-1.0f, 0.0f),
+                               overlay.c_str());
+        }
+        if (here && !has_provider)
+            ImGui::TextColored(theme::kWarnText, "Belt the goods into a provider on this ship to deliver them");
+        ImGui::TextColored(theme::kTextDim, "Unlocks");
+        const float icon = ImGui::GetFrameHeight() * 1.4f;
+        IconFlow flow;
+        flow.Start(icon);
+        for (const ItemKind kind : delivery.unlocks) {
+            flow.Next();
+            IconTile(ItemIcon(kind), icon);
+            ImGui::SetItemTooltip("%s", item_name(kind));
+        }
+        for (const ShipLayout& layout : all_layouts())
+            if (layout.delivery == d)
+                ImGui::TextColored(theme::kTextDim, "and the %s, a bigger ship", layout.name);
+        ImGui::PopID();
     }
-    ImGui::TextColored(theme::kTextDim, "Unlocks");
-    const float icon = ImGui::GetFrameHeight() * 1.4f;
-    IconFlow flow;
-    flow.Start(icon);
-    for (const ItemKind kind : m->unlocks) {
-        flow.Next();
-        IconTile(ItemIcon(kind), icon);
-        ImGui::SetItemTooltip("%s", item_name(kind));
-    }
+    ImGui::PopTextWrapPos();
 }
 
 }  // namespace
@@ -818,7 +842,7 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
 
     ImGui::BeginChild("##craft_panel", size, ImGuiChildFlags_AlwaysUseWindowPadding);
     Bridge& bridge = ship.get_bridge();
-    DrawMilestone(bridge.get_progress());
+    DrawDeliveries(world, current);
     ImGui::PushTextWrapPos(0.0f);
     DrawFleetSection(world, current);
     ImGui::PopTextWrapPos();

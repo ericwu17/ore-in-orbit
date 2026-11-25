@@ -1,6 +1,6 @@
 // test_sectors.cpp — headless tests for the star map and travel: the map a
-// seed makes (the same every time, all of it reachable, home safe), what
-// the player knows of it, survey scanners, charging the layout's ion
+// seed makes (the same every time, all of it reachable, home and the
+// sectors around it safe), what the map shows, charging the layout's ion
 // thrusters with fuel cells, jumping, collectors gathering, and running a
 // sector's resources out.
 #include "sim/building.h"
@@ -22,7 +22,6 @@ namespace {
 const GridPos kThrusterA = layout_to_grid(starter_layout(), starter_layout().engines.at(0));
 const GridPos kThrusterB = layout_to_grid(starter_layout(), starter_layout().engines.at(1));
 // Room on the starting hull, away from the bridge, for 2x2 buildings.
-const GridPos kScanner = layout_to_grid(starter_layout(), {2, 10});
 const GridPos kCollectorA = layout_to_grid(starter_layout(), {2, 14});
 const GridPos kCollectorB = layout_to_grid(starter_layout(), {2, 18});
 
@@ -80,16 +79,16 @@ void test_generate() {
                 present += s.reserves[r] > 0 ? 1 : 0;
             }
             assert(present >= 2);
-            // Only home is visited; the others are surveyed only when visited.
-            assert(s.visited == (i == 0) && s.surveyed == (i == 0));
+            // Only home is visited.
+            assert(s.visited == (i == 0));
         }
         // Home: safe, with everything but iridium, none of which is there;
-        // its neighbors an easy first step, with everything between them.
+        // its neighbors safe too, with everything between them.
         const Sector& home = map.at(0);
         assert(home.name == "Home" && home.threat == 0);
         assert(home.reserves == kHomeReserves && home.left(ItemKind::IridiumOre) == 0);
         for (const int n : home.neighbors)
-            assert(map.at(n).threat <= 1);
+            assert(map.at(n).threat == 0 && !map.at(n).enemy);
         for (int r = 0; r < kRawResourceCount; ++r)
             assert(std::any_of(home.neighbors.begin(), home.neighbors.end(), [&](int n) {
                 return map.at(n).reserves[static_cast<std::size_t>(r)] > 0;
@@ -130,18 +129,38 @@ void test_known() {
         assert(map.known(i) == (i == 0 || map.linked(0, i)));
 }
 
-// A survey scanner surveys the sectors next to the ship's, once a second.
-void test_scanner() {
+// The map shows the known sectors, with what's there, and those taking an
+// open delivery, however far; revealed (the debug menu), it shows them all.
+void test_shown() {
     World world;
     const StarMap& map = world.get_map();
-    const int next_door = map.at(0).neighbors.front();
-    world.flagship().inventory().add(ItemKind::SurveyScanner);
-    run(world, kTicksPerSecond);
-    assert(!map.at(next_door).surveyed);
-    assert(world.flagship().place(ItemKind::SurveyScanner, kScanner) == BuildResult::Ok);
-    run(world, kTicksPerSecond);
+    const Progress& progress = world.get_fleet().get_progress();
+    const auto takes_open = [&](int i) {
+        const std::vector<std::size_t> here = map.deliveries_at(i);
+        return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
+    };
+    int hidden = 0;
+    for (int i = 0; i < map.size(); ++i) {
+        assert(world.shown(i) == (map.known(i) || takes_open(i)));
+        hidden += world.shown(i) ? 0 : 1;
+    }
+    assert(hidden > 0);
     for (const int n : map.at(0).neighbors)
-        assert(map.at(n).surveyed && !map.at(n).visited);
+        assert(world.shown(n) && !map.at(n).visited);
+    // A later delivery's sector, out of sight, shows once it opens.
+    Progress& p = world.get_fleet().get_progress();
+    const auto far = std::find_if(all_deliveries().begin(), all_deliveries().end(), [&](const Delivery& d) {
+        return !map.known(map.delivery_sector(delivery_index(d.name)));
+    });
+    assert(far != all_deliveries().end());
+    const std::size_t later = delivery_index(far->name);
+    assert(!world.shown(map.delivery_sector(later)));
+    while (!p.open(later))
+        assert(p.complete(p.open_deliveries().front()));
+    assert(world.shown(map.delivery_sector(later)));
+    world.reveal_map();
+    for (int i = 0; i < map.size(); ++i)
+        assert(world.shown(i));
 }
 
 // Thrusters take fuel cells from belts until charged.
@@ -201,7 +220,7 @@ void test_jump() {
 
     assert(world.jump(id, next_door) == JumpResult::Ok);
     assert(world.get_fleet().flagship().sector == next_door);
-    assert(map.at(next_door).visited && map.at(next_door).surveyed);
+    assert(map.at(next_door).visited);
     for (const Thruster* t : ship.thrusters())
         assert(t->get_fuel() == 0);
     // Its neighbors are known now.
@@ -329,7 +348,7 @@ void test_shared_reserves() {
 int main() {
     test_generate();
     test_known();
-    test_scanner();
+    test_shown();
     test_charging();
     test_jump();
     test_collector_speed();

@@ -96,7 +96,6 @@ enum class ItemKind {
     FabricatorMk2,
     FabricatorMk3,
     // Placeable: ship systems (the ion thruster only comes with a layout).
-    SurveyScanner,
     IonThruster,
     ShieldProjector,
     // Placeable: weapons (see WeaponSpec), lightest first.

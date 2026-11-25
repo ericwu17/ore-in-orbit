@@ -30,11 +30,10 @@ enum class EventKind {
     FleetLost,          // the last of them: the game is over
 
     // The fleet.
-    MilestoneComplete,
+    DeliveryComplete,   // delivery `delivery` complete, in sector `sector`
     CargoLanded,        // cargo pods landed at ship `ship`
     ThrustersCharged,   // every engine of ship `ship` charged and online: it can jump
     Jumped,             // ship `ship` jumped, to sector `sector`
-    SectorSurveyed,     // sector `sector` surveyed for the first time
     ResourceRunOut,     // the last of raw resource `item` in sector `sector` was gathered
 };
 
@@ -44,6 +43,7 @@ struct Event {
     int sector = -1;     // where it happened, -1 for nowhere in particular
     bool enemy = false;  // in a fight: on (or by) the enemy ship
     ItemKind item = ItemKind::BurstLaser;  // the weapon, for WeaponFired and shots; what ran out
+    int delivery = -1;   // DeliveryComplete: which (an index into all_deliveries())
 };
 
 class EventLog {

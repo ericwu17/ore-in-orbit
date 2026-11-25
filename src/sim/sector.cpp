@@ -1,10 +1,12 @@
 // sector.cpp — the star map and generating it (see sector.h).
 #include "sim/sector.h"
 
+#include "sim/deliveries.h"
 #include "sim/rng.h"
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <iterator>
 
 std::optional<int> raw_resource_index(ItemKind kind) {
@@ -34,13 +36,19 @@ bool StarMap::known(int i) const {
 }
 
 void StarMap::visit(int i) {
-    Sector& s = sectors[static_cast<std::size_t>(i)];
-    s.visited = true;
-    s.surveyed = true;
+    sectors[static_cast<std::size_t>(i)].visited = true;
 }
 
-void StarMap::survey(int i) {
-    sectors[static_cast<std::size_t>(i)].surveyed = true;
+int StarMap::delivery_sector(std::size_t d) const {
+    return d < delivery_sectors.size() ? delivery_sectors[d] : -1;
+}
+
+std::vector<std::size_t> StarMap::deliveries_at(int i) const {
+    std::vector<std::size_t> here;
+    for (std::size_t d = 0; d < delivery_sectors.size(); ++d)
+        if (delivery_sectors[d] == i)
+            here.push_back(d);
+    return here;
 }
 
 namespace {
@@ -175,9 +183,6 @@ StarMap StarMap::generate(std::uint64_t seed) {
             }
         }
         s.threat = std::clamp(static_cast<int>(far * 5.0f + rng.unit() * 1.2f - 0.3f), 0, kMaxThreat);
-        // Home's neighbors are an easy first step.
-        if (map.linked(0, i))
-            s.threat = std::min(s.threat, 1);
         // An enemy, more likely the higher the threat.
         if (s.threat > 0 && rng.chance(0.5f + 0.1f * static_cast<float>(s.threat))) {
             const std::vector<EnemyClass> classes = enemies_for_threat(s.threat);
@@ -195,6 +200,61 @@ StarMap StarMap::generate(std::uint64_t seed) {
             const int nearest = *std::min_element(next_door.begin(), next_door.end());  // the index grows outward
             sectors[static_cast<std::size_t>(nearest)].reserves[i] = kSectorReserves[i];
         }
+    }
+
+    // The safe sectors: home's neighbors, then theirs, and so on, the
+    // nearest first, kSafeSectors of them.
+    std::vector<int> hops(static_cast<std::size_t>(n), -1);
+    hops[0] = 0;
+    for (std::deque<int> queue{0}; !queue.empty(); queue.pop_front())
+        for (const int j : sectors[static_cast<std::size_t>(queue.front())].neighbors)
+            if (hops[static_cast<std::size_t>(j)] < 0) {
+                hops[static_cast<std::size_t>(j)] = hops[static_cast<std::size_t>(queue.front())] + 1;
+                queue.push_back(j);
+            }
+    std::vector<int> safe;
+    for (int i = 1; i < n; ++i)
+        safe.push_back(i);
+    std::stable_sort(safe.begin(), safe.end(), [&](int a, int b) {
+        return hops[static_cast<std::size_t>(a)] < hops[static_cast<std::size_t>(b)];
+    });  // the index grows outward, so the nearest come first within a hop
+    safe.resize(std::min(safe.size(), static_cast<std::size_t>(kSafeSectors)));
+    for (const int i : safe) {
+        Sector& s = sectors[static_cast<std::size_t>(i)];
+        s.threat = 0;
+        s.enemy.reset();
+    }
+
+    // Where each delivery is taken: in a safe sector further out the
+    // deeper its tier, and those of the same tier (open at the same time)
+    // in different ones, where there are enough.
+    const std::vector<Delivery>& deliveries = all_deliveries();
+    map.delivery_sectors.assign(deliveries.size(), 0);
+    const int slots = static_cast<int>(safe.size());
+    const int tiers = max_delivery_tier();
+    std::vector<std::pair<int, int>> taken;  // (tier, slot)
+    for (std::size_t d = 0; d < deliveries.size() && slots > 0; ++d) {
+        const int tier = delivery_tier(d);
+        const int want = tiers > 1 ? static_cast<int>(std::lround(static_cast<double>((tier - 1) * (slots - 1)) /
+                                                                  static_cast<double>(tiers - 1)))
+                                   : 0;
+        const auto free = [&](int slot) {
+            return slot >= 0 && slot < slots &&
+                   std::find(taken.begin(), taken.end(), std::pair{tier, slot}) == taken.end();
+        };
+        int slot = want;
+        for (int off = 0; off < slots; ++off) {
+            if (free(want + off)) {
+                slot = want + off;
+                break;
+            }
+            if (free(want - off)) {
+                slot = want - off;
+                break;
+            }
+        }
+        taken.emplace_back(tier, slot);
+        map.delivery_sectors[d] = safe[static_cast<std::size_t>(slot)];
     }
     map.visit(0);
     return map;

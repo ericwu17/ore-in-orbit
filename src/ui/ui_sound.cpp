@@ -11,7 +11,7 @@
 //   - The simulation's events (sim/events.h), taken once a frame: a fight is
 //     heard only in the sector of the ship on screen, and a ship's own
 //     business (cargo, crafting, engines) only on that ship; the fleet's big
-//     moments (milestones, enemies met and beaten, ships lost) anywhere.
+//     moments (deliveries, enemies met and beaten, ships lost) anywhere.
 #include "ui/ui_internal.h"
 #include "ui/ui.h"
 
@@ -82,11 +82,10 @@ std::optional<Cue> CueFor(const Event& e) {
     case EventKind::EnemyBeaten:       return Cue{Sound::CombatEnemyDestroyed, 1.0f, Heard::Anywhere};
     case EventKind::ShipLost:          return Cue{Sound::CombatShipLost, 1.0f, Heard::Anywhere};
     case EventKind::FleetLost:         return Cue{Sound::GameOver, 1.0f, Heard::Anywhere};
-    case EventKind::MilestoneComplete: return Cue{Sound::GameMilestoneComplete, 1.0f, Heard::Anywhere};
+    case EventKind::DeliveryComplete:  return Cue{Sound::GameDeliveryComplete, 1.0f, Heard::Anywhere};
     case EventKind::CargoLanded:       return Cue{Sound::GameCargoLand, 1.0f, Heard::OnShownShip};
     case EventKind::ThrustersCharged:  return Cue{Sound::GameThrustersCharged, 1.0f, Heard::OnShownShip};
     case EventKind::Jumped:            return Cue{Sound::GameJump, 1.0f, Heard::OnShownShip};
-    case EventKind::SectorSurveyed:    return Cue{Sound::GameSectorSurveyed, 0.7f, Heard::Anywhere};
     case EventKind::ResourceRunOut:    return Cue{Sound::UiError, 0.8f, Heard::Anywhere};
     }
     return std::nullopt;

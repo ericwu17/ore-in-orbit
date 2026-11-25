@@ -3,14 +3,18 @@
 (src/sim/sector.h).
 
 It sums what it takes, in raw resources, to reach the "Escape velocity"
-milestone (weapons; fuel cells, to travel, come sooner, at "Deep space")
+delivery (weapons; fuel cells, to travel, are there from the start)
 for three styles of player (a lean factory, a
-fair-sized one and a sprawling one), using the recipe table and milestones
-copied from src/sim/recipes.cpp and src/sim/milestones.cpp, then plays each
+fair-sized one and a sprawling one), using the recipe table and deliveries
+copied from src/sim/recipes.cpp and src/sim/deliveries.cpp, then plays each
 out minute by minute: collectors gather at 30 a minute (tractor arrays 120)
 from home's reserves, the player builds more as they can afford them, and
-each milestone is paid for in turn. It prints when each milestone completes
+each delivery is paid for in turn. It prints when each delivery completes
 and when each of home's resources runs dry.
+
+It is the worst case: the deliveries are made in other sectors, where the
+ship can gather from those sectors' reserves too, and here everything comes
+out of home's.
 
 The model is rough: crafting is instant and every collector is always aimed
 at what's short, so its minutes run faster than a real game's. Keep the
@@ -35,7 +39,7 @@ R = {  # item: (inputs, outputs count)
  'Refinery':({'Steel':10,'Circuit':10,'Glass':10},1),'FabricatorMk2':({'FabricatorMk1':1,'StructuralFrame':2,'AdvancedCircuit':3},1),
  'ExpressBelt':({'TransportBelt':1,'Gear':2,'Steel':1},1),
  'TractorArray':({'AsteroidCollector':1,'StructuralFrame':10,'AdvancedCircuit':10},1),
- 'SurveyScanner':({'StructuralFrame':5,'AdvancedCircuit':5,'Glass':4},1),
+ 'Provider':({'IronPlate':10,'Gear':6,'Circuit':6,'TransportBelt':4},1),
  'ShipStarterPack':({'StructuralFrame':10,'AdvancedCircuit':5,'Steel':20,'Circuit':10},1),
  'CargoPod':({'Steel':2,'Circuit':1},2),
  'FocusCrystal':({'Glass':4,'CopperPlate':4,'Circuit':2},1),
@@ -55,30 +59,31 @@ def total(d):
     return c
 def show(name,c): print(f"{name:28s}"+"  ".join(f"{r[:4]} {c[r]:6.0f}" for r in RAW))
 
-M = {
- 'First light':{'IronPlate':50,'CopperPlate':20},
- 'Heavy industry':{'Circuit':100,'Steel':50},
- 'Deep space':{'AdvancedCircuit':50,'StructuralFrame':25},
- 'Escape velocity':{'AdvancedCircuit':40,'StructuralFrame':15,'Glass':60},
+M = {  # the deliveries up to Escape velocity, in an order they can be done in
+ 'First light':{'IronPlate':80,'CopperPlate':40,'Gear':40},
+ 'Heavy industry':{'Steel':40,'Circuit':80},
+ 'Supply lines':{'Steel':30,'Gear':80,'Glass':40},
+ 'Deep space':{'AdvancedCircuit':50,'StructuralFrame':25,'FuelCell':40},
+ 'Escape velocity':{'AdvancedCircuit':60,'StructuralFrame':30,'Glass':100},
 }
 ms=Counter()
 for k,v in M.items():
     c=total(v); show(k,c); ms.update(c)
-show('MILESTONES to EV',ms)
+show('DELIVERIES to EV',ms)
 # factories at the moment EV completes, by player style (built on top of the starting kit)
 styles = {
  'lean':   {'AsteroidCollector':10,'SolarFurnace':5,'FabricatorMk1':4,'Refinery':2,'TransportBelt':200,'FilterSorter':6,'Unloader':4,'Router':2,'CargoHold':1,'CargoPod':0},
- 'typical':{'AsteroidCollector':18,'SolarFurnace':8,'FabricatorMk1':6,'Refinery':3,'FabricatorMk2':2,'TractorArray':2,'TransportBelt':400,'FilterSorter':12,'Unloader':6,'Router':4,'Junction':8,'BeltTunnel':10,'ExpressBelt':60,'CargoHold':3,'SurveyScanner':1},
- 'sprawl': {'AsteroidCollector':26,'SolarFurnace':12,'FabricatorMk1':8,'Refinery':5,'FabricatorMk2':4,'TractorArray':4,'TransportBelt':600,'FilterSorter':20,'Unloader':10,'Router':8,'Junction':16,'BeltTunnel':20,'ExpressBelt':150,'CargoHold':6,'SurveyScanner':1,'ShipStarterPack':1,'CargoPod':20},
+ 'typical':{'AsteroidCollector':18,'SolarFurnace':8,'FabricatorMk1':6,'Refinery':3,'FabricatorMk2':2,'TractorArray':2,'TransportBelt':400,'FilterSorter':12,'Unloader':6,'Router':4,'Junction':8,'BeltTunnel':10,'ExpressBelt':60,'CargoHold':3,'Provider':2},
+ 'sprawl': {'AsteroidCollector':26,'SolarFurnace':12,'FabricatorMk1':8,'Refinery':5,'FabricatorMk2':4,'TractorArray':4,'TransportBelt':600,'FilterSorter':20,'Unloader':10,'Router':8,'Junction':16,'BeltTunnel':20,'ExpressBelt':150,'CargoHold':6,'Provider':3,'ShipStarterPack':1,'CargoPod':20},
 }
 waste={'lean':0.10,'typical':0.25,'sprawl':0.40}  # extra intermediates made and left unused
 AST, TRACTOR = 30.0, 120.0   # catches / min at 100%
 ORDER = list(M) + ['Jump+fight', 'Frontier']
 GOALS = dict(M)
 GOALS['Jump+fight'] = {'FuelCell': 40, 'FocusCrystal': 20}  # a skiff's jump (2 thrusters x 10), weapon fuel, a fight's crystals
-GOALS['Frontier'] = {'FuelCell': 100, 'FocusCrystal': 30}
+GOALS['Frontier'] = {'FuelCell': 150, 'FocusCrystal': 30, 'Steel': 60}
 # How fast each style builds out, and how big it gets by EV (from model.py's factories).
-PROFILE = {  # collectors/min added, cap of asteroid collectors, tractors after Deep space, minutes of "thinking" per milestone
+PROFILE = {  # collectors/min added, cap of asteroid collectors, tractors after Deep space, minutes of "thinking" per delivery
   'lean':    (0.5, 12, 0, 4.0),
   'typical': (1.0, 20, 2, 3.0),
   'sprawl':  (1.5, 28, 4, 2.0),
@@ -87,15 +92,15 @@ def run(style):
     add_rate, cap, tractors_max, think = PROFILE[style]
     w = 1 + waste[style]
     reserve = dict(HOME); stock = Counter(); coll = 2.0; tractors = 0
-    # non-collector buildings paid as the game goes, spread over milestones before EV
+    # non-collector buildings paid as the game goes, spread over the deliveries before EV
     f = dict(styles[style]); f.pop('AsteroidCollector', None); tr = f.pop('TractorArray', 0)
     other = total(f)
     goal_i = 0; need = Counter()
     def load(i):
         c = Counter(total(GOALS[ORDER[i]]))
         for r in RAW: c[r] *= w   # intermediates made and left unused
-        if i < 4:                 # buildings: refundable, so no waste
-            for r in RAW: c[r] += other[r] / 4
+        if i < len(M):            # buildings: refundable, so no waste
+            for r in RAW: c[r] += other[r] / len(M)
         return c
     need = load(0); t = 0.0; dt = 1/60; log = []; dry = {}; pause = 0.0
     while t < 120 and goal_i < len(ORDER):
@@ -116,7 +121,7 @@ def run(style):
             if all(stock[r] >= c[r] for r in RAW):
                 for r in RAW: stock[r] -= c[r]
                 coll += add_rate * dt
-        if goal_i >= 3 and tractors < tractors_max:
+        if goal_i >= list(M).index('Deep space') + 1 and tractors < tractors_max:
             c = raw('TractorArray')
             if all(stock[r] >= c[r] for r in RAW):
                 for r in RAW: stock[r] -= c[r]

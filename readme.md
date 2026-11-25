@@ -117,42 +117,47 @@ tunnel, onto the cell in front of it. A tunnel with no exit (outlined in
 amber) takes items and holds on to them, and those on their way when an exit
 goes wait for the next.
 
-### Milestones
+### Deliveries
 
-Progress comes in milestones, shown in the right panel: produce the items
-each one asks for to unlock the next tier of recipes. An item counts the
-moment it's made, by a machine or by hand-crafting at the bridge; where it
-goes afterwards doesn't matter, and moving items about (belts, unloaders,
-cargo pods) counts for nothing. Locked recipes show greyed out, marked with
-the milestone that unlocks them.
+Progress comes in deliveries, shown in the right panel: goods asked for in
+one of the safe sectors around home (marked on the star map with a green
+diamond). Fly a ship there, belt the goods into a provider on it, and the
+provider hands them over, 12 a second, and they're used up. Completing a
+delivery unlocks the next recipes, and opens the deliveries that come after
+it. Locked recipes show greyed out, marked with the delivery that unlocks
+them ("D2").
 
-In order: First light, Heavy industry, Deep space (fuel cells, to travel),
-Escape velocity (focus crystals, the first weapon's ammunition), Frontier
-and Starforge. Everything up to and including Frontier can be made from
-what home has; Escape velocity unlocks iridium plates and processors, and
-Starforge asks for them, but home has no iridium. Fuel cells come early, and
-from carbon alone, so that a player who spends home's silica or copper
-before Escape velocity can still leave to find more.
+Fuel cells (pressed from carbon in a fabricator) and providers are there
+from the start, so the first delivery, in a sector next to home, is the
+first reason to jump. The deliveries branch: after First light, Heavy
+industry (the refinery, plastic, silicon, advanced circuits, frames) and
+Supply lines (express belts, belt tunnels, cargo pods) are both open, in
+different sectors, to take in either order; Deep space (Fabricator Mk2,
+tractor arrays, ship starter packs, requesters, the Hauler) waits for both.
+Then Escape velocity (focus crystals, the first weapon's ammunition,
+iridium plates, the Frigate), then Frontier (shield projectors) and Iridium
+rush (processors) side by side, and Starforge (Fabricator Mk3, the Carrier)
+last. Each asks for more than the ones before it, and for parts further up
+the production chain, further from home.
 
 ### The fleet
 
 The player commands a fleet. "Build a new ship...", in the right panel's
 Fleet section, opens a window to pick a layout and build a ship in it from
 the bridge of the ship on screen: it takes a ship starter pack (unlocked by
-the "Deep space" milestone) and the layout's cost, in raw and processed
+the "Deep space" delivery) and the layout's cost, in raw and processed
 resources. The layouts, smallest first: Skiff (from the start), Hauler (from
 "Deep space"), Frigate ("Escape velocity") and Carrier ("Starforge"); bigger
 ones have more engines.
 
 Every ship keeps running while another is on screen; the tabs above the grid
 (or `[` and `]`) switch between them, and double-clicking a tab renames that
-ship. Milestones are the fleet's: what any ship makes counts, and a
-recipe unlocked is unlocked on every ship. "Send cargo..." moves items from
-one bridge's inventory to another's, between ships in the same sector: each
-50 items use up a cargo pod, and they land 5 seconds later (cargo doesn't
-count toward a milestone: it was counted when it was made).
+ship. Deliveries are the fleet's: what any ship's providers deliver counts,
+and a recipe unlocked is unlocked on every ship. "Send cargo..." moves items
+from one bridge's inventory to another's, between ships in the same sector:
+each 50 items use up a cargo pod, and they land 5 seconds later.
 
-For bulk, providers and requesters (Heavy industry) link ships with no pods:
+For bulk, providers and requesters (Deep space) link ships with no pods:
 belt items into a provider (it holds 20, of any kind), and set a requester
 to an item: it pulls that item from the providers in its sector, on any ship
 of the fleet, its own included, as long as they have it, and puts it out to
@@ -178,10 +183,12 @@ Beyond home lies a star map of sectors (M, or the Map button above the grid),
 a new one for each game. Each sector has its own raw resources (any sector
 but home may lack one or two, and a collector aimed at something a sector
 lacks stalls there) and a threat, growing with the distance from home.
-Collectors gather at the same pace wherever they are. Between them, home's
-neighbors have every raw resource, iridium included. A sector a ship has
-been to is visited; its neighbors show on the map, and their resources and
-threat once surveyed: visited, or next to a ship with a survey scanner.
+Home and the six sectors nearest it (its neighbors, then theirs) are safe:
+no threat, no enemy ships; the deliveries are all taken there. Collectors
+gather at the same pace wherever they are. Between them, home's neighbors
+have every raw resource, iridium included. A sector a ship has been to is
+visited; it and its neighbors show on the map, with their resources and
+threat, and so does every sector taking an open delivery.
 
 #### Running out
 
@@ -195,31 +202,26 @@ sectors hold half as much again as home of what they have: 10,500 iron ore,
 1,800 copper ore, 1,650 silica, 2,550 carbon and 1,500 iridium ore.
 
 Home's amounts come from the sums in raw resources of what it takes to
-reach Escape velocity: the milestones up to it, a factory of a fair size
+reach Escape velocity: the deliveries up to it, a factory of a fair size
 (around 20 asteroid collectors, 8 solar furnaces, 6 fabricators, 3
 refineries, 2 tractor arrays and 400 belts), a 25% margin on the
-milestones' parts for ones made and never used (none on buildings, which
+deliveries' parts for ones made and never used (none on buildings, which
 are refunded), the fuel for a first jump and a first fight's focus
-crystals. That comes to about 3,500 iron ore, 680 copper ore, 590 silica
-and 900 carbon, and home holds about 1.8 to 2 times as much. Played out in a
-model of a new game, a player with a fair-sized factory runs home's copper,
-silica and carbon dry a few minutes after Escape velocity, and has just
-enough in the bridge to make Frontier's fuel cells and focus crystals
-before they have to move on; one with a sprawling factory gets to Escape
-velocity and a first jump, and then has to; a lean one, gathering slowly,
-has plenty of time. `tools/home_reserves_model.py` is that model, to rerun
-with other amounts.
+crystals. Played out in a model of a new game that pays for everything
+from home alone (the worst case: the deliveries are made in other sectors,
+where the ship gathers from theirs too), a player with a fair-sized factory
+runs home's copper, silica and carbon dry a couple of minutes after Escape
+velocity; one with a sprawling factory right after it; a lean one, gathering
+slowly, has plenty of time. `tools/home_reserves_model.py` is that model, to
+rerun with other amounts.
 
-Travel itself comes sooner and costs less: the milestones up to Deep space
-(which unlocks fuel cells) and a skiff's jump take about 650 iron ore, 220
-copper ore, 50 silica and 330 carbon, and still only about 3,150, 460, 230
-and 650 with a fair-sized factory built in full before Deep space, well
-within home's 1,700 carbon. Fuel cells take nothing but carbon, so running
-out of the rest at home doesn't keep a fleet from leaving.
+Travel itself costs little: a skiff's jump takes 20 fuel cells, 80 carbon,
+from home's 1,700. Fuel cells take nothing but carbon, so running out of the
+rest at home doesn't keep a fleet from leaving.
 
 Ships jump to a linked sector at once, when every ion thruster their layout
-has is charged (10 fuel cells each, refined from carbon and delivered by
-belt). The jump burns all their fuel.
+has is charged (10 fuel cells each, pressed from carbon in a fabricator and
+delivered by belt). The jump burns all their fuel.
 
 ### Combat
 
@@ -312,7 +314,7 @@ weapon. Buildings mend slowly while no enemy is near.
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
   nearly run the sector out (20 of each left), spawn or beat an enemy ship,
-  give every weapon, complete the milestone, and the Dear ImGui demo
+  give every weapon, complete any open delivery, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
 
@@ -407,7 +409,7 @@ or delete one and run `make` again).
 - `sfx/<name>.wav` (44.1 kHz) — one per event that wants audio feedback,
   named by group: `ui_*` (clicks, toggles, panels, errors), `build_*`
   (placing, removing, rotating, can't-place, blueprints), `game_*` (crafting,
-  milestones, cargo pods, new ships, jumps, the star map, surveys, the enemy
+  deliveries, cargo pods, new ships, jumps, the star map, the enemy
   klaxon, game over) and `combat_*` (each weapon firing, hits on hull and
   shields, shields breaking and recharging, misses, buildings and ships
   destroyed, targeting, salvage, weapons found).
@@ -451,8 +453,8 @@ What plays when:
   shield or dodged, shields falling and coming back, buildings destroyed,
   engines knocked out); that ship's own business (cargo
   landing, its engines charged, its jumps); and, wherever they happen, the
-  fleet's big moments (a milestone, an enemy met or beaten, a sector
-  surveyed, a ship lost, the game over).
+  fleet's big moments (a delivery complete, an enemy met or beaten, a ship
+  lost, the game over).
 
 A sound started again within 45 ms is dropped, so a flak volley or a belt
 dragged across the grid sounds once rather than as a roar. The effects and
@@ -491,10 +493,11 @@ One directory per layer under `src/`; includes name their layer
     neighboring buildings each tick; its collectors take what they catch
     out of the reserves of the sector it's in.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
-    hull, bridge and engines, its cost, and the milestone that unlocks it.
+    hull, bridge and engines, its cost, and the delivery that unlocks it.
   - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, what's left to
     gather, threat, what the player knows of each), generating it
-    from a seed, and how much of each resource home and the other sectors
+    from a seed (with the safe sectors around home, and where each delivery
+    is taken), and how much of each resource home and the other sectors
     start with.
   - `rng.h` — `Rng`: a small random number generator whose whole state is
     one number, so saves keep it.
@@ -502,14 +505,16 @@ One directory per layer under `src/`; includes name their layer
     and their settings), turning it, and pasting it all or nothing (each
     piece checked by `Ship::can_place` against the ones before it,
     `PlannedChanges`).
-  - `milestones.h/.cpp` — the milestones (what to produce, what each
-    unlocks) and `Progress`, the fleet's way through them (every bridge
-    shares one), which gates hand-crafting and machine recipes.
+  - `deliveries.h/.cpp` — the deliveries (what each wants, what it comes
+    after, what it unlocks) and `Progress`, the fleet's way through them
+    (every bridge shares one), which gates hand-crafting and machine
+    recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships
     (`Transfer`), supplier ships topping up requests (`dispatch`, the
-    code's `provides`), and requesters pulling from providers (`link`).
+    code's `provides`), requesters pulling from providers (`link`), and
+    providers making deliveries (`deliver`).
   - `enemies.h/.cpp` — the enemy ships' designs (`EnemyClass`,
     `EnemyDesign`: layout, weapons, shields, targeting priorities, threats,
     weapons they may carry).
@@ -518,16 +523,16 @@ One directory per layer under `src/`; includes name their layer
     `Salvage`.
   - `world.h/.cpp` — `World`: owns all state (the star map, the fleet and
     the fights' random numbers), `advance_tick()` steps it; jumping between
-    sectors, survey scanners, losing ships, and buildings mending.
+    sectors, what the map shows, losing ships, and buildings mending.
   - `events.h` — what just happened (`Event`: a weapon fired, cargo landed,
-    a milestone...), which `World` records in an `EventLog` each tick for
+    a delivery complete...), which `World` records in an `EventLog` each tick for
     the UI to take (`take_events()`) and play sounds for.
 - `src/persistence/` — save files, also headless (the tests link it). The
   simulation knows nothing about saving beyond a `friend struct SaveAccess`
   in each class with private state to save.
   - `save_file.h/.cpp` — the save format, a JSON document: a header (name,
     when, play time) and the whole `World` (the star map, every ship of the
-    fleet and its fight, the shared milestone progress and the cargo in
+    fleet and its fight, the shared delivery progress and the cargo in
     flight), with items, directions and recipes written by name, and loading
     that checks everything (a bad save is refused with a reason, never
     trusted).
@@ -555,7 +560,7 @@ One directory per layer under `src/`; includes name their layer
   - `ui_combat.cpp` — the fight: the enemy panel (its ship, to target),
     shots and shields over both grids, and the fight's status.
   - `ui_panels.cpp` — the build palette (left) and the craft panel
-    (right): the milestone, hand-crafting; and the inspector window.
+    (right): the open deliveries, hand-crafting; and the inspector window.
   - `ui_fleet.cpp` — the fleet's tabs and its section of the right panel,
     the Send cargo and Build a new ship windows, and the star map.
   - `ui_blueprints.cpp` — the Blueprints window.

@@ -1,10 +1,10 @@
 // test_fleet.cpp — headless tests for the fleet: building a ship in a
 // layout, from a starter pack and the layout's cost, sending cargo between
-// ships in cargo pods, every ship ticking, and the milestone progress every
+// ships in cargo pods, every ship ticking, and the delivery progress every
 // ship shares.
 #include "sim/building.h"
 #include "sim/fleet.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
@@ -99,18 +99,18 @@ void test_launch() {
     assert(third != id && third != flagship);
 }
 
-// Bigger layouts unlock with the milestones.
+// Bigger layouts unlock with the deliveries.
 void test_layout_unlocks() {
     World world;
     Fleet& fleet = world.get_fleet();
     const int flagship = fleet.flagship().id;
     const ShipLayout& hauler = *find_layout("hauler");
-    assert(hauler.milestone);
+    assert(hauler.delivery);
     stock_for(world.flagship().inventory(), hauler);
     assert(fleet.can_launch(flagship, starter_layout()) != FleetResult::LayoutLocked);
     assert(fleet.launch(flagship, hauler) == FleetResult::LayoutLocked);
-    while (fleet.get_progress().current_index() <= *hauler.milestone)
-        assert(fleet.get_progress().complete_current());
+    while (!fleet.get_progress().done(*hauler.delivery))
+        assert(fleet.get_progress().complete(fleet.get_progress().open_deliveries().front()));
     int id = 0;
     assert(fleet.launch(flagship, hauler, &id) == FleetResult::Ok);
     assert(fleet.find(id)->ship.get_layout() == &hauler);
@@ -173,8 +173,12 @@ void test_other_sector() {
     assert(fleet.send(from, to, {{ItemKind::Gear, 5}}, 0) == FleetResult::OtherSector);
 }
 
-// Cargo goes into the inventory, but doesn't count toward the milestone;
-// what any ship makes does, and unlocks recipes on every ship.
+template <typename Fits>
+GridPos place_somewhere(Ship& ship, ItemKind kind, Fits fits);
+GridPos place_somewhere(Ship& ship, ItemKind kind);
+
+// Cargo goes into the inventory, and counts toward no delivery; what any
+// ship's providers deliver does, and unlocks recipes on every ship.
 void test_shared_progress() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -182,27 +186,27 @@ void test_shared_progress() {
     const int to = launch_second(world);
     Ship& second = fleet.find(to)->ship;
     const Progress& progress = fleet.get_progress();
-    const Milestone& first = all_milestones().front();
+    const std::size_t first = 0;
+    const Delivery& delivery = all_deliveries()[first];
 
     world.flagship().inventory().add({{ItemKind::IronPlate, 10}, {ItemKind::CargoPod, 1}});
     assert(fleet.send(from, to, {{ItemKind::IronPlate, 10}}, world.get_tick()) == FleetResult::Ok);
     run(world, kTransferTicks);
     assert(second.inventory().count(ItemKind::IronPlate) == 10);
-    assert(progress.produced_count(ItemKind::IronPlate) == 0);
+    assert(progress.delivered(first, ItemKind::IronPlate) == 0);
 
-    // Hand-craft the whole first milestone on the second ship.
-    Bridge& bridge = second.get_bridge();
-    for (const ItemStack& s : first.produce) {
-        const Recipe& recipe = *recipe_for(s.kind);
-        assert(recipe.hand_craftable && recipe.outputs.size() == 1 && recipe.outputs.front().count == 1);
-        for (int i = 0; i < s.count; ++i) {
-            bridge.get_inventory().add(recipe.inputs);
-            assert(bridge.queue_craft(recipe));
+    // The second ship's provider makes the whole first delivery, in the
+    // sector that takes it.
+    fleet.find(to)->sector = world.get_map().delivery_sector(first);
+    const GridPos at = place_somewhere(second, ItemKind::Provider);
+    auto& provider = dynamic_cast<Provider&>(*second.building_anchored_at(at));
+    for (const ItemStack& s : delivery.wants)
+        while (progress.delivered(first, s.kind) < s.count) {
+            if (provider.accepts(s.kind))
+                provider.receive(s.kind);
+            run(world, 1);
         }
-    }
-    while (progress.current_index() == 0 && !bridge.craft_queue().empty())
-        run(world, 1);
-    assert(progress.current_index() == 1);
+    assert(progress.done(first));
     // Steel is unlocked by it, on the flagship too.
     assert(world.flagship().get_bridge().get_progress().unlocked(ItemKind::Steel));
     world.flagship().inventory().add({{ItemKind::IronPlate, 3}, {ItemKind::Carbon, 1}});

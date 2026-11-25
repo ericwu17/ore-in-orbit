@@ -1,12 +1,12 @@
 // test_events.cpp — headless tests for the events the World records as the
 // game goes on (sim/events.h), which the UI plays sounds for: fights met,
-// fought, won and lost, engines charged, jumps, cargo landing, milestones,
+// fought, won and lost, engines charged, jumps, cargo landing, deliveries,
 // and the log's cap.
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/events.h"
 #include "sim/fleet.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 #include "sim/world.h"
@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -178,24 +179,33 @@ void test_cargo() {
     assert(count(events, EventKind::CargoLanded, [&](const Event& e) { return e.ship == to; }) == 1);
 }
 
-// The last item a milestone wants, hand-crafted as the ship ticks,
-// completes it: reported once.
-void test_milestone() {
+// The last item a delivery wants, handed over by a provider in the sector
+// that takes it, completes it: reported once, naming it and where.
+void test_delivery() {
     World world;
-    Bridge& bridge = world.flagship().get_bridge();
-    // All but one of what the first milestone wants, made already.
-    std::vector<ItemStack> wanted = all_milestones().front().produce;
-    const ItemKind last = wanted.back().kind;
-    --wanted.back().count;
-    assert(!bridge.get_progress().on_produced(wanted));
-    assert(world.get_fleet().get_progress().current_index() == 0);
-    // The last one, hand-crafted.
-    const Recipe& recipe = *recipe_for(last);
-    bridge.get_inventory().add(recipe.inputs);
-    assert(bridge.queue_craft(recipe));
-    const std::vector<Event> events = run(world, recipe.ticks);
-    assert(world.get_fleet().get_progress().current_index() == 1);
-    assert(count(events, EventKind::MilestoneComplete) == 1);
+    FleetShip& flagship = world.get_fleet().flagship();
+    Progress& progress = world.get_fleet().get_progress();
+    const std::size_t first = 0;
+    flagship.sector = world.get_map().delivery_sector(first);
+    // All but one of what it wants, in already.
+    const std::vector<ItemStack>& wanted = all_deliveries()[first].wants;
+    for (const ItemStack& s : wanted)
+        assert(!progress.deliver(first, s.kind, &s == &wanted.back() ? s.count - 1 : s.count));
+    // The last one, from a provider.
+    Ship& ship = flagship.ship;
+    ship.inventory().add(ItemKind::Provider, 1);
+    std::optional<GridPos> at;
+    for (int y = 0; y < ship.size() && !at; ++y)
+        for (int x = 0; x < ship.size() && !at; ++x)
+            if (ship.place(ItemKind::Provider, {x, y}) == BuildResult::Ok)
+                at = GridPos{x, y};
+    assert(at);
+    dynamic_cast<Provider&>(*ship.building_anchored_at(*at)).receive(wanted.back().kind);
+    const std::vector<Event> events = run(world, 2 * kLinkTicks);
+    assert(progress.done(first));
+    assert(count(events, EventKind::DeliveryComplete, [&](const Event& e) {
+               return e.delivery == static_cast<int>(first) && e.sector == flagship.sector;
+           }) == 1);
 }
 
 // A log nobody takes keeps only the newest kCapacity events.
@@ -218,7 +228,7 @@ int main() {
     test_fleet_lost();
     test_engines_and_jumps();
     test_cargo();
-    test_milestone();
+    test_delivery();
     test_log_cap();
     std::puts("test_events: all passed");
     return 0;
