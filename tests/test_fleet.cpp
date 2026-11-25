@@ -99,18 +99,19 @@ void test_launch() {
     assert(third != id && third != flagship);
 }
 
-// Bigger layouts unlock with the deliveries.
+// Bigger layouts unlock with the techs.
 void test_layout_unlocks() {
     World world;
     Fleet& fleet = world.get_fleet();
     const int flagship = fleet.flagship().id;
     const ShipLayout& hauler = *find_layout("hauler");
-    assert(hauler.delivery);
+    assert(hauler.tech);
     stock_for(world.flagship().inventory(), hauler);
     assert(fleet.can_launch(flagship, starter_layout()) != FleetResult::LayoutLocked);
     assert(fleet.launch(flagship, hauler) == FleetResult::LayoutLocked);
-    while (!fleet.get_progress().done(*hauler.delivery))
-        assert(fleet.get_progress().complete(fleet.get_progress().open_deliveries().front()));
+    for (std::size_t t = 0; t <= *hauler.tech; ++t)
+        fleet.get_progress().grant(t);
+    assert(fleet.get_progress().bought(*hauler.tech));
     int id = 0;
     assert(fleet.launch(flagship, hauler, &id) == FleetResult::Ok);
     assert(fleet.find(id)->ship.get_layout() == &hauler);
@@ -178,7 +179,7 @@ GridPos place_somewhere(Ship& ship, ItemKind kind, Fits fits);
 GridPos place_somewhere(Ship& ship, ItemKind kind);
 
 // Cargo goes into the inventory, and counts toward no delivery; what any
-// ship's providers deliver does, and unlocks recipes on every ship.
+// ship's providers deliver does, and its points buy techs for every ship.
 void test_shared_progress() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -207,8 +208,13 @@ void test_shared_progress() {
             run(world, 1);
         }
     assert(progress.done(first));
-    // Steel is unlocked by it, on the flagship too.
-    assert(world.flagship().get_bridge().get_progress().unlocked(ItemKind::Steel));
+    // It paid out, for every ship; the tech its points buy unlocks steel
+    // on the flagship too.
+    Progress& flagship_progress = world.flagship().get_bridge().get_progress();
+    assert(flagship_progress.points() == delivery_points(first));
+    flagship_progress.add_points(all_techs()[tech_index("Steelworks")].cost);
+    assert(flagship_progress.buy(tech_index("Steelworks")));
+    assert(progress.unlocked(ItemKind::Steel));
     world.flagship().inventory().add({{ItemKind::IronPlate, 3}, {ItemKind::Carbon, 1}});
     const GridPos furnace{kBesideBridge.x + 1, kBesideBridge.y + 2};
     assert(world.flagship().place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);

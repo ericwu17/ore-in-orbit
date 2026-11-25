@@ -15,6 +15,15 @@ void DrawFleetStrip(World& world) {
     if (theme::SegmentedButton("Map", g_map.shown))
         ShowStarMap(!g_map.shown);
     ImGui::SetItemTooltip("The star map (M): sectors, and jumping between them");
+    ImGui::SameLine();
+    {
+        const std::string shop = "Shop (" + std::to_string(fleet.get_progress().points()) + " " + kPointsShort + ")";
+        if (theme::SegmentedButton(shop.c_str(), f.show_shop)) {
+            f.show_shop = !f.show_shop;
+            PlayUi(f.show_shop ? audio::Sound::UiPanelOpen : audio::Sound::UiPanelClose);
+        }
+        ImGui::SetItemTooltip("Spend %s on new technology (the deliveries earn them)", kPointsName);
+    }
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
     std::optional<int> show;
@@ -259,7 +268,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
         if (!unlocked) {
             ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextColored(theme::kTextDim, "(unlocks with %s)", all_deliveries()[*l.delivery].name);
+            ImGui::TextColored(theme::kTextDim, "(unlocks with the tech %s)", all_techs()[*l.tech].name);
         }
         ImGui::PopID();
     }
@@ -331,6 +340,43 @@ void ThreatPips(int threat) {
     }
 }
 
+// The delivery requests sector `index` takes now (one per delivery chain
+// taken there): what each wants, how much is in, and what it pays; or the
+// tech the next one waits on; or that every one is made.
+void DrawSectorRequest(const Progress& progress, const StarMap& map, int index) {
+    std::vector<int> chains_seen;
+    bool any = false;
+    for (const std::size_t d : map.deliveries_at(index)) {
+        any = true;
+        const Delivery& delivery = all_deliveries()[d];
+        if (progress.done(d) ||
+            std::find(chains_seen.begin(), chains_seen.end(), delivery.chain) != chains_seen.end())
+            continue;
+        chains_seen.push_back(delivery.chain);
+        if (progress.open(d)) {
+            ImGui::TextColored(theme::kGood, "Delivery request: %s", delivery.name);
+            for (const ItemStack& want : delivery.wants)
+                AmountLine(ItemIcon(want.kind),
+                           std::to_string(progress.delivered(d, want.kind)) + " / " + std::to_string(want.count),
+                           theme::kText, true);
+            ImGui::TextColored(theme::kAccent, "Pays %d %s", delivery_points(d), kPointsName);
+            continue;
+        }
+        // Waiting on a tech for something it asks for.
+        ImGui::TextColored(theme::kTextDim, "Next request: %s", delivery.name);
+        for (const ItemStack& want : delivery.wants)
+            if (!progress.unlocked(want.kind)) {
+                if (const std::optional<std::size_t> t = tech_unlocking(want.kind))
+                    ImGui::TextColored(theme::kWarnText, "Needs %s: buy the tech %s in the Shop",
+                                       item_name(want.kind), all_techs()[*t].name);
+                else
+                    ImGui::TextColored(theme::kWarnText, "Needs %s", item_name(want.kind));
+            }
+    }
+    if (any && chains_seen.empty())
+        ImGui::TextColored(theme::kTextDim, "Every delivery request here is met");
+}
+
 // The picked sector's details, over the map's top-left corner: what's
 // known of it, the ships there, and for the ship shown, jumping there.
 void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 min) {
@@ -347,24 +393,12 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
     ImGui::PopFont();
     if (index == 0)
         ImGui::TextColored(theme::kTextDim, "Home");
-    // The deliveries taken here: the open ones, with how far along they
-    // are, and how many are made.
+    // The delivery taken here now, and how many are made.
     const Progress& progress = world.get_fleet().get_progress();
     int made = 0;
-    for (const std::size_t d : map.deliveries_at(index)) {
-        if (progress.done(d)) {
-            ++made;
-            continue;
-        }
-        if (!progress.open(d))
-            continue;
-        const Delivery& delivery = all_deliveries()[d];
-        ImGui::TextColored(theme::kGood, "Takes a delivery: %s", delivery.name);
-        for (const ItemStack& want : delivery.wants)
-            AmountLine(ItemIcon(want.kind),
-                       std::to_string(progress.delivered(d, want.kind)) + " / " + std::to_string(want.count),
-                       theme::kText, false);
-    }
+    for (const std::size_t d : map.deliveries_at(index))
+        made += progress.done(d) ? 1 : 0;
+    DrawSectorRequest(progress, map, index);
     if (made > 0)
         ImGui::TextColored(theme::kTextDim, "%d deliver%s made here", made, made == 1 ? "y" : "ies");
     {
@@ -564,15 +598,19 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
                                 ImVec2(p.x - h * 0.5f, p.y + h * 0.5f),
                                 theme::U32(ship->id == current.id ? theme::kAccent : theme::kSteel));
     }
-    if (hovered)
-        ImGui::SetTooltip("%s%s", map.at(*hovered).name.c_str(),
-                          takes_delivery(*hovered) ? "\nTakes a delivery (see Deliveries)" : "");
+    if (hovered) {
+        // The sector's name, and the delivery it asks for now, if any.
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(map.at(*hovered).name.c_str());
+        DrawSectorRequest(progress, map, *hovered);
+        ImGui::EndTooltip();
+    }
     draw->PopClipRect();
 
     const float pad = ImGui::GetStyle().WindowPadding.x;
     ImGui::SetCursorScreenPos(ImVec2(canvas_min.x + pad, canvas_max.y - ImGui::GetTextLineHeight() - pad));
     ImGui::TextColored(theme::kTextDim,
-                       "Green diamonds: sectors taking a delivery. Click a sector for details. M: back to the ship");
+                       "Green diamonds: sectors taking a delivery (hover to see it). Click a sector for details. M: back to the ship");
     if (m.selected)
         DrawSectorPanel(world, current, *m.selected, ImVec2(canvas_min.x + pad, canvas_min.y + pad));
 }

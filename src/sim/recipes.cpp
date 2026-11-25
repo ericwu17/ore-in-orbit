@@ -67,7 +67,7 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 5).in(AdvancedCircuit, 2).in(IridiumPlate).out(Processor).hand(),
 
         // Buildings the bridge can hand-craft: the starting kit, junctions,
-        // and First light's sorters, unloader and router.
+        // and Steelworks' sorters, unloader and router.
         R(Assemble, 0.5).in(Gear).in(IronPlate).out(TransportBelt, 2).hand(),
         R(Assemble, 3).in(IronPlate, 5).in(Gear, 3).in(Circuit, 2).out(AsteroidCollector).hand(),
         R(Assemble, 2).in(Silica, 8).in(IronOre, 4).out(SolarFurnace).hand(),
@@ -84,7 +84,7 @@ std::vector<Recipe> make_recipes() {
         R(Assemble, 2).in(Carbon, 4).out(FuelCell),
         R(Assemble, 3).in(IronPlate, 10).in(Gear, 6).in(Circuit, 6).in(TransportBelt, 4).out(Provider).hand(),
 
-        // Logistics (First light, Supply lines).
+        // Logistics (Steelworks, Logistics).
         R(Assemble, 1).in(Circuit, 2).in(IronPlate, 3).in(TransportBelt, 2).out(Router).hand(),
         R(Assemble, 1).in(IronPlate, 10).in(TransportBelt, 5).out(BeltTunnel, 2),
         // Requesters (Deep space): dear, as each one paired with a provider
@@ -93,7 +93,7 @@ std::vector<Recipe> make_recipes() {
             .in(Steel, 15).in(Gear, 10).in(Circuit, 10).in(AdvancedCircuit, 2).in(ExpressBelt, 5)
             .out(Requester),
 
-        // Industry (Heavy industry, Supply lines, Deep space).
+        // Industry (Refining, Logistics, Deep space).
         R(Assemble, 5).in(Steel, 10).in(Circuit, 10).in(Glass, 10).out(Refinery),
         R(Assemble, 8).in(FabricatorMk1).in(StructuralFrame, 2).in(AdvancedCircuit, 3).out(FabricatorMk2),
         R(Assemble, 1).in(TransportBelt).in(Gear, 2).in(Steel).out(ExpressBelt),

@@ -178,6 +178,8 @@ struct FleetUiState {
     // into all_layouts()).
     bool show_build = false;
     std::size_t build_layout = 0;
+    // The Shop window, where points buy techs.
+    bool show_shop = false;
 };
 extern FleetUiState g_fleet;
 
@@ -465,6 +467,9 @@ void DrawSendCargoWindow(World& world, FleetShip& current);
 // The Build a new ship window: every layout, the one picked drawn with what
 // it costs, and building it from the bridge of the ship shown.
 void DrawBuildShipWindow(World& world, FleetShip& current);
+// The Shop window, while it's open: every tech, what it costs and
+// unlocks, and buying it with the fleet's points.
+void DrawShopWindow(World& world);
 // The star map (M), filling `avail` in place of the grid.
 void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail);
 

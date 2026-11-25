@@ -51,6 +51,8 @@ std::vector<std::size_t> StarMap::deliveries_at(int i) const {
     return here;
 }
 
+static_assert(kSafeSectors >= kDeliveryChains, "a safe sector for each chain of deliveries");
+
 namespace {
 
 // The map's layout: sectors scattered over a disc this wide around home, no
@@ -226,37 +228,15 @@ StarMap StarMap::generate(std::uint64_t seed) {
         s.reserves = kSectorReserves;  // all of everything: none runs short of a kind
     }
 
-    // Where each delivery is taken: in a safe sector further out the
-    // deeper its tier, and those of the same tier (open at the same time)
-    // in different ones, where there are enough.
+    // Where each delivery is taken: each chain in its own safe sector,
+    // the first chain's nearest home (sharing the furthest, were there too
+    // few).
     const std::vector<Delivery>& deliveries = all_deliveries();
     map.delivery_sectors.assign(deliveries.size(), 0);
-    const int slots = static_cast<int>(safe.size());
-    const int tiers = max_delivery_tier();
-    std::vector<std::pair<int, int>> taken;  // (tier, slot)
-    for (std::size_t d = 0; d < deliveries.size() && slots > 0; ++d) {
-        const int tier = delivery_tier(d);
-        const int want = tiers > 1 ? static_cast<int>(std::lround(static_cast<double>((tier - 1) * (slots - 1)) /
-                                                                  static_cast<double>(tiers - 1)))
-                                   : 0;
-        const auto free = [&](int slot) {
-            return slot >= 0 && slot < slots &&
-                   std::find(taken.begin(), taken.end(), std::pair{tier, slot}) == taken.end();
-        };
-        int slot = want;
-        for (int off = 0; off < slots; ++off) {
-            if (free(want + off)) {
-                slot = want + off;
-                break;
-            }
-            if (free(want - off)) {
-                slot = want - off;
-                break;
-            }
-        }
-        taken.emplace_back(tier, slot);
-        map.delivery_sectors[d] = safe[static_cast<std::size_t>(slot)];
-    }
+    if (!safe.empty())
+        for (std::size_t d = 0; d < deliveries.size(); ++d)
+            map.delivery_sectors[d] =
+                safe[std::min(static_cast<std::size_t>(deliveries[d].chain), safe.size() - 1)];
     map.visit(0);
     return map;
 }

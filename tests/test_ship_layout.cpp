@@ -68,30 +68,31 @@ void test_table() {
 }
 
 void test_unlocks() {
-    // The starter from the start; the rest by their delivery, each deeper
-    // in the tree than the one before.
+    // The starter from the start; the rest by their tech, each further
+    // along the tech tree than the one before.
     Progress progress;
-    assert(!starter_layout().delivery && layout_unlocked(starter_layout(), progress));
-    int previous = 0;
+    assert(!starter_layout().tech && layout_unlocked(starter_layout(), progress));
+    std::optional<std::size_t> previous;
     for (const ShipLayout& layout : all_layouts()) {
-        if (!layout.delivery)
+        if (!layout.tech)
             continue;
-        assert(*layout.delivery < all_deliveries().size() && delivery_tier(*layout.delivery) > previous);
-        previous = delivery_tier(*layout.delivery);
+        assert(*layout.tech < all_techs().size() && (!previous || *layout.tech > *previous));
+        previous = layout.tech;
         assert(!layout_unlocked(layout, progress));
     }
-    while (!progress.open_deliveries().empty())
-        assert(progress.complete(progress.open_deliveries().front()));
+    for (std::size_t t = 0; t < all_techs().size(); ++t)
+        assert(progress.grant(t));
     for (const ShipLayout& layout : all_layouts())
         assert(layout_unlocked(layout, progress));
 
-    // Exactly when its delivery is done.
+    // Exactly when its tech is bought.
     const ShipLayout& hauler = *find_layout("hauler");
     Progress partway;
-    while (!partway.open(*hauler.delivery))
-        assert(partway.complete(partway.open_deliveries().front()));
+    for (std::size_t t = 0; !partway.for_sale(*hauler.tech); ++t)
+        partway.grant(t);
     assert(!layout_unlocked(hauler, partway));
-    assert(partway.complete(*hauler.delivery));
+    partway.add_points(all_techs()[*hauler.tech].cost);
+    assert(partway.buy(*hauler.tech));
     assert(layout_unlocked(hauler, partway));
     assert(!find_layout("battlestar"));
 }

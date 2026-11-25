@@ -1,90 +1,127 @@
-// deliveries.cpp — the delivery table and progress through it (see
-// deliveries.h).
+// deliveries.cpp — the delivery and tech tables, and progress through them
+// (see deliveries.h).
 #include "sim/deliveries.h"
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 const std::vector<Delivery>& all_deliveries() {
     using enum ItemKind;
-    // Travel needs nothing from here: fuel cells and providers are
-    // unlocked from the start, so the first delivery is a jump away from
-    // the first minutes. Each tier asks for more than the one before it
-    // (in raw resources: see test_deliveries), and for items further up
-    // the chain. Two branches open at tiers 2 and 5, for the player to
-    // pick between, and join up again after.
+    // Five chains, one per sector, nearest home first. Each starts with
+    // what a new ship can make (plates, gears, circuits, glass, fuel cells;
+    // the last chain with steel), and climbs from there; a delivery opens
+    // once the techs for everything it asks for are bought.
     static const std::vector<Delivery> deliveries = {
-        // Tier 1: plates and gears, from what a new ship can make.
-        {"First light",
-         {},
-         {{IronPlate, 80}, {CopperPlate, 40}, {Gear, 40}},
-         {Steel, FilterSorter, ReverseSorter, Router, Unloader}},
-        // Tier 2: two branches, needing steel.
-        {"Heavy industry",
-         {"First light"},
-         {{Steel, 40}, {Circuit, 80}},
-         {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame}},
-        {"Supply lines",
-         {"First light"},
-         {{Steel, 30}, {Gear, 80}, {Glass, 40}},
-         {ExpressBelt, BeltTunnel, CargoPod}},
-        // Tier 3: the second ship, and bulk logistics.
-        {"Deep space",
-         {"Heavy industry", "Supply lines"},
-         {{AdvancedCircuit, 50}, {StructuralFrame, 25}, {FuelCell, 40}},
-         {FabricatorMk2, TractorArray, ShipStarterPack, Requester}},
-        // Tier 4: weapons, and iridium (a tractor array, from Deep space,
-        // gathers it).
-        {"Escape velocity",
-         {"Deep space"},
-         {{AdvancedCircuit, 60}, {StructuralFrame, 30}, {Glass, 100}},
-         {FocusCrystal, IridiumPlate}},
-        // Tier 5: two branches again.
-        {"Frontier",
-         {"Escape velocity"},
-         {{FuelCell, 150}, {FocusCrystal, 30}, {Steel, 60}},
-         {ShieldProjector}},
-        {"Iridium rush",
-         {"Escape velocity"},
-         {{IridiumPlate, 150}, {AdvancedCircuit, 100}},
-         {Processor}},
-        // Tier 6: the capital ship's fabricator.
-        {"Starforge",
-         {"Frontier", "Iridium rush"},
-         {{Processor, 50}, {IridiumPlate, 100}, {StructuralFrame, 40}},
-         {FabricatorMk3}},
+        // Chain 0: a shipyard.
+        {"Hull plating", 0, {{IronPlate, 60}, {Gear, 30}}},
+        {"Girders", 0, {{Steel, 40}, {Gear, 40}}},
+        {"Frame order", 0, {{StructuralFrame, 30}, {Steel, 40}}},
+        {"Armored keel", 0, {{StructuralFrame, 60}, {IridiumPlate, 60}}},
+        // Chain 1: an electronics works.
+        {"Wiring loom", 1, {{CopperPlate, 40}, {Circuit, 40}}},
+        {"Control boards", 1, {{Circuit, 100}, {Glass, 30}}},
+        {"Guidance cores", 1, {{AdvancedCircuit, 50}, {Plastic, 30}}},
+        {"Mainframe", 1, {{Processor, 30}, {AdvancedCircuit, 40}}},
+        // Chain 2: a fuel depot.
+        {"Fuel run", 2, {{FuelCell, 40}, {IronPlate, 40}}},
+        {"Tanker contract", 2, {{FuelCell, 80}, {Steel, 20}}},
+        {"Reactor feed", 2, {{FuelCell, 120}, {Silicon, 40}, {Steel, 20}}},
+        {"Picket resupply", 2, {{FuelCell, 150}, {FocusCrystal, 30}}},
+        // Chain 3: an observatory.
+        {"Lens blanks", 3, {{Glass, 50}, {CopperPlate, 30}}},
+        {"Telescope mounts", 3, {{Glass, 80}, {Steel, 30}}},
+        {"Sensor array", 3, {{Silicon, 80}, {Glass, 100}, {AdvancedCircuit, 20}}},
+        {"Deep-field optics", 3, {{FocusCrystal, 40}, {Glass, 120}}},
+        // Chain 4: a frontier outpost, the furthest out.
+        {"Outpost kit", 4, {{Steel, 30}, {Circuit, 50}}},
+        {"Habitat ring", 4, {{StructuralFrame, 20}, {AdvancedCircuit, 20}}},
+        {"Iridium bulkheads", 4, {{IridiumPlate, 80}, {StructuralFrame, 30}}},
+        {"Command spire", 4, {{Processor, 40}, {IridiumPlate, 80}, {FocusCrystal, 20}}},
     };
     return deliveries;
 }
 
-std::size_t delivery_index(std::string_view name) {
-    const std::vector<Delivery>& deliveries = all_deliveries();
-    for (std::size_t i = 0; i < deliveries.size(); ++i)
-        if (deliveries[i].name == name)
-            return i;
-    assert(false && "no delivery by that name");
-    return deliveries.size();
+const std::vector<Tech>& all_techs() {
+    using enum ItemKind;
+    // Travel needs none of them: fuel cells and providers are there from
+    // the start. Two branches open after Steelworks and after Escape
+    // velocity, and join up again after.
+    static const std::vector<Tech> techs = {
+        {"Steelworks", 10, {}, {Steel, FilterSorter, ReverseSorter, Router, Unloader}},
+        {"Refining", 25, {"Steelworks"}, {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame}},
+        {"Logistics", 20, {"Steelworks"}, {ExpressBelt, BeltTunnel, CargoPod}},
+        {"Deep space", 50, {"Refining", "Logistics"}, {FabricatorMk2, TractorArray, ShipStarterPack, Requester}},
+        {"Escape velocity", 70, {"Deep space"}, {FocusCrystal, IridiumPlate}},
+        {"Shielding", 80, {"Escape velocity"}, {ShieldProjector}},
+        {"Iridium processing", 80, {"Escape velocity"}, {Processor}},
+        {"Starforge", 100, {"Shielding", "Iridium processing"}, {FabricatorMk3}},
+    };
+    return techs;
 }
 
-std::vector<std::size_t> delivery_prerequisites(std::size_t d) {
-    std::vector<std::size_t> before;
-    for (const std::string_view name : all_deliveries()[d].after)
-        before.push_back(delivery_index(name));
+namespace {
+
+template <typename T>
+std::size_t index_by_name(const std::vector<T>& table, std::string_view name) {
+    for (std::size_t i = 0; i < table.size(); ++i)
+        if (table[i].name == name)
+            return i;
+    assert(false && "nothing by that name");
+    return table.size();
+}
+
+}  // namespace
+
+std::size_t delivery_index(std::string_view name) {
+    return index_by_name(all_deliveries(), name);
+}
+
+std::size_t tech_index(std::string_view name) {
+    return index_by_name(all_techs(), name);
+}
+
+std::vector<std::size_t> chain_deliveries(int chain) {
+    std::vector<std::size_t> in_chain;
+    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
+        if (all_deliveries()[d].chain == chain)
+            in_chain.push_back(d);
+    return in_chain;
+}
+
+std::optional<std::size_t> delivery_before(std::size_t d) {
+    std::optional<std::size_t> before;
+    for (std::size_t e = 0; e < d; ++e)
+        if (all_deliveries()[e].chain == all_deliveries()[d].chain)
+            before = e;
     return before;
 }
 
-int delivery_tier(std::size_t d) {
-    int tier = 1;
-    for (const std::size_t p : delivery_prerequisites(d))
-        tier = std::max(tier, delivery_tier(p) + 1);
-    return tier;
+double raw_resources_in(ItemKind kind, double count) {
+    if (item_category(kind) == ItemCategory::RawResource)
+        return count;
+    const Recipe* recipe = recipe_for(kind);
+    if (!recipe)
+        return 0.0;
+    const double runs = count / recipe->outputs.front().count;
+    double total = 0.0;
+    for (const ItemStack& in : recipe->inputs)
+        total += raw_resources_in(in.kind, runs * in.count);
+    return total;
 }
 
-int max_delivery_tier() {
-    int tier = 0;
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        tier = std::max(tier, delivery_tier(d));
-    return tier;
+int delivery_points(std::size_t d) {
+    double raw = 0.0;
+    for (const ItemStack& s : all_deliveries()[d].wants)
+        raw += raw_resources_in(s.kind, s.count);
+    return std::max(1, static_cast<int>(std::lround(raw / 20.0)));
+}
+
+std::vector<std::size_t> tech_prerequisites(std::size_t t) {
+    std::vector<std::size_t> before;
+    for (const std::string_view name : all_techs()[t].after)
+        before.push_back(tech_index(name));
+    return before;
 }
 
 std::optional<ItemKind> weapon_unlocking(ItemKind kind) {
@@ -98,10 +135,10 @@ std::optional<ItemKind> weapon_unlocking(ItemKind kind) {
     }
 }
 
-std::optional<std::size_t> delivery_unlocking(ItemKind kind) {
-    const std::vector<Delivery>& deliveries = all_deliveries();
-    for (std::size_t i = 0; i < deliveries.size(); ++i) {
-        const std::vector<ItemKind>& unlocks = deliveries[i].unlocks;
+std::optional<std::size_t> tech_unlocking(ItemKind kind) {
+    const std::vector<Tech>& techs = all_techs();
+    for (std::size_t i = 0; i < techs.size(); ++i) {
+        const std::vector<ItemKind>& unlocks = techs[i].unlocks;
         if (std::find(unlocks.begin(), unlocks.end(), kind) != unlocks.end())
             return i;
     }
@@ -109,13 +146,17 @@ std::optional<std::size_t> delivery_unlocking(ItemKind kind) {
 }
 
 Progress::Progress()
-    : complete_(all_deliveries().size(), false), delivered_(all_deliveries().size(), std::array<int, kItemKindCount>{}) {}
+    : complete_(all_deliveries().size(), false),
+      delivered_(all_deliveries().size(), std::array<int, kItemKindCount>{}),
+      bought_(all_techs().size(), false) {}
 
 bool Progress::open(std::size_t d) const {
     if (d >= complete_.size() || complete_[d])
         return false;
-    const std::vector<std::size_t> before = delivery_prerequisites(d);
-    return std::all_of(before.begin(), before.end(), [&](std::size_t p) { return complete_[p]; });
+    if (const std::optional<std::size_t> before = delivery_before(d); before && !complete_[*before])
+        return false;
+    const std::vector<ItemStack>& wants = all_deliveries()[d].wants;
+    return std::all_of(wants.begin(), wants.end(), [&](const ItemStack& s) { return unlocked(s.kind); });
 }
 
 std::vector<std::size_t> Progress::open_deliveries() const {
@@ -124,6 +165,13 @@ std::vector<std::size_t> Progress::open_deliveries() const {
         if (open(d))
             open_now.push_back(d);
     return open_now;
+}
+
+std::optional<std::size_t> Progress::chain_current(int chain) const {
+    for (const std::size_t d : chain_deliveries(chain))
+        if (!complete_[d])
+            return d;
+    return std::nullopt;
 }
 
 std::size_t Progress::done_count() const {
@@ -155,6 +203,7 @@ bool Progress::deliver(std::size_t d, ItemKind kind, int count) {
     if (!all_in)
         return false;
     complete_[d] = true;
+    points_ += delivery_points(d);
     return true;
 }
 
@@ -164,7 +213,38 @@ bool Progress::complete(std::size_t d) {
     for (const ItemStack& s : all_deliveries()[d].wants)
         delivered_[d][static_cast<std::size_t>(s.kind)] = s.count;
     complete_[d] = true;
+    points_ += delivery_points(d);
     return true;
+}
+
+bool Progress::for_sale(std::size_t t) const {
+    if (t >= bought_.size() || bought_[t])
+        return false;
+    const std::vector<std::size_t> before = tech_prerequisites(t);
+    return std::all_of(before.begin(), before.end(), [&](std::size_t p) { return bought_[p]; });
+}
+
+bool Progress::can_buy(std::size_t t) const {
+    return for_sale(t) && points_ >= all_techs()[t].cost;
+}
+
+bool Progress::buy(std::size_t t) {
+    if (!can_buy(t))
+        return false;
+    points_ -= all_techs()[t].cost;
+    bought_[t] = true;
+    return true;
+}
+
+bool Progress::grant(std::size_t t) {
+    if (!for_sale(t))
+        return false;
+    bought_[t] = true;
+    return true;
+}
+
+std::size_t Progress::bought_count() const {
+    return static_cast<std::size_t>(std::count(bought_.begin(), bought_.end(), true));
 }
 
 bool Progress::has_found(ItemKind weapon) const {
@@ -183,6 +263,6 @@ bool Progress::unlocked(ItemKind kind) const {
         return has_found(kind);
     if (const std::optional<ItemKind> weapon = weapon_unlocking(kind))
         return has_found(*weapon);
-    const std::optional<std::size_t> at = delivery_unlocking(kind);
-    return !at || done(*at);
+    const std::optional<std::size_t> at = tech_unlocking(kind);
+    return !at || bought(*at);
 }

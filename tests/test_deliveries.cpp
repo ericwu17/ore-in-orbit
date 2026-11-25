@@ -1,10 +1,12 @@
-// test_deliveries.cpp — headless tests for the deliveries: the table (each
-// delivery reachable with what the ones before it unlock, asking for more,
-// and further up the chain, than those before it), progress through them
-// (open ones, branches, completing one unlocking its recipes), providers
-// making them in the sector that takes them (and nowhere else), where the
-// map puts them (safe sectors, the first next to home, branches apart), and
-// travel from the very start: fuel cells from a fabricator, and providers.
+// test_deliveries.cpp — headless tests for the deliveries and the techs
+// their points buy: the tables (chains of deliveries, each asking for more,
+// and further up the production chain, than the one before it; techs each
+// after those listed before them, unlocking what can then be made), the
+// economy (a greedy player buys every tech and makes every delivery),
+// progress (open deliveries, paying out, the shop), providers making them
+// in the sector that takes them (and nowhere else), where the map puts
+// them (a safe sector per chain, the first next to home), and travel from
+// the very start: fuel cells from a fabricator, and providers.
 #include "sim/building.h"
 #include "sim/deliveries.h"
 #include "sim/recipes.h"
@@ -16,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <deque>
 #include <set>
@@ -25,73 +28,100 @@ namespace {
 void test_table() {
     const std::vector<Delivery>& deliveries = all_deliveries();
     assert(deliveries.size() >= 6);
-    std::array<int, kItemKindCount> unlocked_by{};
     for (std::size_t d = 0; d < deliveries.size(); ++d) {
         const Delivery& delivery = deliveries[d];
-        assert(!delivery.wants.empty() && !delivery.unlocks.empty());
+        assert(!delivery.wants.empty());
+        assert(delivery.chain >= 0 && delivery.chain < kDeliveryChains);
         for (const ItemStack& s : delivery.wants)
             assert(s.count > 0 && item_category(s.kind) != ItemCategory::Placeable);
-        // Each item is unlocked once, and only items with a recipe.
-        for (const ItemKind kind : delivery.unlocks) {
-            assert(recipe_for(kind));
-            assert(++unlocked_by[static_cast<std::size_t>(kind)] == 1);
-        }
-        // Each comes after deliveries listed before it.
-        for (const std::size_t before : delivery_prerequisites(d))
-            assert(before < d);
         // Names are unique, so tables can name a delivery (delivery_index).
         assert(delivery_index(delivery.name) == d);
+        // Pays at least a point.
+        assert(delivery_points(d) >= 1);
     }
-    // Exactly one to start with, and the first line needs nothing unlocked.
+    // Every chain has deliveries, each after the one listed before it.
+    for (int chain = 0; chain < kDeliveryChains; ++chain) {
+        const std::vector<std::size_t> in_chain = chain_deliveries(chain);
+        assert(in_chain.size() >= 2);
+        assert(!delivery_before(in_chain.front()));
+        for (std::size_t i = 1; i < in_chain.size(); ++i)
+            assert(delivery_before(in_chain[i]) == in_chain[i - 1]);
+    }
+
+    const std::vector<Tech>& techs = all_techs();
+    assert(techs.size() >= 4);
+    std::array<int, kItemKindCount> unlocked_by{};
     std::size_t roots = 0;
-    for (std::size_t d = 0; d < deliveries.size(); ++d)
-        roots += delivery_prerequisites(d).empty() ? 1u : 0u;
-    assert(roots == 1 && delivery_tier(0) == 1);
+    for (std::size_t t = 0; t < techs.size(); ++t) {
+        const Tech& tech = techs[t];
+        assert(tech.cost > 0 && !tech.unlocks.empty());
+        assert(tech_index(tech.name) == t);
+        // Each item is unlocked once, and only items with a recipe.
+        for (const ItemKind kind : tech.unlocks) {
+            assert(recipe_for(kind) && !weapon_unlocking(kind));
+            assert(++unlocked_by[static_cast<std::size_t>(kind)] == 1);
+            assert(tech_unlocking(kind) == t);
+        }
+        // Each comes after techs listed before it.
+        for (const std::size_t before : tech_prerequisites(t))
+            assert(before < t);
+        roots += tech_prerequisites(t).empty() ? 1u : 0u;
+    }
+    assert(roots == 1);
+    // What a new ship makes, and travel, need no tech.
     for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
                                 ItemKind::FabricatorMk1, ItemKind::IronPlate, ItemKind::CopperPlate, ItemKind::Gear,
-                                ItemKind::Circuit, ItemKind::FuelCell, ItemKind::Provider})
-        assert(!delivery_unlocking(kind));
-    // Branches: some tier has more than one delivery, for the player to
-    // pick between.
-    std::array<int, 16> per_tier{};
-    for (std::size_t d = 0; d < deliveries.size(); ++d)
-        ++per_tier[static_cast<std::size_t>(delivery_tier(d))];
-    assert(std::any_of(per_tier.begin(), per_tier.end(), [](int n) { return n >= 2; }));
-    // Every bigger ship layout comes with a delivery.
+                                ItemKind::Circuit, ItemKind::Glass, ItemKind::FuelCell, ItemKind::Provider})
+        assert(!tech_unlocking(kind));
+    // Branches: two techs come after the same one, for the player to pick
+    // between.
+    bool branches = false;
+    for (std::size_t a = 0; a < techs.size(); ++a)
+        for (std::size_t b = a + 1; b < techs.size(); ++b)
+            branches = branches || (!tech_prerequisites(a).empty() && tech_prerequisites(a) == tech_prerequisites(b));
+    assert(branches);
+    // Every bigger ship layout comes with a tech.
     for (const ShipLayout& layout : all_layouts())
-        assert(&layout == &starter_layout() ? !layout.delivery : layout.delivery && *layout.delivery < deliveries.size());
+        assert(&layout == &starter_layout() ? !layout.tech : layout.tech && *layout.tech < techs.size());
 }
 
-// Every delivery that has to be complete before `d` can be open (its
-// prerequisites, and theirs).
-std::set<std::size_t> needed_before(std::size_t d) {
+// Tech `t` and every tech it comes after (theirs too), into `into`.
+void with_prerequisites(std::size_t t, std::set<std::size_t>& into) {
+    if (!into.insert(t).second)
+        return;
+    for (const std::size_t p : tech_prerequisites(t))
+        with_prerequisites(p, into);
+}
+
+// The techs that have to be bought before delivery `d` can be open: those
+// for what it, and every one before it in its chain, asks for.
+std::set<std::size_t> techs_needed(std::size_t d) {
     std::set<std::size_t> needed;
-    for (const std::size_t p : delivery_prerequisites(d)) {
-        needed.insert(p);
-        const std::set<std::size_t> more = needed_before(p);
-        needed.insert(more.begin(), more.end());
-    }
+    for (std::optional<std::size_t> e = d; e; e = delivery_before(*e))
+        for (const ItemStack& s : all_deliveries()[*e].wants)
+            if (const std::optional<std::size_t> t = tech_unlocking(s.kind))
+                with_prerequisites(*t, needed);
     return needed;
 }
 
-// Whether `kind` can be had with only what's unlocked by the deliveries in
-// `done`: in a new game's inventory (which breaks the cycles: collectors
+// Whether `kind` can be had with only what's unlocked by the techs in
+// `bought`: in a new game's inventory (which breaks the cycles: collectors
 // are made from plates smelted from what they gather), gathered by an
 // unlocked collector, or made by an unlocked recipe (run by hand or by an
 // unlocked machine) from such items.
-bool reachable(ItemKind kind, const std::set<std::size_t>& done, int depth = 0) {
+bool reachable(ItemKind kind, const std::set<std::size_t>& bought, int depth = 0) {
     assert(depth < 32);
     static const Ship start = Ship::new_game();
     if (start.inventory().count(kind) > 0)
         return true;
     auto unlocked = [&](ItemKind k) {
-        const std::optional<std::size_t> at = delivery_unlocking(k);
-        return !at || done.contains(*at);
+        const std::optional<std::size_t> at = tech_unlocking(k);
+        return !at || bought.contains(*at);
     };
     if (item_category(kind) == ItemCategory::RawResource) {
         for (const ItemKind collector : {ItemKind::AsteroidCollector, ItemKind::TractorArray}) {
             const std::vector<ItemKind>& targets = collector_spec(collector).targets;
-            if (unlocked(collector) && reachable(collector, done, depth + 1) &&
+            if (unlocked(collector) && reachable(collector, bought, depth + 1) &&
                 std::find(targets.begin(), targets.end(), kind) != targets.end())
                 return true;
         }
@@ -103,39 +133,42 @@ bool reachable(ItemKind kind, const std::set<std::size_t>& done, int depth = 0) 
     bool runnable = r->hand_craftable;
     for (int i = 0; i < kItemKindCount && !runnable; ++i) {
         const ItemKind machine = static_cast<ItemKind>(i);
-        runnable = machine_crafts(machine, r->category) && unlocked(machine) && reachable(machine, done, depth + 1);
+        runnable = machine_crafts(machine, r->category) && unlocked(machine) && reachable(machine, bought, depth + 1);
     }
     if (!runnable)
         return false;
     for (const ItemStack& s : r->inputs)
-        if (!reachable(s.kind, done, depth + 1))
+        if (!reachable(s.kind, bought, depth + 1))
             return false;
     return true;
 }
 
-// Every delivery asks only for what the ones it needs before it make
-// possible, so the game can't get stuck whichever branch is taken first;
-// everything each one unlocks can be made once it's complete; and
+// Every delivery asks only for what the techs it needs make possible, so
+// the game can't get stuck whichever is bought first; everything each tech
+// unlocks can be made once it (and those it comes after) are bought; and
 // everything is reachable once they all are.
 void test_no_dead_ends() {
     const std::vector<Delivery>& deliveries = all_deliveries();
     for (std::size_t d = 0; d < deliveries.size(); ++d) {
-        std::set<std::size_t> done = needed_before(d);
+        const std::set<std::size_t> bought = techs_needed(d);
         for (const ItemStack& s : deliveries[d].wants) {
-            if (!reachable(s.kind, done))
+            if (!reachable(s.kind, bought))
                 std::printf("%s can't get %s\n", deliveries[d].name, item_name(s.kind));
-            assert(reachable(s.kind, done));
+            assert(reachable(s.kind, bought));
         }
-        done.insert(d);
-        for (const ItemKind kind : deliveries[d].unlocks) {
-            if (!reachable(kind, done))
-                std::printf("%s unlocks %s, which can't be made yet\n", deliveries[d].name, item_name(kind));
-            assert(reachable(kind, done));
+    }
+    for (std::size_t t = 0; t < all_techs().size(); ++t) {
+        std::set<std::size_t> bought;
+        with_prerequisites(t, bought);
+        for (const ItemKind kind : all_techs()[t].unlocks) {
+            if (!reachable(kind, bought))
+                std::printf("%s unlocks %s, which can't be made yet\n", all_techs()[t].name, item_name(kind));
+            assert(reachable(kind, bought));
         }
     }
     std::set<std::size_t> all;
-    for (std::size_t d = 0; d < deliveries.size(); ++d)
-        all.insert(d);
+    for (std::size_t t = 0; t < all_techs().size(); ++t)
+        all.insert(t);
     for (int i = 0; i < kItemKindCount; ++i) {
         const ItemKind kind = static_cast<ItemKind>(i);
         if (is_layout_part(kind) || is_weapon(kind) || weapon_unlocking(kind))
@@ -191,20 +224,31 @@ int deepest_wanted(std::size_t d) {
 }
 
 // The deliveries grow, in a balanced way: each asks for more raw resources
-// than any it comes after, but not more than three times as much (no
-// sudden wall), and for items at least as far up the production chain;
-// the last ones reach further up it than the first.
+// than the one before it in its chain, but not more than three times as
+// much (no sudden wall), and for items at least as far up the production
+// chain; each chain's last reaches further up it than its first. And what
+// they pay (delivery_points) follows what they take.
 void test_balance() {
     const std::vector<Delivery>& deliveries = all_deliveries();
-    for (std::size_t d = 0; d < deliveries.size(); ++d)
-        for (const std::size_t before : delivery_prerequisites(d)) {
-            const double ratio = raw_total(d) / raw_total(before);
+    for (std::size_t d = 0; d < deliveries.size(); ++d) {
+        assert(std::abs(delivery_points(d) - std::max(1.0, raw_total(d) / 20.0)) <= 0.5);
+        if (const std::optional<std::size_t> before = delivery_before(d)) {
+            const double ratio = raw_total(d) / raw_total(*before);
             if (ratio <= 1.0 || ratio > 3.0)
-                std::printf("%s asks %.2f times what %s does\n", deliveries[d].name, ratio, deliveries[before].name);
+                std::printf("%s asks %.2f times what %s does\n", deliveries[d].name, ratio,
+                            deliveries[*before].name);
             assert(ratio > 1.0 && ratio <= 3.0);
-            assert(deepest_wanted(d) >= deepest_wanted(before));
+            if (deepest_wanted(d) < deepest_wanted(*before))
+                std::printf("%s (depth %d) is less far up than %s (depth %d)\n", deliveries[d].name,
+                            deepest_wanted(d), deliveries[*before].name, deepest_wanted(*before));
+            assert(deepest_wanted(d) >= deepest_wanted(*before));
+            assert(delivery_points(d) > delivery_points(*before));
         }
-    assert(deepest_wanted(deliveries.size() - 1) > deepest_wanted(0));
+    }
+    for (int chain = 0; chain < kDeliveryChains; ++chain) {
+        const std::vector<std::size_t> in_chain = chain_deliveries(chain);
+        assert(deepest_wanted(in_chain.back()) > deepest_wanted(in_chain.front()));
+    }
     // And each, from a home sector holding nothing but its own, could be
     // paid for twice over by a fresh sector's reserves of every kind it
     // needs (the sectors that take them hold that much, or more).
@@ -220,54 +264,136 @@ void test_balance() {
     }
 }
 
-// Open deliveries, branching, delivering (capped at what's wanted, and
-// only toward open ones), and completing one unlocking its recipes and
-// opening the next.
+// The economy holds up: a player who makes every delivery they can, and
+// buys the cheapest tech they can afford, buys every tech and makes every
+// delivery, never stuck with nothing open and nothing to buy. The first
+// tech is paid for by the deliveries open at the start, and the points
+// left over at the end are a small part of what was earned (most of it
+// buys something).
+void test_economy() {
+    Progress progress;
+    int earned = 0;
+    std::size_t rounds = 0;
+    for (;; ++rounds) {
+        assert(rounds < 100);
+        bool did = false;
+        for (const std::size_t d : progress.open_deliveries()) {
+            const int before = progress.points();
+            assert(progress.complete(d));
+            assert(progress.points() == before + delivery_points(d));
+            earned += delivery_points(d);
+            did = true;
+        }
+        std::optional<std::size_t> cheapest;
+        for (std::size_t t = 0; t < all_techs().size(); ++t)
+            if (progress.can_buy(t) && (!cheapest || all_techs()[t].cost < all_techs()[*cheapest].cost))
+                cheapest = t;
+        if (cheapest) {
+            const int before = progress.points();
+            assert(progress.buy(*cheapest) && progress.bought(*cheapest));
+            assert(progress.points() == before - all_techs()[*cheapest].cost);
+            did = true;
+        }
+        if (rounds == 0)
+            assert(cheapest.has_value());  // the first tech, from the first deliveries
+        if (!did)
+            break;
+    }
+    if (!progress.all_complete() || progress.bought_count() != all_techs().size())
+        std::printf("stuck: %zu deliveries made, %zu techs bought, %d %s left\n", progress.done_count(),
+                    progress.bought_count(), progress.points(), kPointsName);
+    assert(progress.all_complete() && progress.bought_count() == all_techs().size());
+    int spent = 0;
+    for (const Tech& tech : all_techs())
+        spent += tech.cost;
+    assert(earned - spent == progress.points() && progress.points() >= 0);
+    assert(progress.points() * 4 <= earned);
+}
+
+// Open deliveries, one per chain at a time, delivering (capped at what's
+// wanted, and only toward open ones), completing one paying out and
+// opening the next in its chain, and the shop: techs for sale once those
+// they come after are bought, bought only with the points for them.
 void test_progress() {
     Progress progress;
-    const std::size_t first = delivery_index("First light");
-    const std::size_t heavy = delivery_index("Heavy industry");
-    const std::size_t lines = delivery_index("Supply lines");
-    const std::size_t deep = delivery_index("Deep space");
-    assert(progress.open_deliveries() == std::vector<std::size_t>{first});
+    const std::size_t hull = delivery_index("Hull plating");
+    const std::size_t girders = delivery_index("Girders");
+    const std::size_t steelworks = tech_index("Steelworks");
+    const std::size_t refining = tech_index("Refining");
+    // Each chain's first is open, except those asking for what needs a tech.
+    for (int chain = 0; chain < kDeliveryChains; ++chain) {
+        const std::size_t first = chain_deliveries(chain).front();
+        const std::vector<ItemStack>& wants = all_deliveries()[first].wants;
+        const bool needs_tech =
+            std::any_of(wants.begin(), wants.end(), [](const ItemStack& s) { return tech_unlocking(s.kind); });
+        assert(progress.open(first) == !needs_tech);
+        assert(progress.chain_current(chain) == first);
+        for (std::size_t i = 1; i < chain_deliveries(chain).size(); ++i)
+            assert(!progress.open(chain_deliveries(chain)[i]));
+    }
+    assert(progress.open_deliveries().size() >= 3);
     assert(!progress.unlocked(ItemKind::Steel) && progress.unlocked(ItemKind::FuelCell));
-    assert(progress.done_count() == 0 && !progress.all_complete());
+    assert(progress.done_count() == 0 && !progress.all_complete() && progress.points() == 0);
 
     // Nothing toward one that isn't open, or of what it doesn't want.
-    assert(!progress.deliver(heavy, ItemKind::Steel) && progress.delivered(heavy, ItemKind::Steel) == 0);
-    assert(progress.wanted(heavy, ItemKind::Steel) == 0);
-    assert(!progress.deliver(first, ItemKind::Steel) && progress.delivered(first, ItemKind::Steel) == 0);
+    assert(!progress.deliver(girders, ItemKind::Gear) && progress.delivered(girders, ItemKind::Gear) == 0);
+    assert(progress.wanted(girders, ItemKind::Gear) == 0);
+    assert(!progress.deliver(hull, ItemKind::Steel) && progress.delivered(hull, ItemKind::Steel) == 0);
 
-    const std::vector<ItemStack>& wants = all_deliveries()[first].wants;
+    const std::vector<ItemStack>& wants = all_deliveries()[hull].wants;
     // Past what's wanted doesn't count.
-    assert(!progress.deliver(first, wants[0].kind, wants[0].count + 10));
-    assert(progress.delivered(first, wants[0].kind) == wants[0].count);
-    assert(progress.wanted(first, wants[0].kind) == 0);
+    assert(!progress.deliver(hull, wants[0].kind, wants[0].count + 10));
+    assert(progress.delivered(hull, wants[0].kind) == wants[0].count);
+    assert(progress.wanted(hull, wants[0].kind) == 0);
     for (std::size_t i = 1; i < wants.size(); ++i) {
-        assert(!progress.deliver(first, wants[i].kind, wants[i].count - 1));
-        assert(progress.wanted(first, wants[i].kind) == 1);
+        assert(!progress.deliver(hull, wants[i].kind, wants[i].count - 1));
+        assert(progress.wanted(hull, wants[i].kind) == 1);
     }
-    for (std::size_t i = 1; i + 1 < wants.size(); ++i)
-        assert(!progress.deliver(first, wants[i].kind));
-    assert(progress.deliver(first, wants.back().kind));  // the last one in
-    assert(progress.done(first) && !progress.open(first) && progress.done_count() == 1);
-    for (const ItemKind kind : all_deliveries()[first].unlocks)
-        assert(progress.unlocked(kind));
-    assert(!progress.deliver(first, wants[0].kind));  // done is done
+    assert(progress.points() == 0);
+    assert(progress.deliver(hull, wants.back().kind));  // the last one in
+    assert(progress.done(hull) && !progress.open(hull) && progress.done_count() == 1);
+    assert(progress.points() == delivery_points(hull));
+    assert(!progress.deliver(hull, wants[0].kind));  // done is done
+    assert(progress.points() == delivery_points(hull));
 
-    // Two branches open now; the one after both waits for both.
-    assert((progress.open_deliveries() == std::vector<std::size_t>{heavy, lines}));
-    assert(progress.complete(heavy));
-    assert(!progress.open(deep) && !progress.complete(deep));
-    assert(progress.complete(lines));
-    assert(progress.open(deep));
+    // The next in the chain asks for steel: it waits for the tech.
+    assert(progress.chain_current(0) == girders && !progress.open(girders));
+
+    // The shop: only the root tech is for sale; the rest wait for it.
+    assert(progress.for_sale(steelworks) && !progress.for_sale(refining));
+    assert(!progress.buy(refining));
+    progress.add_points(all_techs()[refining].cost);
+    assert(!progress.can_buy(refining) && !progress.buy(refining));
+    const int points = progress.points();
+    assert(progress.can_buy(steelworks) && progress.buy(steelworks));
+    assert(progress.points() == points - all_techs()[steelworks].cost);
+    assert(progress.bought(steelworks) && !progress.for_sale(steelworks) && !progress.buy(steelworks));
+    for (const ItemKind kind : all_techs()[steelworks].unlocks)
+        assert(progress.unlocked(kind));
+    assert(progress.open(girders));
+    assert(progress.for_sale(refining));
+    // Not enough points: nothing changes.
+    const int left = progress.points();
+    if (left < all_techs()[refining].cost) {
+        assert(!progress.can_buy(refining) && !progress.buy(refining) && progress.points() == left);
+    }
+    // Granting needs no points, but the order still holds.
+    assert(!progress.grant(tech_index("Starforge")));
+    assert(progress.grant(refining) && progress.points() == left && progress.bought(refining));
+
+    // Layouts come with techs.
     assert(!layout_unlocked(all_layouts()[1], progress));
-    assert(progress.complete(deep));
+    assert(progress.grant(tech_index("Logistics")) && progress.grant(tech_index("Deep space")));
     assert(layout_unlocked(all_layouts()[1], progress));
 
+    for (std::size_t t = 0; t < all_techs().size(); ++t)
+        progress.grant(t);
+    assert(progress.bought_count() == all_techs().size());
     while (!progress.open_deliveries().empty())
         assert(progress.complete(progress.open_deliveries().front()));
     assert(progress.all_complete());
+    for (int chain = 0; chain < kDeliveryChains; ++chain)
+        assert(!progress.chain_current(chain));
     // Everything but weapons and what only finding one unlocks (see
     // test_combat).
     const auto found_only = [](ItemKind kind) { return is_weapon(kind) || weapon_unlocking(kind).has_value(); };
@@ -292,7 +418,7 @@ void test_provider_delivers() {
     FleetShip& flagship = world.get_fleet().flagship();
     Ship& ship = flagship.ship;
     const Progress& progress = world.get_fleet().get_progress();
-    const std::size_t first = delivery_index("First light");
+    const std::size_t first = delivery_index("Hull plating");
     const int sector = world.get_map().delivery_sector(first);
     assert(sector > 0);
 
@@ -346,7 +472,7 @@ void test_provider_delivers() {
     provider.receive(ItemKind::Gear);
     for (Tick t = 0; t < 2 * kLinkTicks; ++t)
         world.advance_tick();
-    assert(progress.done(first) && progress.unlocked(ItemKind::Steel));
+    assert(progress.done(first) && progress.points() == delivery_points(first));
     assert(provider.get_stored().count(ItemKind::Gear) == 1);  // nothing more wanted here
     const std::vector<Event> events = world.take_events();
     const auto done = std::count_if(events.begin(), events.end(), [&](const Event& e) {
@@ -374,10 +500,9 @@ bool safe(const Sector& s) {
 }
 
 // On every map: kSafeSectors safe sectors around home, home's neighbors
-// among them, joined to home through safe sectors only; each delivery is
-// taken in one of them, never home, the first next to home, the later
-// ones no nearer than those they come after, and those open at the same
-// time in different sectors.
+// among them, joined to home through safe sectors only; each chain of
+// deliveries is taken in one of them, never home, a different one per
+// chain, the first chain's next to home.
 void test_map_placement() {
     for (std::uint64_t seed = 1; seed <= 40; ++seed) {
         const StarMap map = StarMap::generate(seed);
@@ -401,16 +526,13 @@ void test_map_placement() {
                 assert(nearer != n.end());
                 at = *nearer;
             }
-            for (const std::size_t before : delivery_prerequisites(d))
-                assert(hops[static_cast<std::size_t>(s)] >=
-                       hops[static_cast<std::size_t>(map.delivery_sector(before))]);
+            // A chain in one sector; other chains elsewhere.
             for (std::size_t e = 0; e < d; ++e)
-                if (delivery_tier(e) == delivery_tier(d))
-                    assert(map.delivery_sector(e) != s);
+                assert((map.delivery_sector(e) == s) == (all_deliveries()[e].chain == all_deliveries()[d].chain));
             assert(map.deliveries_at(s).end() !=
                    std::find(map.deliveries_at(s).begin(), map.deliveries_at(s).end(), d));
         }
-        assert(map.linked(0, map.delivery_sector(0)));
+        assert(map.linked(0, map.delivery_sector(chain_deliveries(0).front())));
     }
 }
 
@@ -439,9 +561,11 @@ void test_travel_from_the_start() {
 }  // namespace
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);  // what failed, before an assert aborts
     test_table();
     test_no_dead_ends();
     test_balance();
+    test_economy();
     test_progress();
     test_provider_delivers();
     test_map_placement();

@@ -201,9 +201,10 @@ struct SaveAccess {
         }
     }
 
-    // The fleet's delivery progress: by delivery name, the complete ones
+    // The fleet's progress: by delivery name, the complete ones
     // ({"done": true}) and those with something delivered toward them
-    // ({"done": false, "delivered": {item counts}}); the rest are left out.
+    // ({"done": false, "delivered": {item counts}}), the rest left out; the
+    // points to spend; and the techs bought, by name.
     static Json save_progress(const Progress& progress) {
         Json deliveries = Json::object();
         const std::vector<Delivery>& table = all_deliveries();
@@ -219,7 +220,11 @@ struct SaveAccess {
             if (!delivered.empty())
                 deliveries[table[d].name] = {{"done", false}, {"delivered", std::move(delivered)}};
         }
-        Json j = {{"deliveries", std::move(deliveries)}};
+        Json techs = Json::array();
+        for (std::size_t t = 0; t < all_techs().size(); ++t)
+            if (progress.bought_[t])
+                techs.push_back(all_techs()[t].name);
+        Json j = {{"deliveries", std::move(deliveries)}, {"points", progress.points_}, {"techs", std::move(techs)}};
         // The kinds of weapon found.
         Json found = Json::array();
         for (const ItemKind w : progress.found)
@@ -228,10 +233,27 @@ struct SaveAccess {
         return j;
     }
 
-    // A delivery no longer known is left out, and what was delivered of an
-    // item no longer known with it.
+    // A delivery or tech no longer known is left out, and what was delivered
+    // of an item no longer known with it.
     static Progress load_progress_of(const Json& j) {
         Progress progress;
+        progress.points_ = static_cast<int>(load_int(j.at("points"), 0, 1'000'000'000));
+        const std::vector<Tech>& techs = all_techs();
+        for (const Json& jt : load_array(j.at("techs"), "techs")) {
+            const std::string name = load_string(jt, "a tech");
+            const auto known = std::find_if(techs.begin(), techs.end(), [&](const Tech& t) { return name == t.name; });
+            if (known == techs.end())
+                continue;
+            const auto t = static_cast<std::size_t>(known - techs.begin());
+            if (progress.bought_[t])
+                throw LoadError(name + " bought twice");
+            progress.bought_[t] = true;
+        }
+        for (std::size_t t = 0; t < techs.size(); ++t)
+            if (progress.bought_[t])
+                for (const std::size_t before : tech_prerequisites(t))
+                    if (!progress.bought_[before])
+                        throw LoadError(std::string(techs[t].name) + " bought before " + techs[before].name);
         const Json& deliveries = j.at("deliveries");
         if (!deliveries.is_object())
             throw LoadError("expected an object of deliveries, not " + deliveries.dump());
@@ -250,9 +272,8 @@ struct SaveAccess {
         }
         for (std::size_t d = 0; d < table.size(); ++d)
             if (progress.complete_[d]) {
-                for (const std::size_t before : delivery_prerequisites(d))
-                    if (!progress.complete_[before])
-                        throw LoadError(std::string(table[d].name) + " complete before " + table[before].name);
+                if (const std::optional<std::size_t> before = delivery_before(d); before && !progress.complete_[*before])
+                    throw LoadError(std::string(table[d].name) + " complete before " + table[*before].name);
                 for (const ItemStack& want : table[d].wants)
                     progress.delivered_[d][static_cast<std::size_t>(want.kind)] = want.count;
             }

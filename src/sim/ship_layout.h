@@ -6,7 +6,7 @@
 // paying one ship starter pack and the layout's cost; a new game's flagship
 // is the first, smallest one (starter_layout). The hull never changes after:
 // buildings go on it, and the bridge and engines stay where the layout puts
-// them. Bigger layouts unlock with the deliveries.
+// them. Bigger layouts unlock with techs (see deliveries.h).
 //
 // A layout also has ports: 1x1 tiles of its hull, weapon ports and shield
 // ports. A weapon is built only over a weapon port, a shield projector only
@@ -41,7 +41,7 @@ struct ShipLayout {
     GridPos bridge;                        // the bridge's top-left cell
     std::vector<GridPos> engines;          // each ion thruster's top-left cell (facing North)
     std::vector<ItemStack> cost;           // on top of one ship starter pack
-    std::optional<std::size_t> delivery;   // unlocked once this one is complete; nullopt: from the start
+    std::optional<std::size_t> tech;       // unlocked once this tech is bought; nullopt: from the start
     std::vector<GridPos> weapon_ports;     // each weapon port's cell
     std::vector<GridPos> shield_ports;     // each shield port's cell
 };

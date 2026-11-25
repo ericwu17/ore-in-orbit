@@ -203,29 +203,29 @@ void RecipeTooltip(const Recipe& recipe, const Inventory* inv, const char* hint 
     ImGui::EndTooltip();
 }
 
-// Which delivery unlocks a recipe not unlocked yet ("Unlocks with the
-// delivery Heavy industry"), for its tooltip; empty once it is.
+// Which tech unlocks a recipe not unlocked yet ("Unlocks with the tech
+// Refining, from the Shop"), for its tooltip; empty once it is.
 std::string LockedHint(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
     if (const std::optional<ItemKind> w = weapon_unlocking(recipe.outputs.front().kind))
         return std::string("Unlocks once the fleet finds a ") + item_name(*w) +
                ": salvage one from a beaten enemy ship";
-    const std::size_t i = *delivery_unlocking(recipe.outputs.front().kind);
-    return std::string("Unlocks with the delivery ") + all_deliveries()[i].name + " (see Deliveries)";
+    const std::size_t i = *tech_unlocking(recipe.outputs.front().kind);
+    return std::string("Unlocks with the tech ") + all_techs()[i].name + ", from the Shop";
 }
 
-// The corner badge on a locked recipe's icon ("D2"); empty once unlocked.
+// The corner badge on a locked recipe's icon ("T2"); empty once unlocked.
 std::string LockedBadge(const Progress& progress, const Recipe& recipe) {
     if (progress.unlocked(recipe))
         return {};
     if (weapon_unlocking(recipe.outputs.front().kind))
         return "W";
-    return "D" + std::to_string(*delivery_unlocking(recipe.outputs.front().kind) + 1);
+    return "T" + std::to_string(*tech_unlocking(recipe.outputs.front().kind) + 1);
 }
 
 // One icon button per hand-craftable recipe whose main output is in
-// `category`; the locked ones faded, with the delivery that unlocks them.
+// `category`; the locked ones faded, with the tech that unlocks them.
 void DrawHandCraftButtons(Bridge& bridge, ItemCategory category) {
     const float size = ImGui::GetFrameHeight() * 1.9f;
     IconFlow flow;
@@ -774,35 +774,54 @@ void DrawInspectorWindow(Fleet& fleet, FleetShip& shown_ship) {
 
 namespace {
 
+// The icons of `kinds`, in a flow, each with its name as a tooltip.
+void ItemIcons(const std::vector<ItemKind>& kinds) {
+    const float icon = ImGui::GetFrameHeight() * 1.4f;
+    IconFlow flow;
+    flow.Start(icon);
+    for (const ItemKind kind : kinds) {
+        flow.Next();
+        IconTile(ItemIcon(kind), icon);
+        ImGui::SetItemTooltip("%s", item_name(kind));
+    }
+}
+
 // The open deliveries: where each is taken, what it wants, how much has
-// been delivered, and what it unlocks; and how to make one from `current`.
+// been delivered, and what it pays; the points to spend, and the Shop.
 void DrawDeliveries(const World& world, const FleetShip& current) {
     const Progress& progress = world.get_fleet().get_progress();
-    const std::size_t total = all_deliveries().size();
     const std::string label = "Deliveries (" + std::to_string(progress.done_count()) + " / " +
-                              std::to_string(total) + ")###deliveries";
+                              std::to_string(all_deliveries().size()) + ")###deliveries";
     if (!theme::CollapsingSection(label.c_str()))
         return;
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::Text("%d %s to spend", progress.points(), kPointsName);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Shop")) {
+        g_fleet.show_shop = true;
+        PlayUi(audio::Sound::UiPanelOpen);
+    }
     if (progress.all_complete()) {
         ImGui::TextColored(theme::kGood, "Every delivery made");
+        ImGui::PopTextWrapPos();
         return;
     }
+    const std::vector<std::size_t> open = progress.open_deliveries();
+    if (open.empty())
+        ImGui::TextColored(theme::kWarnText, "No delivery can be made yet: buy a tech in the Shop");
     const StarMap& map = world.get_map();
     const bool has_provider = current.ship.has_building(ItemKind::Provider);
-    ImGui::PushTextWrapPos(0.0f);
-    bool first = true;
-    for (const std::size_t d : progress.open_deliveries()) {
+    for (const std::size_t d : open) {
         const Delivery& delivery = all_deliveries()[d];
         const int sector = map.delivery_sector(d);
         const bool here = sector == current.sector;
-        if (!first)
-            ImGui::Separator();
-        first = false;
+        ImGui::Separator();
         ImGui::PushID(static_cast<int>(d));
-        ImGui::Text("D%zu: %s", d + 1, delivery.name);
+        ImGui::Text("%s", delivery.name);
+        ImGui::SameLine();
+        ImGui::TextColored(theme::kGood, "+%d %s", delivery_points(d), kPointsShort);
         ImGui::TextColored(here ? theme::kGood : theme::kTextDim, "%s %s%s", here ? "Here, in" : "To",
-                           sector >= 0 ? map.at(sector).name.c_str() : "?",
-                           here ? "" : " (see the map, M)");
+                           sector >= 0 ? map.at(sector).name.c_str() : "?", here ? "" : " (see the map, M)");
         for (const ItemStack& s : delivery.wants) {
             const int have = progress.delivered(d, s.kind);
             const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);
@@ -815,22 +834,66 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
         }
         if (here && !has_provider)
             ImGui::TextColored(theme::kWarnText, "Belt the goods into a provider on this ship to deliver them");
-        ImGui::TextColored(theme::kTextDim, "Unlocks");
-        const float icon = ImGui::GetFrameHeight() * 1.4f;
-        IconFlow flow;
-        flow.Start(icon);
-        for (const ItemKind kind : delivery.unlocks) {
-            flow.Next();
-            IconTile(ItemIcon(kind), icon);
-            ImGui::SetItemTooltip("%s", item_name(kind));
-        }
-        for (const ShipLayout& layout : all_layouts())
-            if (layout.delivery == d)
-                ImGui::TextColored(theme::kTextDim, "and the %s, a bigger ship", layout.name);
         ImGui::PopID();
     }
     ImGui::PopTextWrapPos();
 }
+
+}  // namespace
+
+void DrawShopWindow(World& world) {
+    FleetUiState& f = g_fleet;
+    if (!f.show_shop)
+        return;
+    const float fh = ImGui::GetFrameHeight();
+    ImGui::SetNextWindowSize(ImVec2(fh * 22.0f, fh * 24.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (!ImGui::Begin("Shop", &f.show_shop, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    Progress& progress = world.get_fleet().get_progress();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::Text("%d %s to spend", progress.points(), kPointsName);
+    ImGui::TextColored(theme::kTextDim, "Deliveries earn %s. Each tech unlocks new recipes.", kPointsName);
+    const std::vector<Tech>& techs = all_techs();
+    for (std::size_t t = 0; t < techs.size(); ++t) {
+        const Tech& tech = techs[t];
+        ImGui::Separator();
+        ImGui::PushID(static_cast<int>(t));
+        ImGui::Text("T%zu: %s", t + 1, tech.name);
+        ImGui::SameLine();
+        if (progress.bought(t)) {
+            ImGui::TextColored(theme::kGood, "Owned");
+        } else {
+            ImGui::BeginDisabled(!progress.can_buy(t));
+            const std::string buy = "Buy: " + std::to_string(tech.cost) + " " + kPointsShort;
+            if (theme::PrimaryButton(buy.c_str())) {
+                progress.buy(t);
+                PlayUi(audio::Sound::UiConfirm);
+            }
+            ImGui::EndDisabled();
+            if (!progress.for_sale(t)) {
+                std::string needs;
+                for (const std::size_t p : tech_prerequisites(t))
+                    if (!progress.bought(p))
+                        needs += (needs.empty() ? "" : ", ") + std::string(techs[p].name);
+                ImGui::TextColored(theme::kTextDim, "Needs %s first", needs.c_str());
+            } else if (!progress.can_buy(t)) {
+                ImGui::TextColored(theme::kTextDim, "%d more %s needed", tech.cost - progress.points(), kPointsName);
+            }
+        }
+        ItemIcons(tech.unlocks);
+        for (const ShipLayout& layout : all_layouts())
+            if (layout.tech == t)
+                ImGui::TextColored(theme::kTextDim, "and the %s, a bigger ship", layout.name);
+        ImGui::PopID();
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::End();
+}
+
+namespace {
 
 }  // namespace
 

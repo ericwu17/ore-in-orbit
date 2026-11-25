@@ -76,11 +76,13 @@ World busy_world() {
                                       {ItemKind::CargoHold, 1},
                                       {ItemKind::BurstLaser, 1},
                                       {ItemKind::Refinery, 1}});
-    // Two deliveries done (the refinery's recipes need them), and some way
-    // into a third.
+    // Two techs bought (the refinery's recipes need them), a delivery made,
+    // some way into the next, and points to spend.
     Progress& progress = world.flagship().get_bridge().get_progress();
-    assert(progress.complete(delivery_index("First light")) && progress.complete(delivery_index("Heavy industry")));
-    assert(!progress.deliver(delivery_index("Supply lines"), ItemKind::Gear, 3));
+    assert(progress.grant(tech_index("Steelworks")) && progress.grant(tech_index("Refining")));
+    assert(progress.complete(delivery_index("Hull plating")));
+    progress.add_points(7);
+    assert(!progress.deliver(delivery_index("Girders"), ItemKind::Gear, 3));
     Ship& ship = world.flagship();
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
@@ -233,9 +235,11 @@ void test_round_trip() {
     assert(tender.name == "Tender");
     assert(&tender.ship.get_bridge().get_progress() == &fleet.get_progress());
     assert(&copy.get_bridge().get_progress() == &fleet.get_progress());
-    assert(fleet.get_progress().delivered(delivery_index("Supply lines"), ItemKind::Gear) == 3);
-    assert(fleet.get_progress().done(delivery_index("Heavy industry")));
-    assert(fleet.get_progress().open(delivery_index("Supply lines")));
+    assert(fleet.get_progress().delivered(delivery_index("Girders"), ItemKind::Gear) == 3);
+    assert(fleet.get_progress().done(delivery_index("Hull plating")));
+    assert(fleet.get_progress().open(delivery_index("Girders")));
+    assert(fleet.get_progress().points() == delivery_points(delivery_index("Hull plating")) + 7);
+    assert(fleet.get_progress().bought(tech_index("Refining")) && !fleet.get_progress().bought(tech_index("Logistics")));
     // Where the deliveries are taken.
     for (std::size_t d = 0; d < all_deliveries().size(); ++d)
         assert(loaded->world.get_map().delivery_sector(d) == world.get_map().delivery_sector(d));
@@ -315,7 +319,7 @@ Json minimal() {
            "deliveries": {}},
           "fleet": {
             "next_ship_id": 2,
-            "progress": {"deliveries": {}},
+            "progress": {"deliveries": {}, "points": 0, "techs": []},
             "ships": [{"id": 1, "name": "Flagship", "sector": 0, "ship": {
                 "layout": "skiff",
                 "buildings": [
@@ -387,26 +391,32 @@ void test_refused() {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
     });
     refused_after(save, "no deliveries", [](Json& j) { progress(j).erase("deliveries"); });
+    refused_after(save, "no points", [](Json& j) { progress(j).erase("points"); });
+    refused_after(save, "points below zero", [](Json& j) { progress(j)["points"] = -5; });
+    refused_after(save, "no techs", [](Json& j) { progress(j).erase("techs"); });
+    refused_after(save, "a tech bought twice", [](Json& j) { progress(j)["techs"] = {"Steelworks", "Steelworks"}; });
+    refused_after(save, "a tech bought before the one it comes after",
+                  [](Json& j) { progress(j)["techs"] = {"Refining"}; });
     refused_after(save, "a delivery complete before the one it comes after", [](Json& j) {
-        progress(j)["deliveries"]["Heavy industry"] = {{"done", true}};
+        progress(j)["deliveries"]["Girders"] = {{"done", true}};
     });
     refused_after(save, "something delivered toward a delivery not open yet", [](Json& j) {
-        progress(j)["deliveries"]["Heavy industry"] = Json::parse(R"({"done": false, "delivered": {"Steel": 1}})");
+        progress(j)["deliveries"]["Girders"] = Json::parse(R"({"done": false, "delivered": {"Gear": 1}})");
     });
     refused_after(save, "everything a delivery wants delivered, but not complete", [](Json& j) {
-        progress(j)["deliveries"]["First light"] = Json::parse(
-            R"({"done": false, "delivered": {"IronPlate": 80, "CopperPlate": 40, "Gear": 40}})");
+        progress(j)["deliveries"]["Hull plating"] =
+            Json::parse(R"({"done": false, "delivered": {"IronPlate": 60, "Gear": 30}})");
     });
     refused_after(save, "something delivered that the delivery doesn't want", [](Json& j) {
-        progress(j)["deliveries"]["First light"] = Json::parse(R"({"done": false, "delivered": {"Steel": 1}})");
+        progress(j)["deliveries"]["Hull plating"] = Json::parse(R"({"done": false, "delivered": {"Steel": 1}})");
     });
     refused_after(save, "more delivered than wanted", [](Json& j) {
-        progress(j)["deliveries"]["First light"] = Json::parse(R"({"done": false, "delivered": {"IronPlate": 81}})");
+        progress(j)["deliveries"]["Hull plating"] = Json::parse(R"({"done": false, "delivered": {"IronPlate": 61}})");
     });
     refused_after(save, "a delivery without a sector",
-                  [](Json& j) { j["world"]["star_map"]["deliveries"].erase("First light"); });
+                  [](Json& j) { j["world"]["star_map"]["deliveries"].erase("Hull plating"); });
     refused_after(save, "a delivery in a sector that isn't there",
-                  [](Json& j) { j["world"]["star_map"]["deliveries"]["First light"] = 2; });
+                  [](Json& j) { j["world"]["star_map"]["deliveries"]["Hull plating"] = 2; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Glass", "elapsed": 0}])");
     });
@@ -855,25 +865,30 @@ void test_before_requests() {
     assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
 }
 
-// What was delivered toward the open deliveries, and which are complete,
-// load back as they were; a delivery or an item no longer known is left
-// out.
+// What was delivered toward the open deliveries, which are complete, the
+// points to spend, and the techs bought load back as they were; a
+// delivery, tech or item no longer known is left out.
 void test_delivery_progress() {
     Json save = minimal();
-    progress(save)["deliveries"]["First light"] = {{"done", true}};
-    progress(save)["deliveries"]["Supply lines"] =
+    progress(save)["deliveries"]["Hull plating"] = {{"done", true}};
+    progress(save)["deliveries"]["Girders"] =
         Json::parse(R"({"done": false, "delivered": {"Gear": 12, "BatteryBank": 3}})");
     progress(save)["deliveries"]["Win the war"] = {{"done", true}};
+    progress(save)["points"] = 5;
+    progress(save)["techs"] = {"Steelworks", "Warp drive"};
     save["world"]["star_map"]["deliveries"]["Win the war"] = 1;
     std::string error;
     const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    if (!loaded)
+        std::fprintf(stderr, "refused: %s\n", error.c_str());
     assert(loaded && error.empty());
     const Progress& p = loaded->world.get_fleet().get_progress();
-    assert(p.done(delivery_index("First light")) && p.done_count() == 1);
-    assert(p.delivered(delivery_index("Supply lines"), ItemKind::Gear) == 12);
-    assert(p.delivered(delivery_index("Heavy industry"), ItemKind::Steel) == 0);
+    assert(p.done(delivery_index("Hull plating")) && p.done_count() == 1);
+    assert(p.delivered(delivery_index("Girders"), ItemKind::Gear) == 12);
+    assert(p.delivered(delivery_index("Frame order"), ItemKind::Steel) == 0);
+    assert(p.points() == 5 && p.bought(tech_index("Steelworks")) && p.bought_count() == 1);
     assert(p.unlocked(ItemKind::Steel) && !p.unlocked(ItemKind::Refinery));
-    assert(loaded->world.get_map().delivery_sector(delivery_index("Starforge")) == 1);
+    assert(loaded->world.get_map().delivery_sector(delivery_index("Command spire")) == 1);
 }
 
 // What's left to gather in each sector loads back as it was.

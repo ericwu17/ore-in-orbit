@@ -83,8 +83,9 @@ float DrawDeliveryBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
         return 0.0f;
 
     const std::string title = std::string("DELIVERY COMPLETE: ") + all_deliveries()[banner.shown].name;
-    const char* subtitle = progress.all_complete() ? "Every delivery made!" : "New recipes unlocked, and new deliveries";
-    return DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
+    const std::string subtitle = "+" + std::to_string(delivery_points(banner.shown)) + " " + kPointsName +
+                                 (progress.all_complete() ? ": every delivery made!" : ", to spend in the Shop");
+    return DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 
 // The shown ship's last jump: which ship, to where, and when
@@ -488,6 +489,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             g_fleet.show_send = false;
         else if (g_fleet.show_build)
             g_fleet.show_build = false;
+        else if (g_fleet.show_shop)
+            g_fleet.show_shop = false;
         else if (g_build.inspected) {
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -630,6 +633,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
         DrawBuildShipWindow(world, shown);
+        DrawShopWindow(world);
         DrawInspectorWindow(world.get_fleet(), shown);
         DrawKeysWindow();
     }

@@ -170,6 +170,22 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
             ImGui::PopID();
         }
 
+        ImGui::SeparatorText("Shop");
+        ImGui::Text("%d %s", progress.points(), kPointsName);
+        if (ImGui::Button("Give 100"))
+            progress.add_points(100);
+        ImGui::SetItemTooltip("100 %s to spend in the Shop", kPointsName);
+        for (std::size_t t = 0; t < all_techs().size(); ++t) {
+            if (!progress.for_sale(t))
+                continue;
+            ImGui::PushID(static_cast<int>(1000 + t));
+            if (ImGui::Button("Grant"))
+                progress.grant(t);
+            ImGui::SameLine();
+            ImGui::Text("%s", all_techs()[t].name);
+            ImGui::PopID();
+        }
+
         ImGui::SeparatorText("Widgets");
         static bool show_imgui_demo = false;
         ImGui::Checkbox("ImGui demo window", &show_imgui_demo);

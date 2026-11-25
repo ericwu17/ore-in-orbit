@@ -116,35 +116,44 @@ tunnel, onto the cell in front of it. A tunnel with no exit (outlined in
 amber) takes items and holds on to them, and those on their way when an exit
 goes wait for the next.
 
-### Deliveries
+### Deliveries, currency and the shop
 
-Progress comes in deliveries, shown in the right panel: goods asked for in
-one of the safe sectors around home (marked on the star map with a green
-diamond). Fly a ship there, belt the goods into a provider on it, and the
-provider hands them over, 12 a second, and they're used up. Completing a
-delivery unlocks the next recipes, and opens the deliveries that come after
-it. Locked recipes show greyed out, marked with the delivery that unlocks
-them ("D2").
+Progress comes in deliveries: goods asked for in five of the safe sectors
+around home (a shipyard, an electronics works, a fuel depot, an observatory
+and a frontier outpost), each marked on the star map with a green diamond
+while it has a request open. Hover a sector on the map to see what it asks
+for, how much is in, and what it pays. Each sector asks for one delivery at
+a time, the next once that one is made, each asking for more, and for parts
+further up the production chain, than the one before; make them in any
+order, in whichever sectors suit. Fly a ship there, belt the goods into a
+provider on it, and the provider hands them over, 12 a second, and they're
+used up. The right panel lists every open delivery and how far along it is.
+
+Each delivery made pays out currency (a placeholder name, set in one place
+in `deliveries.h`): one for every 20 raw resources its goods take. Currency
+buys techs in the Shop (the button beside Map, or from the deliveries list;
+no sector to visit), and techs unlock recipes and bigger ship layouts.
+Locked recipes show greyed out, marked with the tech that unlocks them
+("T2"), and a request asking for something locked waits for its tech.
 
 Fuel cells (pressed from carbon in a fabricator) and providers are there
-from the start, so the first delivery, in a sector next to home, is the
-first reason to jump. The deliveries branch: after First light, Heavy
-industry (the refinery, plastic, silicon, advanced circuits, frames) and
-Supply lines (express belts, belt tunnels, cargo pods) are both open, in
-different sectors, to take in either order; Deep space (Fabricator Mk2,
-tractor arrays, ship starter packs, requesters, the Hauler) waits for both.
-Then Escape velocity (focus crystals, the first weapon's ammunition,
-iridium plates, the Frigate), then Frontier (shield projectors) and Iridium
-rush (processors) side by side, and Starforge (Fabricator Mk3, the Carrier)
-last. Each asks for more than the ones before it, and for parts further up
-the production chain, further from home.
+from the start, so the first deliveries, the nearest next to home, are the
+first reason to jump. The techs, cheapest first: Steelworks (steel, filter
+and reverse sorters, routers, unloaders); then Refining (the refinery,
+plastic, silicon, advanced circuits, frames) and Logistics (express belts,
+belt tunnels, cargo pods), in either order; Deep space (Fabricator Mk2,
+tractor arrays, ship starter packs, requesters, the Hauler) after both;
+Escape velocity (focus crystals, the first weapon's ammunition, iridium
+plates, the Frigate); then Shielding (shield projectors) and Iridium
+processing (processors) side by side; and Starforge (Fabricator Mk3, the
+Carrier) last.
 
 ### The fleet
 
 The player commands a fleet. "Build a new ship...", in the right panel's
 Fleet section, opens a window to pick a layout and build a ship in it from
 the bridge of the ship on screen: it takes a ship starter pack (unlocked by
-the "Deep space" delivery) and the layout's cost, in raw and processed
+the "Deep space" tech) and the layout's cost, in raw and processed
 resources. The layouts, smallest first: Skiff (from the start), Hauler (from
 "Deep space"), Frigate ("Escape velocity") and Carrier ("Starforge"); bigger
 ones have more engines.
@@ -152,7 +161,7 @@ ones have more engines.
 Every ship keeps running while another is on screen; the tabs above the grid
 (or `[` and `]`) switch between them, and double-clicking a tab renames that
 ship. Deliveries are the fleet's: what any ship's providers deliver counts,
-and a recipe unlocked is unlocked on every ship. "Send cargo..." moves items
+the currency is shared, and a recipe unlocked is unlocked on every ship. "Send cargo..." moves items
 from one bridge's inventory to another's, between ships in the same sector:
 each 50 items use up a cargo pod, and they land 5 seconds later.
 
@@ -247,7 +256,7 @@ focus crystals (from "Escape velocity"); the others are the heavy laser
 (focus crystals too), the missile launcher (through shields), the ion
 blaster (knocks shields down and stuns what it hits), the flak cannon (a
 spread of pellets) and the beam emitter (sweeps a line, weakened by every
-shield layer up). Shield projectors (from "Frontier") each put up a layer
+shield layer up). Shield projectors (from the "Shielding" tech) each put up a layer
 that stops one laser shot or flak pellet, then recharges: a ship puts its
 layers back one at a time, a second each, so a volley can still break
 through; ion thrusters dodge 5% of shots each, up to 30%. Each ship layout
@@ -318,7 +327,8 @@ weapon. Buildings mend slowly while no enemy is near.
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
   nearly run the sector out (20 of each left), spawn or beat an enemy ship,
-  give every weapon, complete any open delivery, and the Dear ImGui demo
+  give every weapon, complete any open delivery, give currency, grant any
+  tech for sale, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
 
@@ -497,7 +507,7 @@ One directory per layer under `src/`; includes name their layer
     neighboring buildings each tick; its collectors take what they catch
     out of the reserves of the sector it's in.
   - `ship_layout.h/.cpp` — the `ShipLayout`s a ship is built in: each one's
-    hull, bridge and engines, its cost, and the delivery that unlocks it.
+    hull, bridge and engines, its cost, and the tech that unlocks it.
   - `sector.h/.cpp` — the `StarMap` of `Sector`s (links, what's left to
     gather, threat, what the player knows of each), generating it
     from a seed (with the safe sectors around home, and where each delivery
@@ -509,10 +519,11 @@ One directory per layer under `src/`; includes name their layer
     and their settings), turning it, and pasting it all or nothing (each
     piece checked by `Ship::can_place` against the ones before it,
     `PlannedChanges`).
-  - `deliveries.h/.cpp` — the deliveries (what each wants, what it comes
-    after, what it unlocks) and `Progress`, the fleet's way through them
-    (every bridge shares one), which gates hand-crafting and machine
-    recipes.
+  - `deliveries.h/.cpp` — the deliveries (their chains, what each wants,
+    what each pays), the techs (price, what each comes after, what it
+    unlocks) and `Progress`, the fleet's way through them (deliveries made,
+    currency, techs bought; every bridge shares one), which gates
+    hand-crafting and machine recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships
@@ -564,7 +575,8 @@ One directory per layer under `src/`; includes name their layer
   - `ui_combat.cpp` — the fight: the enemy panel (its ship, to target),
     shots and shields over both grids, and the fight's status.
   - `ui_panels.cpp` — the build palette (left) and the craft panel
-    (right): the open deliveries, hand-crafting; and the inspector window.
+    (right): the open deliveries, hand-crafting; the Shop window; and the
+    inspector window.
   - `ui_fleet.cpp` — the fleet's tabs and its section of the right panel,
     the Send cargo and Build a new ship windows, and the star map.
   - `ui_blueprints.cpp` — the Blueprints window.

@@ -11,10 +11,8 @@
 // (see enemies.h): a sector may hold one, or none, and one beaten is gone
 // for good.
 //
-// The deliveries (see deliveries.h) are each taken in one of the safe
-// sectors: the first ones next to home, the later ones further out, and
-// the deliveries open at the same time in different sectors where there
-// are enough of them.
+// The deliveries (see deliveries.h) are taken in the safe sectors: each
+// chain of them in its own, the first chain's next to home.
 //
 // Every sector's resources run out: each holds so many of each raw
 // resource (its reserves), and every catch a collector makes there takes

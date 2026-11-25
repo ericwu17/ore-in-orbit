@@ -153,16 +153,25 @@ void test_shown() {
     assert(hidden > 0);
     for (const int n : map.at(0).neighbors)
         assert(world.shown(n) && !map.at(n).visited);
-    // A later delivery's sector, out of sight, shows once it opens.
+    // A later delivery's sector, out of sight, shows once it opens (its
+    // techs bought, the ones before it made).
     Progress& p = world.get_fleet().get_progress();
     const auto far = std::find_if(all_deliveries().begin(), all_deliveries().end(), [&](const Delivery& d) {
-        return !map.known(map.delivery_sector(delivery_index(d.name)));
+        return !world.shown(map.delivery_sector(delivery_index(d.name)));
     });
     assert(far != all_deliveries().end());
     const std::size_t later = delivery_index(far->name);
     assert(!world.shown(map.delivery_sector(later)));
-    while (!p.open(later))
-        assert(p.complete(p.open_deliveries().front()));
+    while (!p.open(later)) {
+        if (!p.open_deliveries().empty()) {
+            assert(p.complete(p.open_deliveries().front()));
+            continue;
+        }
+        std::size_t t = 0;
+        while (!p.for_sale(t))
+            ++t;
+        assert(p.grant(t));
+    }
     assert(world.shown(map.delivery_sector(later)));
     world.reveal_map();
     for (int i = 0; i < map.size(); ++i)
