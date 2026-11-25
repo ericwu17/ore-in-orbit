@@ -529,8 +529,8 @@ void test_map_placement() {
             // A chain in one sector; other chains elsewhere.
             for (std::size_t e = 0; e < d; ++e)
                 assert((map.delivery_sector(e) == s) == (all_deliveries()[e].chain == all_deliveries()[d].chain));
-            assert(map.deliveries_at(s).end() !=
-                   std::find(map.deliveries_at(s).begin(), map.deliveries_at(s).end(), d));
+            const std::vector<std::size_t> here = map.deliveries_at(s);
+            assert(std::find(here.begin(), here.end(), d) != here.end());
         }
         assert(map.linked(0, map.delivery_sector(chain_deliveries(0).front())));
     }
