@@ -395,7 +395,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         else
             ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
                                thruster->charged() ? "Charged: ready to jump (see the map, M)"
-                                                   : "Belt fuel cells into it to charge it");
+                                                   : "It draws fuel cells from the bridge to charge");
         ImGui::TextColored(theme::kTextDim, "Part of the ship's layout: it can't be removed");
     }
     if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {

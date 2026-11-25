@@ -176,6 +176,9 @@ public:
     std::vector<const Thruster*> thrusters() const;
     // Burns every thruster's fuel (a jump).
     void burn_thrusters();
+    // Moves fuel cells from the bridge inventory into the thrusters that
+    // have room (Ship::tick does, every tick).
+    void refuel_thrusters();
     // Whether a building of kind `kind` is on board.
     bool has_building(ItemKind kind) const;
 

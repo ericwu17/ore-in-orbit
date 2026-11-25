@@ -689,7 +689,9 @@ std::vector<const Recipe*> machine_recipes(ItemKind kind);
 // Fuel cells an ion thruster holds: full, it's charged for a jump.
 constexpr int kThrusterCharge = 10;
 
-// The ion thruster: takes fuel cells from belts until charged. A jump
+// The ion thruster: draws fuel cells from its ship's bridge inventory
+// (every tick, while it has room and the bridge has them; belts can't feed
+// it), until charged. A jump
 // needs every thruster on the ship charged, and uses it all (see
 // World::jump). Thrusters come with the ship's layout: they can't be
 // removed, and one shot down to 0 isn't destroyed but knocked offline,
@@ -711,9 +713,14 @@ public:
     bool offline() const { return get_hp() == 0; }
     // Burns all its fuel (a jump).
     void burn() { fuel = 0; }
+    // How many more fuel cells it takes to be charged: none while offline.
+    int room() const { return offline() ? 0 : kThrusterCharge - fuel; }
+    // Takes `n` fuel cells (no more than room()) from the bridge (see
+    // Ship::refuel_thrusters).
+    void refuel(int n) { fuel += std::clamp(n, 0, room()); }
     std::vector<ItemStack> contents() const override;
-    bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged() && !offline(); }
-    void receive(ItemKind) override { ++fuel; }
+    // Belts can't feed it: it draws its fuel from the bridge.
+    bool accepts(ItemKind) const override { return false; }
 };
 
 // How a weapon's shots behave when they reach the ship they're aimed at

@@ -89,8 +89,10 @@ World busy_world() {
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 8, c - 6}) == BuildResult::Ok);
-    for (int i = 0; i < 3; ++i)
-        assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
+    // The engines spent, and 3 fuel cells left to go into the first.
+    ship.burn_thrusters();
+    ship.inventory().take(ItemKind::FuelCell, ship.inventory().count(ItemKind::FuelCell));
+    ship.inventory().add(ItemKind::FuelCell, 3);
     assert(ship.place(ItemKind::BurstLaser, kGun) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i) {
         assert(ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::FocusCrystal));

@@ -45,7 +45,7 @@ R = {  # item: (inputs, outputs count)
  'FocusCrystal':({'Glass':4,'CopperPlate':4,'Circuit':2},1),
 }
 RAW=['IronOre','CopperOre','Silica','Carbon','IridiumOre']
-HOME = dict(zip(RAW, [7000,1200,1100,1700,0]))  # kHomeReserves
+HOME = dict(zip(RAW, [7000,1200,1100,1700,0]))  # kHomeReserves, but no iridium: nothing up to Escape velocity needs it
 if len(sys.argv) > 1: HOME = dict(zip(RAW, list(map(int, sys.argv[1].split(','))) + [0]))
 def raw(item,n=1.0):
     c=Counter()

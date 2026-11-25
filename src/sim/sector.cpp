@@ -91,7 +91,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
     // Home at the middle, the rest scattered around it.
     Sector home;
     home.name = "Home";
-    home.reserves = kHomeReserves;  // no iridium: that's found elsewhere
+    home.reserves = kHomeReserves;
     sectors.push_back(home);
     for (int tries = 0; static_cast<int>(sectors.size()) < kStarMapSize && tries < 100'000; ++tries) {
         Sector s;
@@ -223,6 +223,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
         Sector& s = sectors[static_cast<std::size_t>(i)];
         s.threat = 0;
         s.enemy.reset();
+        s.reserves = kSectorReserves;  // all of everything: none runs short of a kind
     }
 
     // Where each delivery is taken: in a safe sector further out the

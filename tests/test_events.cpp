@@ -46,11 +46,10 @@ void feed(Ship& ship, GridPos p, ItemKind kind, int n) {
             return;
 }
 
-// Fuels every ion thruster on `ship` full.
+// Puts the fuel cells to charge every ion thruster on `ship` in its
+// bridge, which they draw from as the ship ticks.
 void charge_thrusters(Ship& ship) {
-    for (const GridPos p : ship.placement_order())
-        if (dynamic_cast<const Thruster*>(ship.building_anchored_at(p)))
-            feed(ship, p, ItemKind::FuelCell, kThrusterCharge);
+    ship.inventory().add(ItemKind::FuelCell, kThrusterCharge * static_cast<int>(ship.thrusters().size()));
 }
 
 // The starter layout's first weapon port.
@@ -148,6 +147,9 @@ void test_fleet_lost() {
 void test_engines_and_jumps() {
     World world;
     FleetShip& flagship = world.get_fleet().flagship();
+    // Spent, with nothing in the bridge to charge them.
+    flagship.ship.burn_thrusters();
+    flagship.ship.inventory().take(ItemKind::FuelCell, flagship.ship.inventory().count(ItemKind::FuelCell));
     run(world, 1);
     charge_thrusters(flagship.ship);
     std::vector<Event> events = run(world, 3);

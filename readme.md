@@ -72,8 +72,7 @@ inside it). The bridge can hand-craft the simpler items, to get started.
 ### Belts and machines
 
 Each collector is aimed at one raw resource (iron ore, copper ore, silica or
-carbon; the tractor array can also gather iridium ore, which home has none
-of) and gathers it at a set rate into an internal buffer, stalling when it
+carbon; the tractor array can also gather iridium ore) and gathers it at a set rate into an internal buffer, stalling when it
 is full, or when what it's aimed at has run out in its sector (see Running
 out, under the star map). As in Mindustry
 there are no inserters: buildings put their output straight onto neighboring
@@ -184,7 +183,8 @@ a new one for each game. Each sector has its own raw resources (any sector
 but home may lack one or two, and a collector aimed at something a sector
 lacks stalls there) and a threat, growing with the distance from home.
 Home and the six sectors nearest it (its neighbors, then theirs) are safe:
-no threat, no enemy ships; the deliveries are all taken there. Collectors
+no threat, no enemy ships, and every raw resource; the deliveries are all
+taken there. Collectors
 gather at the same pace wherever they are. Between them, home's neighbors
 have every raw resource, iridium included. A sector a ship has been to is
 visited; it and its neighbors show on the map, with their resources and
@@ -197,9 +197,10 @@ Every sector's resources run out. Each holds so many of each raw resource
 catch a collector makes there takes one; ships in the same sector share
 them. When one is gone it's gone for good: collectors aimed at it there
 stall (outlined in amber), and the game says so. Home holds 7,000 iron ore,
-1,200 copper ore, 1,100 silica and 1,700 carbon, and no iridium. Other
-sectors hold half as much again as home of what they have: 10,500 iron ore,
-1,800 copper ore, 1,650 silica, 2,550 carbon and 1,500 iridium ore.
+1,200 copper ore, 1,100 silica, 1,700 carbon and 1,000 iridium ore. Other
+sectors hold more of what they have: 10,500 iron ore, 1,800 copper ore,
+1,650 silica, 2,550 carbon and 1,500 iridium ore. Home and the safe sectors
+around it have some of every kind, so progress never waits on one missing.
 
 Home's amounts come from the sums in raw resources of what it takes to
 reach Escape velocity: the deliveries up to it, a factory of a fair size
@@ -220,8 +221,11 @@ from home's 1,700. Fuel cells take nothing but carbon, so running out of the
 rest at home doesn't keep a fleet from leaving.
 
 Ships jump to a linked sector at once, when every ion thruster their layout
-has is charged (10 fuel cells each, pressed from carbon in a fabricator and
-delivered by belt). The jump burns all their fuel.
+has is charged (10 fuel cells each). Thrusters draw their fuel cells
+straight from the bridge's inventory, every tick, until full (belts can't
+feed them), so fuel stockpiled in the bridge recharges them after each
+jump. The jump burns all their fuel. A new game starts charged, with fuel
+for three more jumps in the bridge: four in all.
 
 ### Combat
 

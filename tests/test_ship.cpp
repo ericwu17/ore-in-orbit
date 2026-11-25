@@ -143,16 +143,23 @@ void test_layout_parts_stay() {
     assert(recipe_for(ItemKind::IonThruster) == nullptr);
 }
 
+// Engines take fuel from the bridge only, never from belts, and none
+// while offline.
 void test_engine_offline() {
     Thruster thruster;
     assert(!thruster.offline());
-    assert(thruster.accepts(ItemKind::FuelCell));
-    assert(thruster.take_damage(thruster.max_hp()));
-    assert(thruster.offline());
     assert(!thruster.accepts(ItemKind::FuelCell));
+    assert(thruster.room() == kThrusterCharge);
+    thruster.refuel(3);
+    assert(thruster.get_fuel() == 3 && thruster.room() == kThrusterCharge - 3);
+    assert(thruster.take_damage(thruster.max_hp()));
+    assert(thruster.offline() && thruster.room() == 0);
+    thruster.refuel(5);
+    assert(thruster.get_fuel() == 3);
     thruster.repair(1);
     assert(!thruster.offline());
-    assert(thruster.accepts(ItemKind::FuelCell));
+    thruster.refuel(100);
+    assert(thruster.charged() && thruster.get_fuel() == kThrusterCharge);
 }
 
 void test_belt_direction() {

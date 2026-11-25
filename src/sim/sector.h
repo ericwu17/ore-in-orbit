@@ -4,12 +4,12 @@
 //
 // Sectors are linked to their neighbors; a ship jumps from one to a
 // neighbor (see World::jump). Sector 0 is home, where a game starts: safe,
-// with every raw resource but iridium. Elsewhere a sector may lack one
-// resource or another. Around home lie kSafeSectors more safe sectors (home's
-// neighbors, then the nearest of theirs): no threat, no enemy. Further out,
-// the threat grows, and with it the enemy ships lying in wait (see
-// enemies.h): a sector may hold one, or none, and one beaten is gone for
-// good.
+// with every raw resource. Around home lie kSafeSectors more safe sectors
+// (home's neighbors, then the nearest of theirs): no threat, no enemy, and
+// every raw resource too. Further out a sector may lack one resource or
+// another, and the threat grows, and with it the enemy ships lying in wait
+// (see enemies.h): a sector may hold one, or none, and one beaten is gone
+// for good.
 //
 // The deliveries (see deliveries.h) are each taken in one of the safe
 // sectors: the first ones next to home, the later ones further out, and
@@ -57,8 +57,9 @@ using Reserves = std::array<int, kRawResourceCount>;
 // What home starts with: enough of each to reach the "Escape velocity"
 // delivery (weapons) with a factory of a fair size, a jump and a first
 // fight's ammunition, and a margin over (see the readme's
-// "Running out" section for the sums). No iridium: that's found elsewhere.
-constexpr Reserves kHomeReserves = {7000, 1200, 1100, 1700, 0};
+// "Running out" section for the sums); and some of everything, iridium
+// included, so no recipe is out of reach at home.
+constexpr Reserves kHomeReserves = {7000, 1200, 1100, 1700, 1000};
 // What a sector other than home starts with of each resource it has (none
 // of the others): more than home.
 constexpr Reserves kSectorReserves = {10'500, 1800, 1650, 2550, 1500};

@@ -34,7 +34,7 @@ const std::vector<Delivery>& all_deliveries() {
          {{AdvancedCircuit, 50}, {StructuralFrame, 25}, {FuelCell, 40}},
          {FabricatorMk2, TractorArray, ShipStarterPack, Requester}},
         // Tier 4: weapons, and iridium (a tractor array, from Deep space,
-        // gathers it; home has none).
+        // gathers it).
         {"Escape velocity",
          {"Deep space"},
          {{AdvancedCircuit, 60}, {StructuralFrame, 30}, {Glass, 100}},
