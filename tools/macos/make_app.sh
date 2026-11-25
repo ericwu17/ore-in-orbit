@@ -115,7 +115,8 @@ plutil -lint "$CONTENTS/Info.plist" >/dev/null
 # --- sign ------------------------------------------------------------------
 # Ad-hoc ("-"): Apple Silicon refuses to run unsigned code. Libraries first,
 # then the bundle. This is not a Developer ID signature, so Gatekeeper still
-# warns on other Macs (right-click > Open the first time).
+# blocks the first launch on other Macs (System Settings > Privacy & Security
+# > Open Anyway).
 codesign --force --sign - "$FRAMEWORKS"/*.dylib
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"

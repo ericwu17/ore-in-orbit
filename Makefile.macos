@@ -42,4 +42,15 @@ app:
 	$(MAKE) -f Makefile.macos BUILD_DIR=$(RELEASE_DIR) EXE=$(RELEASE_EXE) OPTFLAGS=-O2
 	tools/macos/make_app.sh $(RELEASE_EXE) "$(BUILD_DIR)/Ore in Orbit.app"
 
-.PHONY: app
+# `make dmg` puts the app in build/Ore-in-Orbit.dmg, the usual way to hand
+# out a Mac app: opening it shows the app next to an Applications shortcut to
+# drag it onto. Unlike a zip, it's one file that keeps the bundle intact.
+DMG_STAGING = $(BUILD_DIR)/dmg
+dmg: app
+	rm -rf $(DMG_STAGING) && mkdir -p $(DMG_STAGING)
+	ditto "$(BUILD_DIR)/Ore in Orbit.app" "$(DMG_STAGING)/Ore in Orbit.app"
+	ln -s /Applications $(DMG_STAGING)/Applications
+	hdiutil create -volname "Ore in Orbit" -srcfolder $(DMG_STAGING) -format UDZO -ov $(BUILD_DIR)/Ore-in-Orbit.dmg
+	rm -rf $(DMG_STAGING)
+
+.PHONY: app dmg

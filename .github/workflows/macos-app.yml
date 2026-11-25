@@ -1,13 +1,14 @@
-# Builds "Ore in Orbit.app" on every push and uploads it, zipped, as the
-# run's "Ore-in-Orbit-macOS" artifact (Actions tab > the run > Artifacts).
+# Builds "Ore in Orbit.app" on every push and uploads it as a disk image,
+# Ore-in-Orbit.dmg (Actions tab > the run > Artifacts). It downloads as the
+# .dmg itself, not wrapped in a zip.
 #
 # Runs on macOS 11 (Big Sur) and later, Apple Silicon. Homebrew's SDL only
 # runs on the runner's macOS version or newer, so SDL is built from source
 # with MACOSX_DEPLOYMENT_TARGET (tools/macos/build_sdl.sh) and cached, and the
 # game is compiled with the same target.
 #
-# The app is ad-hoc signed, not notarized: on another Mac, right-click >
-# Open the first time to get past Gatekeeper.
+# The app is ad-hoc signed, not notarized, so Gatekeeper blocks its first
+# launch: after that, System Settings > Privacy & Security > Open Anyway.
 
 name: macOS app
 
@@ -48,14 +49,11 @@ jobs:
       # make_app.sh fails if anything in the bundle still points outside it,
       # and prints the macOS version the bundle needs.
       - name: Build app
-        run: make -j"$(sysctl -n hw.ncpu)" app
+        run: make -j"$(sysctl -n hw.ncpu)" dmg
 
-      # ditto keeps the bundle's permissions and signature (upload-artifact's
-      # own zip drops the executable bit).
-      - name: Zip app
-        run: ditto -c -k --keepParent "build/Ore in Orbit.app" Ore-in-Orbit-macOS.zip
-
-      - uses: actions/upload-artifact@v4
+      # archive: false uploads the .dmg as-is instead of zipping it (needs
+      # v7; it then takes the file's name, so there's no `name:`).
+      - uses: actions/upload-artifact@v7
         with:
-          name: Ore-in-Orbit-macOS
-          path: Ore-in-Orbit-macOS.zip
+          path: build/Ore-in-Orbit.dmg
+          archive: false

@@ -29,8 +29,10 @@ make && ./ore-in-orbit
 for debugging, the app is an `-O2` build (made separately in `build/release/`). Built against Homebrew's SDL, that bundle only
 runs on your macOS version or newer. The `macOS app` GitHub Actions workflow
 builds SDL from source (`tools/macos/build_sdl.sh`) to make an app for macOS
-11 and later on Apple Silicon, and uploads it as the run's artifact. It's
-ad-hoc signed, so on another Mac you need to right-click > Open it the first time.
+11 and later on Apple Silicon, and uploads it as `Ore-in-Orbit.dmg` (`make dmg`
+locally): download it from the run's Artifacts, open it, and drag the app to
+Applications. It's ad-hoc signed, not notarized, so macOS blocks the first
+launch: allow it in System Settings > Privacy & Security > Open Anyway.
 
 Linux:
 
