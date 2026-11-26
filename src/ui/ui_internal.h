@@ -14,6 +14,8 @@
 //                      with the deliveries; and the inspector window
 //   ui_fleet.cpp       the fleet's tabs and windows, and the star map
 //   ui_blueprints.cpp  the Blueprints window (the library)
+//   ui_encyclopedia.cpp the encyclopedia window (E): every item, tech, ship
+//                      and enemy, and their supply chains
 //   ui_menus.cpp       the main menu, the save list and the credits
 //   ui_debug.cpp       the developer windows (GraveAccent / F2)
 //   ui_sound.cpp       the sounds of the player's actions and of the
@@ -211,6 +213,50 @@ struct MapUiState {
 extern MapUiState g_map;
 // Shows or hides the star map, with a sound when that changes it.
 void ShowStarMap(bool shown);
+
+// One page of the encyclopedia: an item (by ItemKind), a tech (an index into
+// all_techs()), a ship layout (into all_layouts()) or an enemy (EnemyClass).
+struct EncyclopediaEntry {
+    enum class Type {
+        Item,
+        Tech,
+        Ship,
+        Enemy,
+    };
+    Type type = Type::Item;
+    int index = static_cast<int>(ItemKind::IronOre);
+
+    bool operator==(const EncyclopediaEntry&) const = default;
+};
+
+// The encyclopedia window (E): the entry on show, the ones seen before and
+// after it (back and forward), the list's tab and the search.
+struct EncyclopediaUiState {
+    enum class Tab {
+        Items,
+        Techs,
+        Ships,
+        Enemies,
+    };
+    bool shown = false;
+    EncyclopediaEntry entry;
+    std::vector<EncyclopediaEntry> back;
+    std::vector<EncyclopediaEntry> forward;
+    Tab tab = Tab::Items;
+    char search[64] = {};
+    bool focus_search = false;
+    bool scroll_to_top = false;
+};
+extern EncyclopediaUiState g_encyclopedia;
+// Shows the encyclopedia at `entry` (the one on show goes into its history).
+void OpenEncyclopedia(const EncyclopediaEntry& entry);
+void OpenEncyclopedia(ItemKind kind);
+void OpenEncyclopediaTech(std::size_t tech);
+// Shows or hides the encyclopedia where it was, with a sound.
+void ToggleEncyclopedia();
+// The E key: over a building on `ship`'s grid, shows its entry; anywhere
+// else, ToggleEncyclopedia().
+void LookUpOrToggleEncyclopedia(const Ship& ship);
 
 // The building in the inspector, or null (forgetting it if it was removed).
 const Building* InspectedBuilding(const Ship& ship);
@@ -487,6 +533,15 @@ void DrawBuildShipWindow(World& world, FleetShip& current);
 void DrawShopWindow(World& world);
 // The star map (M), filling `avail` in place of the grid.
 void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail);
+
+// ui_encyclopedia.cpp
+
+// The encyclopedia window, while it's open: a searchable list of every
+// item, tech, ship layout and enemy, and the entry picked: what it is, and
+// its supply chain (what makes it, what it's used in, what unlocks it, which
+// deliveries want it), every icon and name a link to its own entry. `shown`
+// is the ship on screen (whose bridge and sector it counts from).
+void DrawEncyclopediaWindow(const World& world, const FleetShip& shown);
 
 // ui_grid.cpp
 

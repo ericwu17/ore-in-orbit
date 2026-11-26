@@ -301,11 +301,32 @@ salvage: materials and fuel, ammunition, some of its weapons, and maybe a
 weapon from its hold, one the fleet hasn't found. Jumping discharges every
 weapon. Buildings mend slowly while no enemy is near.
 
+### The encyclopedia
+
+The encyclopedia (E, or the button beside the Shop) looks up anything in
+the game: every item and building, every tech, the ship layouts and the
+enemy ships, by tab or by searching all of them at once (Enter opens the
+first match). Each entry says what it is and where it sits in the supply
+chain: what makes it (its recipes, with their times and the machines that
+run them, or the collectors that gather it, or the enemies that carry it,
+for a weapon), the deliveries that want it, what it goes into (recipes,
+the weapons it's ammunition for, the ships that cost it) and the tech
+that unlocks it. A building's entry adds its numbers (size, health,
+crafting speed, gathering pace, belt speed or volley); a tech's, what it
+unlocks, what it comes after and leads to, and the deliveries waiting on
+it; a ship's, its hull, ports and cost; an enemy's, its arms, targets and
+salvage. Every icon and name in an entry links to its own, with back and
+forward (or the mouse's back button) between them. E over a building on
+the grid opens its entry; so do the inspector's Look up button, the
+Shop's ? beside each tech, and clicking an item under a delivery or in
+the recipe book.
+
 ## Controls
 
 - **Escape**: back to the main menu (from the save list or the credits). In
   the game it first puts away the copy / paste tool, then closes what's
-  open, one at a time (Send cargo, Build a new ship, the inspector, the keys
+  open, one at a time (Send cargo, Build a new ship, the Shop, the
+  encyclopedia, the inspector, the keys
   overlay, the star map, the Blueprints window), and then opens the pause
   menu, whose Main menu saves the game. The pause menu also sets the
   effects and music volumes.
@@ -350,6 +371,7 @@ weapon. Buildings mend slowly while no enemy is near.
 - **Ctrl+Z** (Cmd+Z): undo the last build action on the ship shown (see
   Undo).
 - **B**: the Blueprints window (saved blueprints, import and export).
+- **E**: the encyclopedia; over a building on the grid, its entry.
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
   simulation, give the bridge items, reveal the map, charge the thrusters,
   nearly run the sector out (20 of each left), spawn or beat an enemy ship,
