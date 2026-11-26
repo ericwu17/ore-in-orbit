@@ -141,6 +141,11 @@ private:
     // over one item it still wants (the first it holds, in the delivery's
     // order), reporting each delivery it completes in `events`.
     void deliver(EventLog& events, const StarMap& map);
+    // Limits what each provider takes, in a sector where an open delivery
+    // is taken, to what the deliveries there still want (less what the
+    // providers there hold already) and what the requesters there pull;
+    // elsewhere, they take anything.
+    void limit_providers(const StarMap& map);
 
 public:
     // No ships yet (loading fills it in). Games start from new_game().
@@ -191,7 +196,8 @@ public:
     // the cargo on its way to it with it (see Transfer).
     void remove(int id);
 
-    // One simulation step at tick `now`: every ship ticks, then requesters
+    // One simulation step at tick `now`: providers are limited in delivery
+    // sectors (limit_providers), every ship ticks, then requesters
     // pull from providers (link), then providers make deliveries (deliver),
     // then the cargo due by `now` lands (each landing reported in
     // `events`), then (every kDispatchInterval) providing ships send what

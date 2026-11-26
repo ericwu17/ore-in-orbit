@@ -550,7 +550,10 @@ constexpr Tick kLinkTicks = 5;
 // The provider: belts feed it any item, until it holds kLinkBuffer, and it
 // sends them on to requesters in its sector, on any ship of the fleet (its
 // own included), one every kLinkTicks (see Fleet::link). It puts nothing out
-// onto its own neighbors.
+// onto its own neighbors. In a sector taking an open delivery, the fleet
+// limits what it takes (Fleet::limit_providers) to what the delivery still
+// wants and what requesters there pull, so a surplus of one kind can't
+// fill it and keep out another the delivery needs.
 class Provider : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -559,6 +562,9 @@ private:
 
     Inventory stored;
     Tick cooldown = 0;  // ticks until it can send an item
+    // When limited: how many more of each kind it takes. Not saved: the
+    // fleet sets it again every tick.
+    std::optional<std::array<int, kItemKindCount>> room;
 
 public:
     Provider() : Building(ItemKind::Provider, Direction::North, footprint_of(ItemKind::Provider)) {}
@@ -566,8 +572,15 @@ public:
     const Inventory& get_stored() const { return stored; }
     void tick() override;
     std::vector<ItemStack> contents() const override { return stored.stacks(); }
-    bool accepts(ItemKind) const override { return stored.total() < kLinkBuffer; }
-    void receive(ItemKind kind) override { stored.add(kind); }
+    bool accepts(ItemKind kind) const override {
+        return stored.total() < kLinkBuffer && (!room || (*room)[static_cast<std::size_t>(kind)] > 0);
+    }
+    void receive(ItemKind kind) override;
+    // Takes no more than `more` of each kind from now on (nullopt: any).
+    void limit(std::optional<std::array<int, kItemKindCount>> more) { room = more; }
+    // Whether it's limited, and whether it takes `kind` at all while it is.
+    bool limited() const { return room.has_value(); }
+    bool takes(ItemKind kind) const { return !room || (*room)[static_cast<std::size_t>(kind)] > 0; }
     bool ready() const { return cooldown == 0; }
     // It sent one `kind`, which it must hold, to a requester: wait.
     void sent(ItemKind kind);

@@ -537,6 +537,14 @@ void Provider::tick() {
         --cooldown;
 }
 
+void Provider::receive(ItemKind kind) {
+    stored.add(kind);
+    if (room) {
+        int& left = (*room)[static_cast<std::size_t>(kind)];
+        left = std::max(0, left - 1);
+    }
+}
+
 void Provider::sent(ItemKind kind) {
     const bool taken = stored.take(kind);
     assert(taken);

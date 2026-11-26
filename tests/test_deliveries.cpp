@@ -412,7 +412,8 @@ void top_up(Provider& provider, ItemKind kind) {
 // A provider on a ship in the sector that takes a delivery hands over what
 // it wants, an item every kLinkTicks, using it up; one anywhere else, or
 // holding what the delivery doesn't want, hands over nothing. The last
-// item completes it, as an event.
+// item completes it, as an event. There, it takes only what the delivery
+// still wants (and what requesters there pull), so it can't jam.
 void test_provider_delivers() {
     World world;
     FleetShip& flagship = world.get_fleet().flagship();
@@ -451,21 +452,54 @@ void test_provider_delivers() {
     const int went = progress.delivered(first, ItemKind::IronPlate);
     assert(went >= 19 && went <= 21);
 
-    // What it doesn't want stays put.
+    // Here, it doesn't take what the delivery doesn't want.
     while (provider.get_stored().count(ItemKind::IronPlate) > 0)
         world.advance_tick();
+    world.advance_tick();
+    assert(provider.limited() && !provider.accepts(ItemKind::Steel) && provider.accepts(ItemKind::Gear));
     top_up(provider, ItemKind::Steel);
-    for (Tick t = 0; t < kTicksPerSecond; ++t)
-        world.advance_tick();
-    assert(provider.get_stored().count(ItemKind::Steel) == kLinkBuffer);
-    assert(progress.delivered(first, ItemKind::Steel) == 0);
-    while (provider.get_stored().count(ItemKind::Steel) > 0)
-        provider.sent(ItemKind::Steel);
+    assert(provider.get_stored().count(ItemKind::Steel) == 0);
+
+    // Once the iron plates are all in, it takes no more of them: a surplus
+    // can't fill it and keep the gears out.
+    Progress& shared = world.get_fleet().get_progress();
+    shared.deliver(first, ItemKind::IronPlate, progress.wanted(first, ItemKind::IronPlate));
+    world.advance_tick();
+    assert(!provider.accepts(ItemKind::IronPlate) && provider.accepts(ItemKind::Gear));
+    top_up(provider, ItemKind::IronPlate);
+    assert(provider.get_stored().count(ItemKind::IronPlate) == 0);
+    // And no more of a kind than is still wanted, what it holds counted.
+    shared.deliver(first, ItemKind::Gear, progress.wanted(first, ItemKind::Gear) - 5);
+    world.advance_tick();
+    top_up(provider, ItemKind::Gear);
+    assert(provider.get_stored().count(ItemKind::Gear) == 5);
+    while (provider.get_stored().count(ItemKind::Gear) > 0)
+        provider.sent(ItemKind::Gear);
+
+    // What a requester here pulls, it takes as ever.
+    Ship& other = ship;
+    other.inventory().add(ItemKind::Requester, 1);
+    GridPos req{};
+    bool req_placed = false;
+    for (int y = 0; y < other.size() && !req_placed; ++y)
+        for (int x = 0; x < other.size() && !req_placed; ++x)
+            if (other.can_place(ItemKind::Requester, {x, y}) == BuildResult::Ok) {
+                req = {x, y};
+                req_placed = other.place(ItemKind::Requester, req) == BuildResult::Ok;
+            }
+    assert(req_placed);
+    assert(other.set_filter(req, ItemKind::Steel));
+    world.advance_tick();
+    assert(provider.accepts(ItemKind::Steel) && !provider.accepts(ItemKind::IronPlate));
+    // Away from any delivery, it takes anything.
+    flagship.sector = 0;
+    world.advance_tick();
+    assert(!provider.limited() && provider.accepts(ItemKind::IronPlate));
+    flagship.sector = sector;
+    assert(other.remove_building(req) == BuildResult::Ok);
 
     // All but the last gear in; the provider's last gear completes it.
-    Progress& shared = world.get_fleet().get_progress();
-    for (const ItemStack& s : all_deliveries()[first].wants)
-        shared.deliver(first, s.kind, s.kind == ItemKind::Gear ? s.count - 1 : s.count);
+    shared.deliver(first, ItemKind::Gear, progress.wanted(first, ItemKind::Gear) - 1);
     assert(!progress.done(first));
     world.take_events();
     provider.receive(ItemKind::Gear);

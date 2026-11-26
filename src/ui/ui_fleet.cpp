@@ -554,13 +554,22 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
         }
 
     // Sectors: filled by threat; a ring when visited, an amber one when
-    // picked; a green diamond over those taking an open delivery.
+    // picked; a green diamond over those taking an open delivery, a hollow
+    // one over those whose next request waits on a tech.
     const ImU32 ink = theme::U32(theme::kText);
     const ImU32 halo = theme::U32(theme::kInset);
     const Progress& progress = world.get_fleet().get_progress();
     const auto takes_delivery = [&](int i) {
         const std::vector<std::size_t> here = map.deliveries_at(i);
         return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
+    };
+    // A request here not made, nor open: the next in its chain, waiting on
+    // a tech.
+    const auto awaits_tech = [&](int i) {
+        const std::vector<std::size_t> here = map.deliveries_at(i);
+        return std::any_of(here.begin(), here.end(), [&](std::size_t d) {
+            return !progress.done(d) && !progress.open(d) && progress.chain_current(all_deliveries()[d].chain) == d;
+        });
     };
     for (int i = 0; i < map.size(); ++i) {
         if (!world.shown(i))
@@ -569,13 +578,17 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
         const ImVec2 c = screen(s);
         draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.hostile() ? s.threat : 0)));
         draw->AddCircle(c, r, s.visited ? ink : theme::U32(theme::kTextDim), 0, s.visited ? 2.0f : 1.0f);
-        if (takes_delivery(i)) {
+        if (const bool open = takes_delivery(i); open || awaits_tech(i)) {
             const ImVec2 d(c.x, c.y - r * 2.1f);
             const float h = r * 0.6f;
-            draw->AddQuadFilled(ImVec2(d.x, d.y - h), ImVec2(d.x + h, d.y), ImVec2(d.x, d.y + h), ImVec2(d.x - h, d.y),
-                                theme::U32(theme::kGood));
-            draw->AddQuad(ImVec2(d.x, d.y - h), ImVec2(d.x + h, d.y), ImVec2(d.x, d.y + h), ImVec2(d.x - h, d.y), halo,
-                          1.5f);
+            const ImVec2 top(d.x, d.y - h), right(d.x + h, d.y), bottom(d.x, d.y + h), left(d.x - h, d.y);
+            if (open) {
+                draw->AddQuadFilled(top, right, bottom, left, theme::U32(theme::kGood));
+                draw->AddQuad(top, right, bottom, left, halo, 1.5f);
+            } else {
+                draw->AddQuadFilled(top, right, bottom, left, halo);
+                draw->AddQuad(top, right, bottom, left, theme::U32(theme::kGood, 0.7f), 1.5f);
+            }
         }
         if (m.selected == i)
             draw->AddCircle(c, r + 4.0f, theme::U32(theme::kAccent), 0, 2.5f);
@@ -610,7 +623,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     const float pad = ImGui::GetStyle().WindowPadding.x;
     ImGui::SetCursorScreenPos(ImVec2(canvas_min.x + pad, canvas_max.y - ImGui::GetTextLineHeight() - pad));
     ImGui::TextColored(theme::kTextDim,
-                       "Green diamonds: sectors taking a delivery (hover to see it). Click a sector for details. M: back to the ship");
+                       "Green diamonds: deliveries (hollow: waiting on a tech). Hover or click a sector for details");
     if (m.selected)
         DrawSectorPanel(world, current, *m.selected, ImVec2(canvas_min.x + pad, canvas_min.y + pad));
 }

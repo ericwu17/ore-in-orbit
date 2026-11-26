@@ -448,6 +448,10 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                            "Belt items into it: it sends them to requesters on any ship in this sector, "
                            "this one included, up to %d a second",
                            static_cast<int>(kTicksPerSecond / kLinkTicks));
+        if (provider->limited())
+            ImGui::TextColored(theme::kGood,
+                               "A delivery is taken here: it only takes what the delivery still wants, "
+                               "and what requesters here pull");
         ImGui::Text("Stored: %d / %d", provider->get_stored().total(), kLinkBuffer);
         for (const ItemStack& s : provider->get_stored().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
@@ -786,8 +790,9 @@ void ItemIcons(const std::vector<ItemKind>& kinds) {
     }
 }
 
-// The open deliveries: where each is taken, what it wants, how much has
-// been delivered, and what it pays; the points to spend, and the Shop.
+// Each sector's current request: the open ones (where each is taken, what
+// it wants, how much has been delivered, and what it pays), then those
+// waiting on a tech (and which); the points to spend, and the Shop.
 void DrawDeliveries(const World& world, const FleetShip& current) {
     const Progress& progress = world.get_fleet().get_progress();
     const std::string label = "Deliveries (" + std::to_string(progress.done_count()) + " / " +
@@ -809,6 +814,10 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
     const std::vector<std::size_t> open = progress.open_deliveries();
     if (open.empty())
         ImGui::TextColored(theme::kWarnText, "No delivery can be made yet: buy a tech in the Shop");
+    std::vector<std::size_t> waiting;
+    for (int chain = 0; chain < kDeliveryChains; ++chain)
+        if (const std::optional<std::size_t> d = progress.chain_current(chain); d && !progress.open(*d))
+            waiting.push_back(*d);
     const StarMap& map = world.get_map();
     const bool has_provider = current.ship.has_building(ItemKind::Provider);
     for (const std::size_t d : open) {
@@ -834,6 +843,32 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
         }
         if (here && !has_provider)
             ImGui::TextColored(theme::kWarnText, "Belt the goods into a provider on this ship to deliver them");
+        ImGui::PopID();
+    }
+    for (const std::size_t d : waiting) {
+        const Delivery& delivery = all_deliveries()[d];
+        const int sector = map.delivery_sector(d);
+        ImGui::Separator();
+        ImGui::PushID(static_cast<int>(d));
+        ImGui::TextColored(theme::kTextDim, "%s", delivery.name);
+        ImGui::SameLine();
+        ImGui::TextColored(theme::kTextDim, "+%d %s", delivery_points(d), kPointsShort);
+        ImGui::TextColored(theme::kTextDim, "%s %s", sector == current.sector ? "Here, in" : "To",
+                           sector >= 0 ? map.at(sector).name.c_str() : "?");
+        ItemIcons([&] {
+            std::vector<ItemKind> kinds;
+            for (const ItemStack& s : delivery.wants)
+                kinds.push_back(s.kind);
+            return kinds;
+        }());
+        // The techs it waits on, each once.
+        std::vector<std::size_t> techs;
+        for (const ItemStack& s : delivery.wants)
+            if (const std::optional<std::size_t> t = tech_unlocking(s.kind);
+                t && !progress.bought(*t) && std::find(techs.begin(), techs.end(), *t) == techs.end())
+                techs.push_back(*t);
+        for (const std::size_t t : techs)
+            ImGui::TextColored(theme::kWarnText, "Waiting on the tech %s (Shop)", all_techs()[t].name);
         ImGui::PopID();
     }
     ImGui::PopTextWrapPos();

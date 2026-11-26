@@ -121,13 +121,18 @@ goes wait for the next.
 Progress comes in deliveries: goods asked for in five of the safe sectors
 around home (a shipyard, an electronics works, a fuel depot, an observatory
 and a frontier outpost), each marked on the star map with a green diamond
-while it has a request open. Hover a sector on the map to see what it asks
+while it has a request open (a hollow one while its next request waits on a
+tech). Hover a sector on the map to see what it asks
 for, how much is in, and what it pays. Each sector asks for one delivery at
 a time, the next once that one is made, each asking for more, and for parts
 further up the production chain, than the one before; make them in any
 order, in whichever sectors suit. Fly a ship there, belt the goods into a
 provider on it, and the provider hands them over, 12 a second, and they're
-used up. The right panel lists every open delivery and how far along it is.
+used up. There a provider only takes what the delivery still wants (less
+what the sector's providers hold already), and what requesters there pull,
+so a surplus of one part can't fill it and keep out another. The right
+panel lists each sector's current request: the open ones and how far along
+they are, then those waiting on a tech, and which.
 
 Each delivery made pays out currency (a placeholder name, set in one place
 in `deliveries.h`): one for every 20 raw resources its goods take. Currency

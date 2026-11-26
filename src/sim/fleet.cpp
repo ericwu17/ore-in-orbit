@@ -458,7 +458,49 @@ void Fleet::deliver(EventLog& events, const StarMap& map) {
     }
 }
 
+void Fleet::limit_providers(const StarMap& map) {
+    std::vector<std::vector<Provider*>> providers(static_cast<std::size_t>(map.size()));
+    std::vector<std::vector<ItemKind>> pulled(static_cast<std::size_t>(map.size()));
+    for (const std::unique_ptr<FleetShip>& s : ships)
+        for (const GridPos p : s->ship.placement_order()) {
+            Building* b = s->ship.building_anchored_at(p);
+            const auto at = static_cast<std::size_t>(s->sector);
+            if (auto* provider = dynamic_cast<Provider*>(b))
+                providers[at].push_back(provider);
+            else if (auto* requester = dynamic_cast<Requester*>(b); requester && requester->get_filter())
+                pulled[at].push_back(*requester->get_filter());
+        }
+    for (int sector = 0; sector < map.size(); ++sector) {
+        const std::vector<Provider*>& here = providers[static_cast<std::size_t>(sector)];
+        if (here.empty())
+            continue;
+        std::optional<std::array<int, kItemKindCount>> room;
+        for (const std::size_t d : map.deliveries_at(sector)) {
+            if (!progress->open(d))
+                continue;
+            if (!room)
+                room.emplace();
+            for (const ItemStack& want : all_deliveries()[d].wants)
+                (*room)[static_cast<std::size_t>(want.kind)] += progress->wanted(d, want.kind);
+        }
+        if (room) {
+            for (const Provider* provider : here)
+                for (const ItemStack& held : provider->get_stored().stacks())
+                    (*room)[static_cast<std::size_t>(held.kind)] -= held.count;
+            for (int& left : *room)
+                left = std::max(0, left);
+            // What requesters here pull, the providers take as ever.
+            for (const ItemKind kind : pulled[static_cast<std::size_t>(sector)])
+                (*room)[static_cast<std::size_t>(kind)] = kLinkBuffer;
+        }
+        for (Provider* provider : here)
+            provider->limit(room);
+    }
+}
+
 void Fleet::tick(Tick now, EventLog& events, StarMap* map) {
+    if (map)
+        limit_providers(*map);
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick(map ? &map->at(s->sector).reserves : nullptr);
     link(now);
