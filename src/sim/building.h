@@ -51,6 +51,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 // Counts of each item: the bridge's inventory, and the buffers inside
@@ -547,51 +548,60 @@ constexpr int kRequesterBuffer = 20;
 // second, all an express belt carries.
 constexpr Tick kLinkTicks = 5;
 
-// How many more of each kind the providers in a sector take, shared by
-// them all (see Fleet::limit_providers).
+// How many more of each kind the providers in a sector take this tick,
+// shared by them all (see Fleet::limit_providers).
 using ProviderRoom = std::array<int, kItemKindCount>;
 
-// The provider: it sends what belts feed it on to requesters in its
-// sector, on any ship of the fleet (its own included), one every kLinkTicks
-// (see Fleet::link), and hands it over to deliveries taken there (see
-// Fleet::deliver). It puts nothing out onto its own neighbors. It has no
-// room of its own: it takes only what something in its sector asks for,
-// what requesters there have room for and what open deliveries there still
-// want, less what the sector's providers hold already (the fleet works it
-// out every tick, Fleet::limit_providers). So what nothing asks for backs
-// up on the belts, and a surplus of one kind can't keep out another.
+// The provider: it holds nothing, passing each item a belt feeds it
+// straight on, the same tick, to a requester in its sector on any ship of
+// the fleet (its own included), or failing that to an open delivery taken
+// there (see Fleet::link). It takes one item every kLinkTicks, and only one
+// something there asks for: a requester ready for it, or a delivery that
+// still wants it (the fleet works out what each tick,
+// Fleet::limit_providers). So what nothing asks for backs up on the belts,
+// and a surplus of one kind can't keep out another. It puts nothing out
+// onto its own neighbors.
 class Provider : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
     // the private state.
     friend struct SaveAccess;
 
-    Inventory stored;
-    Tick cooldown = 0;  // ticks until it can send an item
-    // What it, and the other providers in its sector, take (null: nothing
-    // yet). Not saved: the fleet sets it again every tick.
+    Tick cooldown = 0;  // ticks until it can take an item
+    // The item it took this tick, for the fleet to hand on before the tick
+    // is out. Not saved: it's always gone by then.
+    std::optional<ItemKind> passing;
+    // What it, and the other providers in its sector, take this tick (null:
+    // nothing yet). Not saved: the fleet sets it again every tick.
     std::shared_ptr<ProviderRoom> room;
 
 public:
     Provider() : Building(ItemKind::Provider, Direction::North, footprint_of(ItemKind::Provider)) {}
 
-    const Inventory& get_stored() const { return stored; }
     void tick() override;
-    std::vector<ItemStack> contents() const override { return stored.stacks(); }
-    bool accepts(ItemKind kind) const override { return room && (*room)[static_cast<std::size_t>(kind)] > 0; }
+    std::vector<ItemStack> contents() const override {
+        return passing ? std::vector<ItemStack>{{*passing, 1}} : std::vector<ItemStack>{};
+    }
+    bool accepts(ItemKind kind) const override {
+        return ready() && !passing && room && (*room)[static_cast<std::size_t>(kind)] > 0;
+    }
+    // Takes `kind` to pass on, and waits kLinkTicks for the next.
     void receive(ItemKind kind) override;
     // Takes what `shared` has room for from now on, using it up as it does.
     void limit(std::shared_ptr<ProviderRoom> shared) { room = std::move(shared); }
     bool ready() const { return cooldown == 0; }
-    // It sent one `kind`, which it must hold, to a requester: wait.
-    void sent(ItemKind kind);
+    // The item it took this tick, if any, still to be handed on.
+    std::optional<ItemKind> get_passing() const { return passing; }
+    // Hands the fleet the item it took this tick, if any, to pass on.
+    std::optional<ItemKind> pass_on() { return std::exchange(passing, std::nullopt); }
 };
 
-// The requester: set to an item (its filter), it pulls that item from the
-// providers in its sector, as many as they have, one every kLinkTicks (see
-// Fleet::link), and puts them out to its neighbors as a machine does its
-// products. Without a filter it pulls nothing; while kRequesterBuffer of them
-// wait to go out, it pulls no more. Belts can't feed it.
+// The requester: set to an item (its filter), it takes that item from the
+// providers in its sector, as fast as they're fed it, up to one every
+// kLinkTicks (see Fleet::link), and puts them out to its neighbors as a
+// machine does its products. Without a filter it takes nothing; while
+// kRequesterBuffer of them wait to go out, it takes no more. Belts can't
+// feed it.
 class Requester : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -616,8 +626,12 @@ public:
     std::vector<ItemStack> contents() const override { return buffer.stacks(); }
     Inventory* output_buffer() override { return &buffer; }
     bool ready() const { return cooldown == 0; }
-    // Whether it pulls an item now: it has a filter, is ready, and has room.
+    // Whether it takes an item now: it has a filter, is ready, and has room.
     bool wants() const { return filter && ready() && buffer.total() < kRequesterBuffer; }
+    // Whether it will once it has ticked this tick: what the providers in
+    // its sector make room for before the ships tick (see
+    // Fleet::limit_providers).
+    bool wants_after_tick() const { return filter && cooldown <= 1 && buffer.total() < kRequesterBuffer; }
     // The tick it last pulled an item (0: never): the one that has waited
     // longest goes first (see Fleet::link).
     Tick get_last_received() const { return last_received; }

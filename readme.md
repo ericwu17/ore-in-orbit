@@ -127,9 +127,9 @@ for, how much is in, and what it pays. Each sector asks for one delivery at
 a time, the next once that one is made, each asking for more, and for parts
 further up the production chain, than the one before; make them in any
 order, in whichever sectors suit. Fly a ship there, belt the goods into a
-provider on it, and the provider hands them over, 12 a second, and they're
-used up. A provider only takes what the delivery still wants (less what
-the sector's providers hold already), and what requesters there pull, so a
+provider on it, and the provider hands them straight over, 12 a second,
+and they're used up. A provider holds nothing: it only takes what the
+delivery still wants, and what requesters there are ready for, so a
 surplus of one part waits on the belts and can't keep out another. The right
 panel lists each sector's current request: the open ones and how far along
 they are, then those waiting on a tech, and which.
@@ -189,12 +189,11 @@ each 50 items use up a cargo pod, and they land 5 seconds later.
 
 For bulk, providers and requesters (the Requesters tech) link ships with no pods:
 set a requester to an item, and belt that item into a provider: the
-requester pulls it from the providers in its sector, on any ship of the
-fleet, its own included, as long as they have it, and puts it out to its
-neighbors as a machine does. A provider has no room of its own: it takes
-only what requesters in its sector have room for (each holds 20 waiting to
-go out) and what a delivery there still wants, and the rest waits on the
-belts. Each moves 12 items a second, as fast as an
+provider passes it straight on to a requester for it in its sector, on any
+ship of the fleet, its own included, which puts it out to its neighbors as
+a machine does. A provider holds nothing: it takes an item only when a
+requester in its sector is ready for it (each holds up to 20 waiting to go
+out) or a delivery there still wants it, and the rest waits on the belts. Each moves 12 items a second, as fast as an
 express belt carries them; more pairs move more. A requester with no item
 set is outlined in amber.
 
@@ -553,8 +552,8 @@ One directory per layer under `src/`; includes name their layer
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships
     (`Transfer`), supplier ships topping up requests (`dispatch`, the
-    code's `provides`), requesters pulling from providers (`link`), and
-    providers making deliveries (`deliver`).
+    code's `provides`), what providers take (`limit_providers`), and
+    their passing it straight on to requesters and deliveries (`link`).
   - `enemies.h/.cpp` — the enemy ships' designs (`EnemyClass`,
     `EnemyDesign`: layout, weapons, shields, targeting priorities, threats,
     weapons they may carry).

@@ -173,7 +173,7 @@ struct SaveAccess {
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* provider = dynamic_cast<const Provider*>(&b)) {
-            j["stored"] = save_inventory(provider->stored);
+            // Nothing it took: that's passed on by the end of each tick.
             j["cooldown"] = provider->cooldown;
         } else if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
             j["filter"] = save_optional_item(requester->filter);
@@ -415,9 +415,8 @@ struct SaveAccess {
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* provider = dynamic_cast<Provider*>(&b)) {
-            // Any number: saves from when it held up to 20, of any kind,
-            // load as they were.
-            provider->stored = load_inventory(j.at("stored"));
+            // What it held, in saves from before it passed items straight
+            // on, goes to its ship's bridge (see load_building).
             provider->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
         } else if (auto* requester = dynamic_cast<Requester*>(&b)) {
             requester->filter = load_item(j.at("filter"));
@@ -491,8 +490,9 @@ struct SaveAccess {
         if (!layout)
             throw LoadError("unknown ship layout: " + id);
         ship.set_hull(*layout);
+        Inventory held;  // by providers, in older saves
         for (const Json& b : load_array(j.at("buildings"), "buildings"))
-            load_building(b, ship, progress);
+            load_building(b, ship, progress, held);
 
         // The bridge and every engine where the layout has them, and no others.
         if (!ship.bridge || ship.building_anchored_at(layout_to_grid(*layout, layout->bridge)) != ship.bridge)
@@ -502,10 +502,13 @@ struct SaveAccess {
                 throw LoadError("an engine missing from where the ship's layout has it");
         if (ship.thrusters().size() != layout->engines.size())
             throw LoadError("more engines than the ship's layout has");
+        ship.inventory().add(held.stacks());
         return ship;
     }
 
-    static void load_building(const Json& j, Ship& ship, const std::shared_ptr<Progress>& progress) {
+    // What a provider held, in a save from before providers passed items
+    // straight on, is added to `held`, for the ship's bridge.
+    static void load_building(const Json& j, Ship& ship, const std::shared_ptr<Progress>& progress, Inventory& held) {
         const Json& kind_json = j.at("kind");
         std::unique_ptr<Building> b;
         if (kind_json == kBridgeId) {
@@ -547,6 +550,9 @@ struct SaveAccess {
                 throw LoadError(std::string("a ") + item_id(*kind) + " not where the ports allow: " + describe(ports));
 
         load_state(j, *b);
+        if (dynamic_cast<const Provider*>(b.get()))
+            if (const auto stored = j.find("stored"); stored != j.end())
+                held.add(load_inventory(*stored).stacks());
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))
             ship.bridge = bridge;
         ship.add_building(p, std::move(b));

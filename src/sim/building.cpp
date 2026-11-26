@@ -538,18 +538,13 @@ void Provider::tick() {
 }
 
 void Provider::receive(ItemKind kind) {
-    stored.add(kind);
+    assert(!passing);
+    passing = kind;
+    cooldown = kLinkTicks;
     if (room) {
         int& left = (*room)[static_cast<std::size_t>(kind)];
         left = std::max(0, left - 1);
     }
-}
-
-void Provider::sent(ItemKind kind) {
-    const bool taken = stored.take(kind);
-    assert(taken);
-    (void)taken;
-    cooldown = kLinkTicks;
 }
 
 std::vector<ItemStack> Requester::set_filter(std::optional<ItemKind> item) {

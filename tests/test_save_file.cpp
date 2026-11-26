@@ -751,7 +751,7 @@ void test_unloader_round_trip() {
     assert(save_text(loaded->world) == save_text(world));
 }
 
-// Providers keep what they hold and their wait, requesters their filter,
+// Providers keep their wait, requesters their filter,
 // what waits to go out and their wait, so a loaded game links just as the
 // original does.
 void test_link_round_trip() {
@@ -763,16 +763,13 @@ void test_link_round_trip() {
     assert(ship.place(ItemKind::Provider, provider) == BuildResult::Ok);
     assert(ship.place(ItemKind::Requester, requester) == BuildResult::Ok);
     assert(ship.set_filter(requester, ItemKind::Gear));
-    run(world, 1);  // the provider now takes the gears the requester pulls
-    for (int i = 0; i < 10; ++i)
-        assert(ship.insert_item(provider, {x0 - 1, c + 11}, ItemKind::Gear));
-    // And holds steel nothing pulls, as a game saved when it took anything
-    // might.
-    auto& held = dynamic_cast<Provider&>(*ship.building_anchored_at(provider));
-    for (int i = 0; i < 5; ++i)
-        held.receive(ItemKind::Steel);
-    run(world, 2 * kLinkTicks + 2);
+    // Fed gears flat out, so it's part-way through its wait when saved.
+    for (Tick t = 0; t < 3 * kLinkTicks + 2; ++t) {
+        ship.insert_item(provider, {x0 - 1, c + 11}, ItemKind::Gear);
+        run(world, 1);
+    }
     assert(dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().total() > 0);
+    assert(!dynamic_cast<const Provider&>(*ship.building_at(provider)).ready());
 
     const std::string text = save_text(world);
     std::string error;
@@ -786,10 +783,33 @@ void test_link_round_trip() {
            dynamic_cast<const Requester&>(*ship.building_at(requester)).get_last_received());
     assert(r.get_buffer().count(ItemKind::Gear) ==
            dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().count(ItemKind::Gear));
-    assert(dynamic_cast<const Provider&>(*copy.building_at(provider)).get_stored().count(ItemKind::Steel) == 5);
+    assert(!dynamic_cast<const Provider&>(*copy.building_at(provider)).ready());
     run(world, 40);
     run(loaded->world, 40);
     assert(save_text(loaded->world) == save_text(world));
+
+    // A save from when providers held what they took loads, what they held
+    // going to their ship's bridge.
+    Json held = Json::parse(save_text(world));
+    int providers = 0;
+    const std::function<void(Json&)> hold = [&](Json& j) {
+        if (j.is_object() && j.contains("kind") && j["kind"] == "Provider") {
+            assert(!j.contains("stored"));
+            j["stored"] = {{"Steel", 5}, {"Gear", 2}};
+            ++providers;
+        }
+        if (j.is_structured())
+            for (Json& child : j)
+                hold(child);
+    };
+    hold(held);
+    assert(providers == 1);
+    std::optional<LoadedSave> holding = load_text(held.dump(), error);
+    assert(holding && error.empty());
+    const Inventory& bridge = holding->world.flagship().inventory();
+    assert(bridge.count(ItemKind::Steel) == ship.inventory().count(ItemKind::Steel) + 5);
+    assert(bridge.count(ItemKind::Gear) == ship.inventory().count(ItemKind::Gear) + 2);
+    assert(holding->world.flagship().building_at(provider)->contents().empty());
 
     // A save from before requesters kept when they last pulled loads, as
     // if they never had.

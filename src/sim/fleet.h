@@ -130,21 +130,18 @@ private:
     // Tops up every ship's requests from the providers in its sector (see
     // the top of this file).
     void dispatch(Tick now);
-    // Each requester that wants an item now pulls one of its filter's kind
-    // from the ready provider in its sector holding the most of it (ties:
-    // the first found, oldest ship first). The requester that has waited
-    // longest since its last item goes first (ties: oldest ship, then
-    // oldest building), so providers short of items share them out evenly,
-    // however many requesters there are.
-    void link(Tick now);
-    // Each ready provider in a sector where an open delivery is taken hands
-    // over one item it still wants (the first it holds, in the delivery's
-    // order), reporting each delivery it completes in `events`.
-    void deliver(EventLog& events, const StarMap& map);
-    // Sets what the providers in each sector take between them: what the
-    // requesters there have room for and what the open deliveries there
-    // (on `map`; none if null) still want, less what those providers hold
-    // already. Nothing else.
+    // Hands on what each provider took this tick: to the requester in its
+    // sector that wants it and has waited longest since its last item
+    // (ties: oldest ship, then oldest building), so a provider short of
+    // items shares them out evenly however many requesters there are;
+    // failing that, toward an open delivery taken there (on `map`; none if
+    // null), reporting each it completes in `events`.
+    void link(Tick now, EventLog& events, const StarMap* map);
+    // Sets what the providers in each sector take between them this tick:
+    // an item for each requester there that will be ready for one, and what
+    // the open deliveries there (on `map`; none if null) still want, less
+    // what those providers took already and still have to pass on. Nothing
+    // else.
     void limit_providers(const StarMap* map);
 
 public:
@@ -197,9 +194,9 @@ public:
     void remove(int id);
 
     // One simulation step at tick `now`: providers are set to take what
-    // their sector asks for (limit_providers), every ship ticks, then requesters
-    // pull from providers (link), then providers make deliveries (deliver),
-    // then the cargo due by `now` lands (each landing reported in
+    // their sector asks for (limit_providers), every ship ticks (its belts
+    // feeding its providers), then what the providers took goes on to
+    // requesters and deliveries (link), then the cargo due by `now` lands (each landing reported in
     // `events`), then (every kDispatchInterval) providing ships send what
     // bridges request.
     // Each ship's collectors gather from its sector's reserves on `map`

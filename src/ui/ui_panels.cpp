@@ -443,17 +443,14 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
         for (const ItemStack& s : hold->get_stored().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
-    if (const auto* provider = dynamic_cast<const Provider*>(&b)) {
+    if (dynamic_cast<const Provider*>(&b)) {
         ImGui::TextColored(theme::kTextDim,
-                           "Belt items into it: it sends them to requesters on any ship in this sector, "
-                           "this one included, up to %d a second",
+                           "Belt items into it: it passes them straight on to requesters on any ship in "
+                           "this sector, this one included, or to a delivery taken here, up to %d a second",
                            static_cast<int>(kTicksPerSecond / kLinkTicks));
         ImGui::TextColored(theme::kTextDim,
-                           "It only takes what requesters here have room for, and what a delivery taken "
-                           "here still wants; the rest waits on the belts");
-        ImGui::Text("Holding: %d", provider->get_stored().total());
-        for (const ItemStack& s : provider->get_stored().stacks())
-            AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
+                           "It holds nothing, so it only takes what a requester here is ready for or a "
+                           "delivery here still wants; the rest waits on the belts");
     }
     if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
         const std::optional<ItemKind> filter = requester->get_filter();

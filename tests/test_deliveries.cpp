@@ -427,17 +427,18 @@ void test_progress() {
         assert(layout_unlocked(layout, progress));
 }
 
-// Fills the provider up with `kind`, as belts feeding it flat out would.
+// Feeds the provider `kind` if it takes one now, as a belt feeding it flat
+// out would.
 void top_up(Provider& provider, ItemKind kind) {
-    while (provider.accepts(kind))
+    if (provider.accepts(kind))
         provider.receive(kind);
 }
 
-// A provider on a ship in the sector that takes a delivery hands over what
-// it wants, an item every kLinkTicks, using it up; one anywhere else, or
-// holding what the delivery doesn't want, hands over nothing. The last
-// item completes it, as an event. It takes only what the delivery still
-// wants and what requesters in its sector pull, so it can't jam.
+// A provider on a ship in the sector that takes a delivery passes what it
+// wants straight to it, an item every kLinkTicks, using it up; one anywhere
+// else takes nothing. It holds nothing: it takes only what the delivery
+// still wants and what requesters in its sector are ready for, so a
+// surplus can't jam it. The last item completes it, as an event.
 void test_provider_delivers() {
     World world;
     FleetShip& flagship = world.get_fleet().flagship();
@@ -458,14 +459,20 @@ void test_provider_delivers() {
             }
     assert(placed);
     auto& provider = dynamic_cast<Provider&>(*ship.building_anchored_at(at));
+    const auto idle = [&] {
+        for (Tick t = 0; t < kLinkTicks; ++t)
+            world.advance_tick();
+    };
 
     // At home, nothing asks for it: it takes none, and nothing goes.
+    const int plates = ship.inventory().count(ItemKind::IronPlate);
     for (Tick t = 0; t < kTicksPerSecond; ++t) {
         top_up(provider, ItemKind::IronPlate);
         world.advance_tick();
     }
+    assert(!provider.accepts(ItemKind::IronPlate) && provider.contents().empty());
     assert(progress.delivered(first, ItemKind::IronPlate) == 0);
-    assert(provider.get_stored().total() == 0);
+    assert(ship.inventory().count(ItemKind::IronPlate) == plates);
 
     // In the sector that takes it: an item every kLinkTicks, used up.
     flagship.sector = sector;
@@ -474,47 +481,34 @@ void test_provider_delivers() {
     for (Tick t = 0; t < run; ++t) {
         top_up(provider, ItemKind::IronPlate);
         world.advance_tick();
+        assert(provider.contents().empty());  // passed on within the tick
     }
     const int went = progress.delivered(first, ItemKind::IronPlate);
     assert(went >= 19 && went <= 21);
 
     // Here, it doesn't take what the delivery doesn't want.
-    while (provider.get_stored().count(ItemKind::IronPlate) > 0)
-        world.advance_tick();
-    world.advance_tick();
+    idle();
     assert(!provider.accepts(ItemKind::Steel) && provider.accepts(ItemKind::Gear));
-    top_up(provider, ItemKind::Steel);
-    assert(provider.get_stored().count(ItemKind::Steel) == 0);
 
     // Once the iron plates are all in, it takes no more of them: a surplus
-    // can't fill it and keep the gears out.
+    // can't keep the gears out.
     Progress& shared = world.get_fleet().get_progress();
     shared.deliver(first, ItemKind::IronPlate, progress.wanted(first, ItemKind::IronPlate));
     world.advance_tick();
     assert(!provider.accepts(ItemKind::IronPlate) && provider.accepts(ItemKind::Gear));
-    top_up(provider, ItemKind::IronPlate);
-    assert(provider.get_stored().count(ItemKind::IronPlate) == 0);
-    // And no more of a kind than is still wanted, what it holds counted.
-    shared.deliver(first, ItemKind::Gear, progress.wanted(first, ItemKind::Gear) - 5);
-    world.advance_tick();
-    top_up(provider, ItemKind::Gear);
-    assert(provider.get_stored().count(ItemKind::Gear) == 5);
-    while (provider.get_stored().count(ItemKind::Gear) > 0)
-        provider.sent(ItemKind::Gear);
 
-    // What a requester in its sector pulls, it takes too.
-    Ship& other = ship;
-    other.inventory().add(ItemKind::Requester, 1);
+    // What a requester in its sector is ready for, it takes too.
+    ship.inventory().add(ItemKind::Requester, 1);
     GridPos req{};
     bool req_placed = false;
-    for (int y = 0; y < other.size() && !req_placed; ++y)
-        for (int x = 0; x < other.size() && !req_placed; ++x)
-            if (other.can_place(ItemKind::Requester, {x, y}) == BuildResult::Ok) {
+    for (int y = 0; y < ship.size() && !req_placed; ++y)
+        for (int x = 0; x < ship.size() && !req_placed; ++x)
+            if (ship.can_place(ItemKind::Requester, {x, y}) == BuildResult::Ok) {
                 req = {x, y};
-                req_placed = other.place(ItemKind::Requester, req) == BuildResult::Ok;
+                req_placed = ship.place(ItemKind::Requester, req) == BuildResult::Ok;
             }
     assert(req_placed);
-    assert(other.set_filter(req, ItemKind::Steel));
+    assert(ship.set_filter(req, ItemKind::Steel));
     world.advance_tick();
     assert(provider.accepts(ItemKind::Steel) && !provider.accepts(ItemKind::IronPlate));
     // Away from any delivery, only that.
@@ -523,24 +517,35 @@ void test_provider_delivers() {
     assert(provider.accepts(ItemKind::Steel) && !provider.accepts(ItemKind::Gear) &&
            !provider.accepts(ItemKind::IronPlate));
     flagship.sector = sector;
-    assert(other.remove_building(req) == BuildResult::Ok);
+    assert(ship.remove_building(req) == BuildResult::Ok);
+    world.advance_tick();
 
-    // All but the last gear in; the provider's last gear completes it.
+    // All but the last gear in; the provider's last gear completes it, the
+    // tick it takes it.
     shared.deliver(first, ItemKind::Gear, progress.wanted(first, ItemKind::Gear) - 1);
+    world.advance_tick();
     assert(!progress.done(first));
     world.take_events();
+    assert(provider.accepts(ItemKind::Gear));
     provider.receive(ItemKind::Gear);
-    provider.receive(ItemKind::Gear);
-    for (Tick t = 0; t < 2 * kLinkTicks; ++t)
-        world.advance_tick();
+    world.advance_tick();
     assert(progress.done(first) && progress.points() == delivery_points(first));
-    assert(provider.get_stored().count(ItemKind::Gear) == 1);  // nothing more wanted here
     const std::vector<Event> events = world.take_events();
     const auto done = std::count_if(events.begin(), events.end(), [&](const Event& e) {
         return e.kind == EventKind::DeliveryComplete && e.delivery == static_cast<int>(first) && e.sector == sector &&
                e.ship == flagship.id;
     });
     assert(done == 1);
+    // Then nothing more is wanted here: it takes no more gears.
+    idle();
+    assert(!provider.accepts(ItemKind::Gear));
+
+    // An item it was fed when nothing asked for it (between ticks, here)
+    // goes to its bridge, not lost.
+    const int gears = ship.inventory().count(ItemKind::Gear);
+    provider.receive(ItemKind::Gear);
+    world.advance_tick();
+    assert(provider.contents().empty() && ship.inventory().count(ItemKind::Gear) == gears + 1);
 }
 
 // Hops from home to each sector.

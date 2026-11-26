@@ -563,22 +563,45 @@ int held_in_hold(const Ship& ship, GridPos requester) {
     return dynamic_cast<const CargoHold&>(*ship.building_at({requester.x + 1, requester.y})).get_stored().total();
 }
 
-// Fills the provider up with `kind`, as belts feeding it flat out would.
-void top_up(Provider& provider, ItemKind kind) {
-    while (provider.accepts(kind))
-        provider.receive(kind);
-}
-
-// Runs `ticks`, keeping the provider at `p` on `ship` full of `kind`.
+// Runs `ticks`, an express belt feeding the provider at `p` on `ship`
+// `kind` flat out: 12 a second, the provider's own rate. A belt hands the
+// provider its items as the ship ticks, as in a game (fed between ticks
+// instead, it would take what was asked for a tick before). The first time,
+// the belt is put down beside the provider, full, alone so that no
+// requester puts its items out onto it.
 void run_fed(World& world, Ship& ship, GridPos p, ItemKind kind, Tick ticks) {
+    std::optional<GridPos> belt;
+    for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+        const GridPos b = neighbor(p, d);
+        if (const Building* there = ship.building_at(b);
+            there && there->item_kind() == ItemKind::ExpressBelt && there->facing() == direction_to(b, p))
+            belt = b;
+    }
+    if (!belt) {
+        ship.inventory().add(ItemKind::ExpressBelt, 1);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+            const GridPos b = neighbor(p, d);
+            const Direction facing = direction_to(b, p);
+            if (!belt && ship.can_place(ItemKind::ExpressBelt, b, facing) == BuildResult::Ok && alone(ship, b, facing)) {
+                assert(ship.place(ItemKind::ExpressBelt, b, facing) == BuildResult::Ok);
+                belt = b;
+            }
+        }
+        assert(belt);
+        auto& conveyor = dynamic_cast<Conveyor&>(*ship.building_anchored_at(*belt));
+        for (int pos = kBeltLength; pos >= 0; pos -= kBeltSpacing)
+            conveyor.insert(kind, pos);
+    }
+    const GridPos back = neighbor(*belt, rotated_cw(rotated_cw(direction_to(*belt, p))));
     for (Tick t = 0; t < ticks; ++t) {
-        top_up(provider_at(ship, p), kind);
+        ship.insert_item(*belt, back, kind);
         world.advance_tick();
     }
 }
 
-// A requester pulls its item from a provider on another ship in the sector,
-// at an express belt's rate, and puts it out to its neighbors.
+// A requester takes its item from a provider on another ship in the sector,
+// which passes it straight on, at an express belt's rate, and puts it out
+// to its neighbors.
 void test_link_between_ships() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -589,13 +612,15 @@ void test_link_between_ships() {
 
     // No filter: nothing asks for anything, so it takes nothing.
     Provider& p = provider_at(from, provider);
+    const int gears = from.inventory().count(ItemKind::Gear);
     run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
-    assert(p.get_stored().total() == 0 && !p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
+    assert(!p.accepts(ItemKind::Gear) && !p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
 
     // Set to another item: it takes that, and still no gears.
     assert(to.set_filter(requester, ItemKind::Circuit));
     run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
-    assert(p.get_stored().total() == 0 && p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
+    assert(!p.accepts(ItemKind::Gear) && p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
+    assert(from.inventory().count(ItemKind::Gear) == gears);  // none taken to hand back
 
     assert(to.set_filter(requester, ItemKind::Gear));
     run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);  // warm up
@@ -638,7 +663,7 @@ void test_link_same_ship() {
     assert(held_in_hold(ship, requester) > 0);
 }
 
-// With nowhere to put its items, a requester pulls kRequesterBuffer and stops,
+// With nowhere to put its items, a requester takes kRequesterBuffer and stops,
 // and then the provider takes no more for it: they wait on the belts. A
 // new filter refunds what the requester held to the bridge.
 void test_requester_buffer() {
@@ -650,10 +675,11 @@ void test_requester_buffer() {
     const GridPos requester =
         place_somewhere(to, ItemKind::Requester, [&](GridPos p) { return alone(to, p); });
     assert(to.set_filter(requester, ItemKind::Gear));
+    const int spare = from.inventory().count(ItemKind::Gear);
     run_fed(world, from, provider, ItemKind::Gear, 10 * kTicksPerSecond);
     assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kRequesterBuffer);
-    assert(provider_at(from, provider).get_stored().total() == 0);
     assert(!provider_at(from, provider).accepts(ItemKind::Gear));
+    assert(from.inventory().count(ItemKind::Gear) == spare);  // none taken to hand back
 
     const int gears = to.inventory().count(ItemKind::Gear);
     assert(to.set_filter(requester, ItemKind::Circuit));
