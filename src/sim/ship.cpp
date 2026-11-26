@@ -20,6 +20,11 @@ constexpr ItemStack kStartInventory[] = {
     {ItemKind::IronPlate, 20},
     {ItemKind::CopperPlate, 10},
     {ItemKind::BurstLaser, 1},
+    // One provider, to make the first delivery with.
+    {ItemKind::Provider, 1},
+    // Fuel for the thrusters, which draw it from here: four jumps of the
+    // skiff's two thrusters (a full charge, and three more here).
+    {ItemKind::FuelCell, 4 * kThrusterCharge * 2},
 };
 
 }  // namespace
@@ -87,6 +92,7 @@ Ship Ship::new_game() {
     Ship ship = from_layout(starter_layout());
     for (const ItemStack& s : kStartInventory)
         ship.inventory().add(s.kind, s.count);
+    ship.refuel_thrusters();
     return ship;
 }
 
@@ -207,6 +213,15 @@ void Ship::burn_thrusters() {
     for (const GridPos p : placed)
         if (auto* t = dynamic_cast<Thruster*>(at(buildings, p).get()))
             t->burn();
+}
+
+void Ship::refuel_thrusters() {
+    for (const GridPos p : placed)
+        if (auto* t = dynamic_cast<Thruster*>(at(buildings, p).get())) {
+            const int n = std::min(t->room(), inventory().count(ItemKind::FuelCell));
+            if (n > 0 && inventory().take(ItemKind::FuelCell, n))
+                t->refuel(n);
+        }
 }
 
 bool Ship::has_building(ItemKind kind) const {
@@ -593,6 +608,7 @@ void Ship::recharge_shields() {
 }
 
 void Ship::tick(Reserves* reserves) {
+    refuel_thrusters();
     for (const GridPos p : placed) {
         Building& b = *at(buildings, p);
         const auto standby = [&](bool only_when_requested) {
@@ -609,8 +625,6 @@ void Ship::tick(Reserves* reserves) {
         if (auto* collector = dynamic_cast<Collector*>(&b)) {
             const std::optional<int> i = raw_resource_index(collector->get_target());
             collector->gather(reserves && i ? &(*reserves)[static_cast<std::size_t>(*i)] : nullptr);
-        } else if (auto* machine = dynamic_cast<Machine*>(&b)) {
-            machine->craft(&bridge->get_progress());
         } else {
             b.tick();
         }

@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cassert>
 #include <limits>
+#include <map>
+#include <memory>
 #include <utility>
 
 const char* describe(FleetResult result) {
@@ -389,48 +391,95 @@ void Fleet::dispatch(Tick now) {
     partial_since = std::move(still_partial);
 }
 
-void Fleet::link(Tick now) {
-    std::vector<std::pair<int, Provider*>> providers;  // with its sector
-    std::vector<std::pair<int, Requester*>> requesters;
-    for (const std::unique_ptr<FleetShip>& s : ships) {
-        for (const GridPos p : s->ship.placement_order()) {
-            Building* b = s->ship.building_anchored_at(p);
-            if (auto* provider = dynamic_cast<Provider*>(b))
-                providers.push_back({s->sector, provider});
-            else if (auto* requester = dynamic_cast<Requester*>(b))
+void Fleet::link(Tick now, EventLog& events, const StarMap* map) {
+    std::vector<std::pair<int, Requester*>> requesters;  // with its sector
+    for (const std::unique_ptr<FleetShip>& s : ships)
+        for (const GridPos p : s->ship.placement_order())
+            if (auto* requester = dynamic_cast<Requester*>(s->ship.building_anchored_at(p)))
                 requesters.push_back({s->sector, requester});
-        }
-    }
-    if (providers.empty() || requesters.empty())
-        return;
-    // Longest waiting first; stable, so ties keep fleet order.
+    // Longest waiting first; stable, so ties keep fleet order. One that
+    // takes an item doesn't want another till its wait is up.
     std::stable_sort(requesters.begin(), requesters.end(), [](const auto& a, const auto& b) {
         return a.second->get_last_received() < b.second->get_last_received();
     });
-    for (const auto& [sector, requester] : requesters) {
-        if (!requester->wants())
-            continue;
-        const ItemKind kind = *requester->get_filter();
-        Provider* best = nullptr;
-        int most = 0;
-        for (const auto& [provider_sector, provider] : providers) {
-            const int held = provider->get_stored().count(kind);
-            if (provider_sector == sector && provider->ready() && held > most) {
-                best = provider;
-                most = held;
+    for (const std::unique_ptr<FleetShip>& s : ships)
+        for (const GridPos p : s->ship.placement_order()) {
+            auto* provider = dynamic_cast<Provider*>(s->ship.building_anchored_at(p));
+            if (!provider)
+                continue;
+            const std::optional<ItemKind> kind = provider->pass_on();
+            if (!kind)
+                continue;
+            const auto requester = std::find_if(requesters.begin(), requesters.end(), [&](const auto& r) {
+                return r.first == s->sector && r.second->get_filter() == kind && r.second->wants();
+            });
+            if (requester != requesters.end()) {
+                requester->second->received(*kind, now);
+                continue;
             }
+            const auto delivery = [&]() -> std::optional<std::size_t> {
+                if (map)
+                    for (const std::size_t d : map->deliveries_at(s->sector))
+                        if (progress->open(d) && progress->wanted(d, *kind) > 0)
+                            return d;
+                return std::nullopt;
+            }();
+            if (delivery) {
+                if (progress->deliver(*delivery, *kind))
+                    events.push({.kind = EventKind::DeliveryComplete,
+                                 .ship = s->id,
+                                 .sector = s->sector,
+                                 .delivery = static_cast<int>(*delivery)});
+                continue;
+            }
+            // Nothing asks for it after all (it was fed it between ticks,
+            // or its ship moved): to its bridge, not lost.
+            s->ship.inventory().add(*kind);
         }
-        if (best) {
-            best->sent(kind);
-            requester->received(kind, now);
+}
+
+void Fleet::limit_providers(const StarMap* map) {
+    // By sector: its providers, and the room they share.
+    std::map<int, std::pair<std::vector<Provider*>, ProviderRoom>> sectors;
+    std::vector<std::pair<int, const Requester*>> requesters;
+    for (const std::unique_ptr<FleetShip>& s : ships)
+        for (const GridPos p : s->ship.placement_order()) {
+            Building* b = s->ship.building_anchored_at(p);
+            if (auto* provider = dynamic_cast<Provider*>(b))
+                sectors[s->sector].first.push_back(provider);
+            else if (const auto* requester = dynamic_cast<const Requester*>(b))
+                requesters.push_back({s->sector, requester});
         }
+    for (auto& [sector, here] : sectors) {
+        auto& [providers, room] = here;
+        room.fill(0);
+        // An item for each requester here that will be ready for one.
+        for (const auto& [at, requester] : requesters)
+            if (at == sector && requester->wants_after_tick())
+                ++room[static_cast<std::size_t>(*requester->get_filter())];
+        // What open deliveries here still want.
+        if (map)
+            for (const std::size_t d : map->deliveries_at(sector))
+                if (progress->open(d))
+                    for (const ItemStack& want : all_deliveries()[d].wants)
+                        room[static_cast<std::size_t>(want.kind)] += progress->wanted(d, want.kind);
+        // Less what the providers here took already, still to pass on.
+        for (const Provider* provider : providers)
+            if (const std::optional<ItemKind> kind = provider->get_passing())
+                --room[static_cast<std::size_t>(*kind)];
+        for (int& left : room)
+            left = std::max(0, left);
+        const auto shared = std::make_shared<ProviderRoom>(room);
+        for (Provider* provider : providers)
+            provider->limit(shared);
     }
 }
 
 void Fleet::tick(Tick now, EventLog& events, StarMap* map) {
+    limit_providers(map);
     for (const std::unique_ptr<FleetShip>& s : ships)
         s->ship.tick(map ? &map->at(s->sector).reserves : nullptr);
-    link(now);
+    link(now, events, map);
     std::erase_if(transfers, [&](const Transfer& t) {
         if (t.arrives > now)
             return false;

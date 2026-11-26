@@ -917,9 +917,7 @@ void test_can_send() {
 }
 
 // An unloader takes an item every kUnloaderTicks out of the cargo hold
-// behind it, onto the belt in front, which carries them into the bridge
-// (where they count for nothing toward the milestone: they were made
-// before).
+// behind it, onto the belt in front, which carries them into the bridge.
 void test_unloader_from_hold() {
     World world;
     Ship& ship = world.flagship();
@@ -940,7 +938,6 @@ void test_unloader_from_hold() {
     run(world, 10 * kTicksPerSecond);
     assert(hold_at(ship, hold).get_stored().total() == 0);
     assert(ship.inventory().count(ItemKind::IronPlate) == plates + 20);
-    assert(ship.get_bridge().get_progress().produced_count(ItemKind::IronPlate) == 0);
 
     // It holds nothing: removing it refunds just itself.
     const Inventory before = ship.inventory();

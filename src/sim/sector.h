@@ -4,23 +4,27 @@
 //
 // Sectors are linked to their neighbors; a ship jumps from one to a
 // neighbor (see World::jump). Sector 0 is home, where a game starts: safe,
-// with every raw resource but iridium. Elsewhere a sector may lack one
-// resource or another. Further out, the threat grows, and with it the
-// enemy ships lying in wait (see enemies.h): a sector may hold one, or
-// none, and one beaten is gone for good.
+// with every raw resource. Around home lie kSafeSectors more safe sectors
+// (home's neighbors, then the nearest of theirs): no threat, no enemy, and
+// every raw resource too. Further out a sector may lack one resource or
+// another, and the threat grows, and with it the enemy ships lying in wait
+// (see enemies.h): a sector may hold one, or none, and one beaten is gone
+// for good.
+//
+// The deliveries (see deliveries.h) are taken in the safe sectors: each
+// chain of them in its own, the first chain's next to home.
 //
 // Every sector's resources run out: each holds so many of each raw
 // resource (its reserves), and every catch a collector makes there takes
 // one. Once one is gone, it's gone for good: collectors aimed at it there
 // stall, and the fleet has to go elsewhere for more. Home holds enough to
-// reach the "Escape velocity" milestone with a margin, and travel (fuel
-// cells, from "Deep space") with a wide one; the other sectors hold more
-// of what they have.
+// reach the "Escape velocity" delivery with a margin even with every
+// delivery paid for from home, and travel (fuel cells, from the start)
+// with a wide one; the other sectors hold more of what they have.
 //
-// What the player knows: a sector a ship has been to is visited. Its
-// neighbors are known (shown on the map, without details). A sector is
-// surveyed, its resources, threat and enemy shown, once visited, or once a ship with a
-// survey scanner is in a sector next to it.
+// What the player knows: a sector a ship has been to is visited. It and
+// its neighbors are known: shown on the map, with their resources, threat
+// and enemy.
 #pragma once
 
 #include "sim/enemies.h"
@@ -49,10 +53,11 @@ constexpr int kMaxThreat = 5;
 using Reserves = std::array<int, kRawResourceCount>;
 
 // What home starts with: enough of each to reach the "Escape velocity"
-// milestone (weapons) with a factory of a fair size, a jump and a first
+// delivery (weapons) with a factory of a fair size, a jump and a first
 // fight's ammunition, and a margin over (see the readme's
-// "Running out" section for the sums). No iridium: that's found elsewhere.
-constexpr Reserves kHomeReserves = {7000, 1200, 1100, 1700, 0};
+// "Running out" section for the sums); and some of everything, iridium
+// included, so no recipe is out of reach at home.
+constexpr Reserves kHomeReserves = {7000, 1200, 1100, 1700, 1000};
 // What a sector other than home starts with of each resource it has (none
 // of the others): more than home.
 constexpr Reserves kSectorReserves = {10'500, 1800, 1650, 2550, 1500};
@@ -70,7 +75,6 @@ struct Sector {
     std::optional<EnemyClass> enemy;
     bool beaten = false;  // an enemy was destroyed here
     bool visited = false;
-    bool surveyed = false;
 
     // How many of `kind` are left to gather: 0 for a kind that isn't
     // gathered, or none of which is left there.
@@ -88,11 +92,14 @@ private:
     friend struct SaveAccess;
 
     std::vector<Sector> sectors;
+    // The sector each delivery is taken in, by delivery index.
+    std::vector<int> delivery_sectors;
 
 public:
     // About kStarMapSize sectors scattered around home (sector 0, visited),
     // each linked to its nearest neighbors and all of them reachable, laid
-    // out, named and stocked from `seed`: the same seed, the same map.
+    // out, named and stocked from `seed`: the same seed, the same map. The
+    // safe sectors around home, and where each delivery is taken, too.
     static StarMap generate(std::uint64_t seed);
 
     int size() const { return static_cast<int>(sectors.size()); }
@@ -100,14 +107,21 @@ public:
     Sector& at(int i) { return sectors[static_cast<std::size_t>(i)]; }
     const std::vector<Sector>& all() const { return sectors; }
     bool linked(int a, int b) const;
-    // Visited, or next to a sector that is.
+    // Visited, or next to a sector that is: shown on the map, with what's
+    // there.
     bool known(int i) const;
 
-    // A ship arrived in `i`: visited and surveyed from now on.
+    // A ship arrived in `i`: visited from now on.
     void visit(int i);
-    // A survey scanner next door: surveyed from now on.
-    void survey(int i);
+
+    // The sector delivery `d` is taken in (-1 if the map has none for it).
+    int delivery_sector(std::size_t d) const;
+    // The deliveries taken in sector `i`, in table order.
+    std::vector<std::size_t> deliveries_at(int i) const;
 };
 
 // How many sectors StarMap::generate() makes.
 constexpr int kStarMapSize = 24;
+// How many safe sectors (threat 0, never an enemy) it makes around home,
+// home not counted.
+constexpr int kSafeSectors = 6;

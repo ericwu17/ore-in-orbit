@@ -9,7 +9,7 @@
 #include "sim/combat.h"
 #include "sim/enemies.h"
 #include "sim/fleet.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
@@ -130,7 +130,7 @@ void test_ids() {
         const EnemyDesign& d = enemy_design(c);
         // Its layout is an enemy's, never the player's to build.
         const ShipLayout* layout = find_layout(d.layout);
-        assert(layout && layout->milestone == std::nullopt);
+        assert(layout && layout->tech == std::nullopt);
         for (const ShipLayout& l : all_layouts())
             assert(std::string_view(l.id) != d.layout);
         assert(!d.weapons.empty() && d.hull > 0 && d.hull <= max_hp_of(std::nullopt));
@@ -461,12 +461,12 @@ void test_found_weapons() {
     Progress progress;
     for (int i = 0; i < kItemKindCount; ++i)
         if (const ItemKind kind = static_cast<ItemKind>(i); is_weapon(kind)) {
-            assert(!recipe_for(kind) && !milestone_unlocking(kind) && !progress.unlocked(kind));
-            // Its ammunition comes with it, or with a milestone (focus
+            assert(!recipe_for(kind) && !tech_unlocking(kind) && !progress.unlocked(kind));
+            // Its ammunition comes with it, or with a tech (focus
             // crystals, which the lasers share).
             const ItemKind ammo = weapon_spec(kind).ammo;
             assert(recipe_for(ammo));
-            assert(weapon_unlocking(ammo) == kind || milestone_unlocking(ammo));
+            assert(weapon_unlocking(ammo) == kind || tech_unlocking(ammo));
         }
     assert(!progress.unlocked(ItemKind::Missile));
     assert(progress.add_found(ItemKind::MissileLauncher));
@@ -474,7 +474,7 @@ void test_found_weapons() {
     assert(!progress.add_found(ItemKind::Missile));  // no weapon
     assert(progress.unlocked(ItemKind::MissileLauncher) && progress.unlocked(ItemKind::Missile));
     assert(!progress.unlocked(ItemKind::HeavyLaser) && !progress.unlocked(ItemKind::IonCell));
-    assert(milestone_unlocking(ItemKind::FocusCrystal) && milestone_unlocking(ItemKind::ShieldProjector));
+    assert(tech_unlocking(ItemKind::FocusCrystal) && tech_unlocking(ItemKind::ShieldProjector));
 
     World world;
     assert(world.get_fleet().get_progress().found_weapons() == std::vector<ItemKind>{ItemKind::BurstLaser});

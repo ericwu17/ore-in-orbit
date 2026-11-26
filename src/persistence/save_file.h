@@ -5,16 +5,20 @@
 //
 //   {
 //     "format": "ore-in-orbit-save",
-//     "version": 10,               (kSaveVersion)
+//     "version": 11,               (kSaveVersion)
 //     "name": "Ship 1",
 //     "saved_at": 1760000000,      (Unix seconds)
 //     "played": 3600,              (ticks: a copy of the World's, for the list)
 //     "world": { "tick": 3600, "rng": 12345,
 //       "star_map": { "sectors": [ { "name": "Home", "x": 0, "y": 0, "neighbors": [1, 2],
 //                                    "reserves": {...}, "threat": 0, "enemy": null,
-//                                    "beaten": false, "visited": true, "surveyed": true }, ... ] },
+//                                    "beaten": false, "visited": true }, ... ],
+//                     "deliveries": { "Hull plating": 2, ... } },
 //       "fleet": {
-//         "next_ship_id": 2, "progress": { "milestone": 0, "delivered": {...} },
+//         "next_ship_id": 2, "progress": { "deliveries": { "Hull plating": { "done": true },
+//                                          "Girders": { "done": false, "delivered": {...} } },
+//                                          "points": 12, "techs": ["Steelworks"],
+//                                          "found_weapons": [...] },
 //         "ships": [ { "id": 1, "name": "Flagship", "sector": 0,
 //                      "ship": { "layout": "skiff", "buildings": [...] } } ],
 //         "transfers": [ { "from": 1, "to": 2, "items": {...}, "arrives": 3900 } ] },
@@ -39,7 +43,7 @@
 // is renamed with that item's display name). A new key whose absence means
 // what older saves meant (none, off) can be optional instead, read with
 // that default.
-constexpr int kSaveVersion = 10;
+constexpr int kSaveVersion = 11;
 
 // What the save list shows about a save, read without loading the World.
 struct SaveHeader {

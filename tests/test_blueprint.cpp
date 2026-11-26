@@ -6,7 +6,7 @@
 #include "persistence/blueprint_file.h"
 #include "sim/blueprint.h"
 #include "sim/building.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"

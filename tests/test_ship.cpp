@@ -67,6 +67,8 @@ void test_new_game() {
     for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
                                 ItemKind::FabricatorMk1})
         assert(ship.inventory().count(kind) > 0);
+    // And one provider, for the first delivery.
+    assert(ship.inventory().count(ItemKind::Provider) == 1);
     for (const ItemStack& s : ship.inventory().stacks())
         if (const Recipe* r = recipe_for(s.kind); r && is_placeable(s.kind))
             assert(r->hand_craftable);
@@ -143,16 +145,23 @@ void test_layout_parts_stay() {
     assert(recipe_for(ItemKind::IonThruster) == nullptr);
 }
 
+// Engines take fuel from the bridge only, never from belts, and none
+// while offline.
 void test_engine_offline() {
     Thruster thruster;
     assert(!thruster.offline());
-    assert(thruster.accepts(ItemKind::FuelCell));
-    assert(thruster.take_damage(thruster.max_hp()));
-    assert(thruster.offline());
     assert(!thruster.accepts(ItemKind::FuelCell));
+    assert(thruster.room() == kThrusterCharge);
+    thruster.refuel(3);
+    assert(thruster.get_fuel() == 3 && thruster.room() == kThrusterCharge - 3);
+    assert(thruster.take_damage(thruster.max_hp()));
+    assert(thruster.offline() && thruster.room() == 0);
+    thruster.refuel(5);
+    assert(thruster.get_fuel() == 3);
     thruster.repair(1);
     assert(!thruster.offline());
-    assert(thruster.accepts(ItemKind::FuelCell));
+    thruster.refuel(100);
+    assert(thruster.charged() && thruster.get_fuel() == kThrusterCharge);
 }
 
 void test_belt_direction() {

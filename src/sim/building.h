@@ -4,7 +4,7 @@
 //
 //   Building (abstract)
 //   ├── Bridge       the ship's command center; owns the inventory and the
-//   │                item requests, follows the fleet's milestone progress,
+//   │                item requests, follows the fleet's delivery progress,
 //   │                hand-crafts
 //   ├── Collector    gathers from space: asteroid collector, tractor array
 //   ├── Conveyor     moves items along: belts
@@ -21,8 +21,7 @@
 //   │                fuel cells for a jump
 //   ├── Weapon       lasers, missiles, ...: fire at enemy ships, on the fuel
 //   │                cells and ammunition belts bring
-//   ├── ShieldProjector  one shield layer round the ship
-//   └── ShipSystem   survey scanner
+//   └── ShieldProjector  one shield layer round the ship
 //
 // One class per family, not per building: each building's footprint and
 // whether it rotates is data (footprint_of, is_rotatable), looked up by item
@@ -43,7 +42,7 @@
 #pragma once
 
 #include "sim/game_types.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 
 #include <algorithm>
@@ -52,6 +51,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 // Counts of each item: the bridge's inventory, and the buffers inside
@@ -174,9 +174,9 @@ private:
     // How many of each item the player wants kept in the inventory, in the
     // order they were asked for; at most one per kind (a count may be 0).
     std::vector<ItemStack> requests;
-    // The milestones are the fleet's: every ship's bridge shares one
-    // Progress (see Fleet), and what any of them makes counts. A bridge on
-    // its own (a lone Ship) has one of its own.
+    // The deliveries are the fleet's: every ship's bridge shares one
+    // Progress (see Fleet), and what any of them unlocks is unlocked on
+    // all. A bridge on its own (a lone Ship) has one of its own.
     std::shared_ptr<Progress> progress = std::make_shared<Progress>();
 
 public:
@@ -184,7 +184,7 @@ public:
 
     bool removable() const override { return false; }
     // Advances the front craft job; a finished one puts its outputs in the
-    // inventory, and they count toward the current milestone.
+    // inventory.
     void tick() override;
     // The ship's core: belts deliver anything into the inventory.
     bool accepts(ItemKind) const override { return true; }
@@ -542,15 +542,24 @@ public:
     void unload(ItemKind kind) override { stored.take(kind); }
 };
 
-// What a provider holds, and what a requester holds waiting to go out.
-constexpr int kLinkBuffer = 20;
+// What a requester holds waiting to go out.
+constexpr int kRequesterBuffer = 20;
 // Ticks a provider or requester waits after an item before the next: 12 a
 // second, all an express belt carries.
 constexpr Tick kLinkTicks = 5;
 
-// The provider: belts feed it any item, until it holds kLinkBuffer, and it
-// sends them on to requesters in its sector, on any ship of the fleet (its
-// own included), one every kLinkTicks (see Fleet::link). It puts nothing out
+// How many more of each kind the providers in a sector take this tick,
+// shared by them all (see Fleet::limit_providers).
+using ProviderRoom = std::array<int, kItemKindCount>;
+
+// The provider: it holds nothing, passing each item a belt feeds it
+// straight on, the same tick, to a requester in its sector on any ship of
+// the fleet (its own included), or failing that to an open delivery taken
+// there (see Fleet::link). It takes one item every kLinkTicks, and only one
+// something there asks for: a requester ready for it, or a delivery that
+// still wants it (the fleet works out what each tick,
+// Fleet::limit_providers). So what nothing asks for backs up on the belts,
+// and a surplus of one kind can't keep out another. It puts nothing out
 // onto its own neighbors.
 class Provider : public Building {
 private:
@@ -558,27 +567,41 @@ private:
     // the private state.
     friend struct SaveAccess;
 
-    Inventory stored;
-    Tick cooldown = 0;  // ticks until it can send an item
+    Tick cooldown = 0;  // ticks until it can take an item
+    // The item it took this tick, for the fleet to hand on before the tick
+    // is out. Not saved: it's always gone by then.
+    std::optional<ItemKind> passing;
+    // What it, and the other providers in its sector, take this tick (null:
+    // nothing yet). Not saved: the fleet sets it again every tick.
+    std::shared_ptr<ProviderRoom> room;
 
 public:
     Provider() : Building(ItemKind::Provider, Direction::North, footprint_of(ItemKind::Provider)) {}
 
-    const Inventory& get_stored() const { return stored; }
     void tick() override;
-    std::vector<ItemStack> contents() const override { return stored.stacks(); }
-    bool accepts(ItemKind) const override { return stored.total() < kLinkBuffer; }
-    void receive(ItemKind kind) override { stored.add(kind); }
+    std::vector<ItemStack> contents() const override {
+        return passing ? std::vector<ItemStack>{{*passing, 1}} : std::vector<ItemStack>{};
+    }
+    bool accepts(ItemKind kind) const override {
+        return ready() && !passing && room && (*room)[static_cast<std::size_t>(kind)] > 0;
+    }
+    // Takes `kind` to pass on, and waits kLinkTicks for the next.
+    void receive(ItemKind kind) override;
+    // Takes what `shared` has room for from now on, using it up as it does.
+    void limit(std::shared_ptr<ProviderRoom> shared) { room = std::move(shared); }
     bool ready() const { return cooldown == 0; }
-    // It sent one `kind`, which it must hold, to a requester: wait.
-    void sent(ItemKind kind);
+    // The item it took this tick, if any, still to be handed on.
+    std::optional<ItemKind> get_passing() const { return passing; }
+    // Hands the fleet the item it took this tick, if any, to pass on.
+    std::optional<ItemKind> pass_on() { return std::exchange(passing, std::nullopt); }
 };
 
-// The requester: set to an item (its filter), it pulls that item from the
-// providers in its sector, as many as they have, one every kLinkTicks (see
-// Fleet::link), and puts them out to its neighbors as a machine does its
-// products. Without a filter it pulls nothing; while kLinkBuffer of them
-// wait to go out, it pulls no more. Belts can't feed it.
+// The requester: set to an item (its filter), it takes that item from the
+// providers in its sector, as fast as they're fed it, up to one every
+// kLinkTicks (see Fleet::link), and puts them out to its neighbors as a
+// machine does its products. Without a filter it takes nothing; while
+// kRequesterBuffer of them wait to go out, it takes no more. Belts can't
+// feed it.
 class Requester : public Building {
 private:
     // Saving and loading (persistence/save_file.cpp) reads and restores
@@ -603,8 +626,12 @@ public:
     std::vector<ItemStack> contents() const override { return buffer.stacks(); }
     Inventory* output_buffer() override { return &buffer; }
     bool ready() const { return cooldown == 0; }
-    // Whether it pulls an item now: it has a filter, is ready, and has room.
-    bool wants() const { return filter && ready() && buffer.total() < kLinkBuffer; }
+    // Whether it takes an item now: it has a filter, is ready, and has room.
+    bool wants() const { return filter && ready() && buffer.total() < kRequesterBuffer; }
+    // Whether it will once it has ticked this tick: what the providers in
+    // its sector make room for before the ships tick (see
+    // Fleet::limit_providers).
+    bool wants_after_tick() const { return filter && cooldown <= 1 && buffer.total() < kRequesterBuffer; }
     // The tick it last pulled an item (0: never): the one that has waited
     // longest goes first (see Fleet::link).
     Tick get_last_received() const { return last_received; }
@@ -663,11 +690,8 @@ public:
     bool on_standby() const { return standby; }
     void set_standby(bool on) { standby = on; }
 
-    // Advances the craft under way, or starts one; a finished one's products
-    // count toward `progress`'s current milestone (if not null). The Ship
-    // passes its bridge's.
-    void craft(Progress* progress);
-    void tick() override { craft(nullptr); }
+    // Advances the craft under way, or starts one.
+    void tick() override;
     std::vector<ItemStack> contents() const override;
     bool accepts(ItemKind kind) const override;
     void receive(ItemKind kind) override { input.add(kind); }
@@ -693,7 +717,9 @@ std::vector<const Recipe*> machine_recipes(ItemKind kind);
 // Fuel cells an ion thruster holds: full, it's charged for a jump.
 constexpr int kThrusterCharge = 10;
 
-// The ion thruster: takes fuel cells from belts until charged. A jump
+// The ion thruster: draws fuel cells from its ship's bridge inventory
+// (every tick, while it has room and the bridge has them; belts can't feed
+// it), until charged. A jump
 // needs every thruster on the ship charged, and uses it all (see
 // World::jump). Thrusters come with the ship's layout: they can't be
 // removed, and one shot down to 0 isn't destroyed but knocked offline,
@@ -715,9 +741,14 @@ public:
     bool offline() const { return get_hp() == 0; }
     // Burns all its fuel (a jump).
     void burn() { fuel = 0; }
+    // How many more fuel cells it takes to be charged: none while offline.
+    int room() const { return offline() ? 0 : kThrusterCharge - fuel; }
+    // Takes `n` fuel cells (no more than room()) from the bridge (see
+    // Ship::refuel_thrusters).
+    void refuel(int n) { fuel += std::clamp(n, 0, room()); }
     std::vector<ItemStack> contents() const override;
-    bool accepts(ItemKind kind) const override { return kind == ItemKind::FuelCell && !charged() && !offline(); }
-    void receive(ItemKind) override { ++fuel; }
+    // Belts can't feed it: it draws its fuel from the bridge.
+    bool accepts(ItemKind) const override { return false; }
 };
 
 // How a weapon's shots behave when they reach the ship they're aimed at
@@ -834,12 +865,6 @@ public:
     void knock_down() { recharge = kShieldRecharge; }
     void stun_for(Tick ticks) { stun = std::max(stun, ticks); }
     void tick() override;
-};
-
-// The survey scanner: surveys the sectors next to the ship's (see World).
-class ShipSystem : public Building {
-public:
-    explicit ShipSystem(ItemKind k) : Building(k, Direction::North, footprint_of(k)) {}
 };
 
 // Which building kinds handle a category (the machines; hand-crafting at the

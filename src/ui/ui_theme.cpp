@@ -1,6 +1,7 @@
 // ui_theme.cpp — see ui_theme.h.
 #include "ui/ui_theme.h"
 
+#include "imgui_internal.h"
 #include "implot.h"
 
 #include <algorithm>
@@ -153,6 +154,12 @@ void ApplyImPlotStyle() {
     static const ImVec4 kIndustrialColormap[] = {kAccent, kSteelHover, kGood, kWarn, kTeal, kPlum, kTextDim};
     style.Colormap = ImPlot::AddColormap("Industrial", kIndustrialColormap,
                                          static_cast<int>(sizeof(kIndustrialColormap) / sizeof(kIndustrialColormap[0])));
+}
+
+// What a label shows: the text before any "##" (which, as in ImGui, only
+// goes into its ID).
+std::string Shown(const char* text) {
+    return std::string(text, ImGui::FindRenderedTextEnd(text));
 }
 
 // `text` in capitals, for the stencilled headings.
@@ -344,11 +351,13 @@ void SectionHeading(const char* text) {
     const float h = ImGui::GetFrameHeight();
     const ImVec2 min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(width, h));
-    DrawHeading(min, width, h, Upper(text), 0, false);
+    DrawHeading(min, width, h, Upper(Shown(text).c_str()), 0, false);
     ImGui::Dummy(ImVec2(0.0f, 4.0f));
 }
 
 bool CollapsingSection(const char* text, bool default_open) {
+    // The ID is the whole label, "##" part included; the heading shows
+    // only what comes before it.
     ImGui::Spacing();
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID id = ImGui::GetID(text);
@@ -363,7 +372,7 @@ bool CollapsingSection(const char* text, bool default_open) {
     }
     const bool hovered = ImGui::IsItemHovered();
     ImGui::PopID();
-    DrawHeading(min, width, h, Upper(text), open ? 1 : -1, hovered);
+    DrawHeading(min, width, h, Upper(Shown(text).c_str()), open ? 1 : -1, hovered);
     ImGui::Dummy(ImVec2(0.0f, 4.0f));
     return open;
 }

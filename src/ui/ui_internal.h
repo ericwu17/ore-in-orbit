@@ -11,7 +11,7 @@
 //   ui_draw.cpp        drawing buildings, items and icons into a draw list
 //   ui_grid.cpp        the ship build grid: camera, building, copy and paste
 //   ui_panels.cpp      the build palette (left) and the craft panel (right),
-//                      with the milestone; and the inspector window
+//                      with the deliveries; and the inspector window
 //   ui_fleet.cpp       the fleet's tabs and windows, and the star map
 //   ui_blueprints.cpp  the Blueprints window (the library)
 //   ui_menus.cpp       the main menu, the save list and the credits
@@ -178,6 +178,8 @@ struct FleetUiState {
     // into all_layouts()).
     bool show_build = false;
     std::size_t build_layout = 0;
+    // The Shop window, where points buy techs.
+    bool show_shop = false;
 };
 extern FleetUiState g_fleet;
 
@@ -383,7 +385,7 @@ void AmountLine(const Icon& icon, const std::string& text, ImVec4 color, bool na
 
 // The placeable items in the build list: every one unlocked, plus any in
 // the inventory and the selected one, in a fixed order, so that the first
-// nine, which get the number keys, only move when a milestone unlocks more.
+// nine, which get the number keys, only move when a delivery unlocks more.
 std::vector<ItemKind> BuildList(const Ship& ship);
 
 // The bridge's hand-crafting recipe for `kind`, or null if it's only made
@@ -431,7 +433,7 @@ std::optional<ItemKind> ComboSearchItemOptions(std::optional<ItemKind> current);
 // and the settings new ones get, copying and pasting, and the cargo
 // (everything else in the inventory).
 void DrawBuildPalette(Ship& ship, float width);
-// The right panel: the current milestone, the fleet, the bridge's craft
+// The right panel: the open deliveries, the fleet, the bridge's craft
 // queue and hand-crafting, and the recipe book for everything else.
 void DrawCraftPanel(World& world, FleetShip& current, float width);
 // The inspector window, while a building is inspected (clicked on the grid;
@@ -465,6 +467,9 @@ void DrawSendCargoWindow(World& world, FleetShip& current);
 // The Build a new ship window: every layout, the one picked drawn with what
 // it costs, and building it from the bridge of the ship shown.
 void DrawBuildShipWindow(World& world, FleetShip& current);
+// The Shop window, while it's open: every tech, what it costs and
+// unlocks, and buying it with the fleet's points.
+void DrawShopWindow(World& world);
 // The star map (M), filling `avail` in place of the grid.
 void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail);
 

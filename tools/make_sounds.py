@@ -408,7 +408,7 @@ def game_craft_queued():
     return mix(crush(blip, 6), 0.3 * relay_click(1.2, 0.01))
 
 
-def game_milestone_complete():
+def game_delivery_complete():
     """A fanfare, kept cold: a rising arpeggio of a minor ninth chord through
     a slap echo."""
     notes = ["A4", "C5", "E5", "B5", "E6"]
@@ -466,13 +466,6 @@ def game_jump():
     crack = highpass(noise(0.05), 2000) * env(0.05, 0.0003, curve=5)
     out = mix(0.5 * charge, 0.9 * swoosh, 1.0 * drop, 0.8 * crack, at=[0, c, c, c])
     return crush(drive(out, 1.8), 8)
-
-
-def game_sector_surveyed():
-    """A sensor ping coming back: a sonar-ish blip with long echoes."""
-    d = 0.2
-    ping = sine(ramp(2600, 2400, d), d) * env(d, 0.001, curve=6) + 0.3 * tri(1300, d) * env(d, 0.001, curve=8)
-    return echo(crush(ping, 7), 0.16, feedback=0.45, mix=0.4, repeats=5)
 
 
 def game_map_open():
@@ -656,14 +649,13 @@ SOUNDS = {
     "build_blueprint_place": build_blueprint_place,
     # Game events
     "game_craft_queued": game_craft_queued,
-    "game_milestone_complete": game_milestone_complete,
+    "game_delivery_complete": game_delivery_complete,
     "game_cargo_launch": game_cargo_launch,
     "game_cargo_land": game_cargo_land,
     "game_ship_built": game_ship_built,
     "game_ship_switch": game_ship_switch,
     "game_thrusters_charged": game_thrusters_charged,
     "game_jump": game_jump,
-    "game_sector_surveyed": game_sector_surveyed,
     "game_map_open": game_map_open,
     "game_enemy_detected": game_enemy_detected,
     "game_over": game_over,
@@ -701,7 +693,7 @@ LEVELS = {
     "combat_hit_shield": -3, "combat_miss": -5,
     "combat_target_set": -4, "combat_target_clear": -4,
     "game_jump": 2, "combat_enemy_destroyed": 2, "game_over": 2, "combat_ship_lost": 2,
-    "game_milestone_complete": 1, "combat_weapon_found": 1,
+    "game_delivery_complete": 1, "combat_weapon_found": 1,
 }
 
 

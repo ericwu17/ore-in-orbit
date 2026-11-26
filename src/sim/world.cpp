@@ -32,14 +32,11 @@ bool engines_ready(const Ship& ship) {
 
 World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {}
 
-void World::scan() {
-    for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
-        if (s->ship.has_building(ItemKind::SurveyScanner))
-            for (const int n : map.at(s->sector).neighbors)
-                if (!map.at(n).surveyed) {
-                    map.survey(n);
-                    events.push({.kind = EventKind::SectorSurveyed, .ship = s->id, .sector = n});
-                }
+bool World::shown(int i) const {
+    if (revealed || map.known(i))
+        return true;
+    const std::vector<std::size_t> here = map.deliveries_at(i);
+    return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return fleet.get_progress().open(d); });
 }
 
 std::vector<FleetShip*> World::ships_in(int sector) {
@@ -128,18 +125,14 @@ void World::advance_tick() {
         return;
     ++current_tick;
 
-    // A milestone completes as the fleet's ships tick (their machines and
-    // bridges finish crafts).
-    // Resources run out as they do (collectors gather from their sector's
+    // Deliveries complete as the fleet ticks (its providers hand items
+    // over). Resources run out as they do (collectors gather from their sector's
     // reserves): what was left before, to tell.
     std::vector<std::pair<int, Reserves>> before;
     for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
         if (std::none_of(before.begin(), before.end(), [&](const auto& b) { return b.first == s->sector; }))
             before.emplace_back(s->sector, map.at(s->sector).reserves);
-    const std::size_t milestone = fleet.get_progress().current_index();
     fleet.tick(current_tick, events, &map);
-    if (fleet.get_progress().current_index() > milestone)
-        events.push({.kind = EventKind::MilestoneComplete});
     for (const auto& [sector, was] : before)
         for (int r = 0; r < kRawResourceCount; ++r) {
             const auto i = static_cast<std::size_t>(r);
@@ -150,7 +143,6 @@ void World::advance_tick() {
 
     fight();
     if (current_tick % kTicksPerSecond == 0) {
-        scan();
         for (const std::unique_ptr<FleetShip>& s : fleet.get_ships())
             if (!engagement_in(s->sector))
                 s->ship.repair_all(kRepairPercent);
@@ -219,11 +211,6 @@ void World::drain_sector(int sector, int left) {
         return;
     for (int& r : map.at(sector).reserves)
         r = std::min(r, std::max(left, 0));
-}
-
-void World::reveal_map() {
-    for (int i = 0; i < map.size(); ++i)
-        map.survey(i);
 }
 
 JumpResult World::can_jump(int ship, int sector) const {

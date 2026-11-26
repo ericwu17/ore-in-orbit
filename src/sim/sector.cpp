@@ -1,10 +1,12 @@
 // sector.cpp — the star map and generating it (see sector.h).
 #include "sim/sector.h"
 
+#include "sim/deliveries.h"
 #include "sim/rng.h"
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <iterator>
 
 std::optional<int> raw_resource_index(ItemKind kind) {
@@ -34,14 +36,22 @@ bool StarMap::known(int i) const {
 }
 
 void StarMap::visit(int i) {
-    Sector& s = sectors[static_cast<std::size_t>(i)];
-    s.visited = true;
-    s.surveyed = true;
+    sectors[static_cast<std::size_t>(i)].visited = true;
 }
 
-void StarMap::survey(int i) {
-    sectors[static_cast<std::size_t>(i)].surveyed = true;
+int StarMap::delivery_sector(std::size_t d) const {
+    return d < delivery_sectors.size() ? delivery_sectors[d] : -1;
 }
+
+std::vector<std::size_t> StarMap::deliveries_at(int i) const {
+    std::vector<std::size_t> here;
+    for (std::size_t d = 0; d < delivery_sectors.size(); ++d)
+        if (delivery_sectors[d] == i)
+            here.push_back(d);
+    return here;
+}
+
+static_assert(kSafeSectors >= kDeliveryChains, "a safe sector for each chain of deliveries");
 
 namespace {
 
@@ -83,7 +93,7 @@ StarMap StarMap::generate(std::uint64_t seed) {
     // Home at the middle, the rest scattered around it.
     Sector home;
     home.name = "Home";
-    home.reserves = kHomeReserves;  // no iridium: that's found elsewhere
+    home.reserves = kHomeReserves;
     sectors.push_back(home);
     for (int tries = 0; static_cast<int>(sectors.size()) < kStarMapSize && tries < 100'000; ++tries) {
         Sector s;
@@ -175,9 +185,6 @@ StarMap StarMap::generate(std::uint64_t seed) {
             }
         }
         s.threat = std::clamp(static_cast<int>(far * 5.0f + rng.unit() * 1.2f - 0.3f), 0, kMaxThreat);
-        // Home's neighbors are an easy first step.
-        if (map.linked(0, i))
-            s.threat = std::min(s.threat, 1);
         // An enemy, more likely the higher the threat.
         if (s.threat > 0 && rng.chance(0.5f + 0.1f * static_cast<float>(s.threat))) {
             const std::vector<EnemyClass> classes = enemies_for_threat(s.threat);
@@ -196,6 +203,40 @@ StarMap StarMap::generate(std::uint64_t seed) {
             sectors[static_cast<std::size_t>(nearest)].reserves[i] = kSectorReserves[i];
         }
     }
+
+    // The safe sectors: home's neighbors, then theirs, and so on, the
+    // nearest first, kSafeSectors of them.
+    std::vector<int> hops(static_cast<std::size_t>(n), -1);
+    hops[0] = 0;
+    for (std::deque<int> queue{0}; !queue.empty(); queue.pop_front())
+        for (const int j : sectors[static_cast<std::size_t>(queue.front())].neighbors)
+            if (hops[static_cast<std::size_t>(j)] < 0) {
+                hops[static_cast<std::size_t>(j)] = hops[static_cast<std::size_t>(queue.front())] + 1;
+                queue.push_back(j);
+            }
+    std::vector<int> safe;
+    for (int i = 1; i < n; ++i)
+        safe.push_back(i);
+    std::stable_sort(safe.begin(), safe.end(), [&](int a, int b) {
+        return hops[static_cast<std::size_t>(a)] < hops[static_cast<std::size_t>(b)];
+    });  // the index grows outward, so the nearest come first within a hop
+    safe.resize(std::min(safe.size(), static_cast<std::size_t>(kSafeSectors)));
+    for (const int i : safe) {
+        Sector& s = sectors[static_cast<std::size_t>(i)];
+        s.threat = 0;
+        s.enemy.reset();
+        s.reserves = kSectorReserves;  // all of everything: none runs short of a kind
+    }
+
+    // Where each delivery is taken: each chain in its own safe sector,
+    // the first chain's nearest home (sharing the furthest, were there too
+    // few).
+    const std::vector<Delivery>& deliveries = all_deliveries();
+    map.delivery_sectors.assign(deliveries.size(), 0);
+    if (!safe.empty())
+        for (std::size_t d = 0; d < deliveries.size(); ++d)
+            map.delivery_sectors[d] =
+                safe[std::min(static_cast<std::size_t>(deliveries[d].chain), safe.size() - 1)];
     map.visit(0);
     return map;
 }

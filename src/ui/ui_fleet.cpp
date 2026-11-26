@@ -15,6 +15,15 @@ void DrawFleetStrip(World& world) {
     if (theme::SegmentedButton("Map", g_map.shown))
         ShowStarMap(!g_map.shown);
     ImGui::SetItemTooltip("The star map (M): sectors, and jumping between them");
+    ImGui::SameLine();
+    {
+        const std::string shop = "Shop (" + std::to_string(fleet.get_progress().points()) + " " + kPointsShort + ")";
+        if (theme::SegmentedButton(shop.c_str(), f.show_shop)) {
+            f.show_shop = !f.show_shop;
+            PlayUi(f.show_shop ? audio::Sound::UiPanelOpen : audio::Sound::UiPanelClose);
+        }
+        ImGui::SetItemTooltip("Spend %s on new technology (the deliveries earn them)", kPointsName);
+    }
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
     std::optional<int> show;
@@ -259,7 +268,7 @@ void DrawBuildShipWindow(World& world, FleetShip& current) {
         if (!unlocked) {
             ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextColored(theme::kTextDim, "(unlocks at %s)", all_milestones()[*l.milestone].name);
+            ImGui::TextColored(theme::kTextDim, "(unlocks with the tech %s)", all_techs()[*l.tech].name);
         }
         ImGui::PopID();
     }
@@ -331,6 +340,43 @@ void ThreatPips(int threat) {
     }
 }
 
+// The delivery requests sector `index` takes now (one per delivery chain
+// taken there): what each wants, how much is in, and what it pays; or the
+// tech the next one waits on; or that every one is made.
+void DrawSectorRequest(const Progress& progress, const StarMap& map, int index) {
+    std::vector<int> chains_seen;
+    bool any = false;
+    for (const std::size_t d : map.deliveries_at(index)) {
+        any = true;
+        const Delivery& delivery = all_deliveries()[d];
+        if (progress.done(d) ||
+            std::find(chains_seen.begin(), chains_seen.end(), delivery.chain) != chains_seen.end())
+            continue;
+        chains_seen.push_back(delivery.chain);
+        if (progress.open(d)) {
+            ImGui::TextColored(theme::kGood, "Delivery request: %s", delivery.name);
+            for (const ItemStack& want : delivery.wants)
+                AmountLine(ItemIcon(want.kind),
+                           std::to_string(progress.delivered(d, want.kind)) + " / " + std::to_string(want.count),
+                           theme::kText, true);
+            ImGui::TextColored(theme::kAccent, "Pays %d %s", delivery_points(d), kPointsName);
+            continue;
+        }
+        // Waiting on a tech for something it asks for.
+        ImGui::TextColored(theme::kTextDim, "Next request: %s", delivery.name);
+        for (const ItemStack& want : delivery.wants)
+            if (!progress.unlocked(want.kind)) {
+                if (const std::optional<std::size_t> t = tech_unlocking(want.kind))
+                    ImGui::TextColored(theme::kWarnText, "Needs %s: buy the tech %s in the Shop",
+                                       item_name(want.kind), all_techs()[*t].name);
+                else
+                    ImGui::TextColored(theme::kWarnText, "Needs %s", item_name(want.kind));
+            }
+    }
+    if (any && chains_seen.empty())
+        ImGui::TextColored(theme::kTextDim, "Every delivery request here is met");
+}
+
 // The picked sector's details, over the map's top-left corner: what's
 // known of it, the ships there, and for the ship shown, jumping there.
 void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 min) {
@@ -343,14 +389,19 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
                       ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::PushFont(nullptr, theme::kFontTitle);
-    ImGui::TextUnformatted(s.surveyed ? s.name.c_str() : "Unsurveyed sector");
+    ImGui::TextUnformatted(s.name.c_str());
     ImGui::PopFont();
     if (index == 0)
         ImGui::TextColored(theme::kTextDim, "Home");
-    if (!s.surveyed) {
-        ImGui::TextColored(theme::kTextDim,
-                           "Visit it, or bring a ship with a survey scanner next door, to learn what's there.");
-    } else {
+    // The delivery taken here now, and how many are made.
+    const Progress& progress = world.get_fleet().get_progress();
+    int made = 0;
+    for (const std::size_t d : map.deliveries_at(index))
+        made += progress.done(d) ? 1 : 0;
+    DrawSectorRequest(progress, map, index);
+    if (made > 0)
+        ImGui::TextColored(theme::kTextDim, "%d deliver%s made here", made, made == 1 ? "y" : "ies");
+    {
         // Once cleared, the threat is gone with its enemy: not shown.
         if (!s.cleared()) {
             ImGui::TextUnformatted("Threat");
@@ -458,7 +509,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     if (ImGui::IsItemHovered())
         for (int i = 0; i < map.size(); ++i) {
             const ImVec2 c = screen(map.at(i));
-            if (map.known(i) && std::hypot(io.MousePos.x - c.x, io.MousePos.y - c.y) <= r * 1.6f)
+            if (world.shown(i) && std::hypot(io.MousePos.x - c.x, io.MousePos.y - c.y) <= r * 1.6f)
                 hovered = i;
         }
     if (ImGui::IsItemActivated())
@@ -472,7 +523,7 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     } else if (ImGui::IsItemDeactivated() && !m.dragged) {
         m.selected = hovered;  // a click: pick a sector, or nothing
     }
-    if (m.selected && (*m.selected >= map.size() || !map.known(*m.selected)))
+    if (m.selected && (*m.selected >= map.size() || !world.shown(*m.selected)))
         m.selected.reset();
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -491,39 +542,59 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     draw->AddLine(ImVec2(canvas_min.x, home.y), ImVec2(canvas_max.x, home.y), ring);
     draw->AddLine(ImVec2(home.x, canvas_min.y), ImVec2(home.x, canvas_max.y), ring);
 
-    // Links between known sectors; those out of the shown ship's sector,
-    // where it can jump, stand out.
+    // Links between the sectors shown; those out of the shown ship's
+    // sector, where it can jump, stand out.
     for (int i = 0; i < map.size(); ++i)
         for (const int j : map.at(i).neighbors) {
-            if (j < i || !map.known(i) || !map.known(j))
+            if (j < i || !world.shown(i) || !world.shown(j))
                 continue;
             const bool reach = i == current.sector || j == current.sector;
             draw->AddLine(screen(map.at(i)), screen(map.at(j)),
                           theme::U32(reach ? theme::kAccent : theme::kFrameActive), reach ? 2.5f : 1.5f);
         }
 
-    // Sectors: filled by threat once surveyed, a "?" before; a ring when
-    // visited, an amber one when picked.
+    // Sectors: filled by threat; a ring when visited, an amber one when
+    // picked; a green diamond over those taking an open delivery, a hollow
+    // one over those whose next request waits on a tech.
     const ImU32 ink = theme::U32(theme::kText);
     const ImU32 halo = theme::U32(theme::kInset);
+    const Progress& progress = world.get_fleet().get_progress();
+    const auto takes_delivery = [&](int i) {
+        const std::vector<std::size_t> here = map.deliveries_at(i);
+        return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
+    };
+    // A request here not made, nor open: the next in its chain, waiting on
+    // a tech.
+    const auto awaits_tech = [&](int i) {
+        const std::vector<std::size_t> here = map.deliveries_at(i);
+        return std::any_of(here.begin(), here.end(), [&](std::size_t d) {
+            return !progress.done(d) && !progress.open(d) && progress.chain_current(all_deliveries()[d].chain) == d;
+        });
+    };
     for (int i = 0; i < map.size(); ++i) {
-        if (!map.known(i))
+        if (!world.shown(i))
             continue;
         const Sector& s = map.at(i);
         const ImVec2 c = screen(s);
-        if (s.surveyed) {
-            draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.hostile() ? s.threat : 0)));
-        } else {
-            draw->AddCircleFilled(c, r, theme::U32(theme::kFrame));
-            const ImVec2 q = ImGui::CalcTextSize("?");
-            draw->AddText(ImVec2(c.x - q.x * 0.5f, c.y - q.y * 0.5f), theme::U32(theme::kTextDim), "?");
-        }
+        draw->AddCircleFilled(c, r, theme::U32(ThreatColor(s.hostile() ? s.threat : 0)));
         draw->AddCircle(c, r, s.visited ? ink : theme::U32(theme::kTextDim), 0, s.visited ? 2.0f : 1.0f);
+        if (const bool open = takes_delivery(i); open || awaits_tech(i)) {
+            const ImVec2 d(c.x, c.y - r * 2.1f);
+            const float h = r * 0.6f;
+            const ImVec2 top(d.x, d.y - h), right(d.x + h, d.y), bottom(d.x, d.y + h), left(d.x - h, d.y);
+            if (open) {
+                draw->AddQuadFilled(top, right, bottom, left, theme::U32(theme::kGood));
+                draw->AddQuad(top, right, bottom, left, halo, 1.5f);
+            } else {
+                draw->AddQuadFilled(top, right, bottom, left, halo);
+                draw->AddQuad(top, right, bottom, left, theme::U32(theme::kGood, 0.7f), 1.5f);
+            }
+        }
         if (m.selected == i)
             draw->AddCircle(c, r + 4.0f, theme::U32(theme::kAccent), 0, 2.5f);
         else if (hovered == i)
             draw->AddCircle(c, r + 4.0f, theme::U32(theme::kAccent, 0.5f), 0, 1.5f);
-        const char* label = s.surveyed ? s.name.c_str() : "";
+        const char* label = s.name.c_str();
         const ImVec2 ts = ImGui::CalcTextSize(label);
         theme::DrawHaloText(draw, ImVec2(c.x - ts.x * 0.5f, c.y + r + 3.0f), ink, halo, label);
     }
@@ -540,13 +611,19 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
                                 ImVec2(p.x - h * 0.5f, p.y + h * 0.5f),
                                 theme::U32(ship->id == current.id ? theme::kAccent : theme::kSteel));
     }
-    if (hovered)
-        ImGui::SetTooltip("%s", map.at(*hovered).surveyed ? map.at(*hovered).name.c_str() : "Unsurveyed sector");
+    if (hovered) {
+        // The sector's name, and the delivery it asks for now, if any.
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(map.at(*hovered).name.c_str());
+        DrawSectorRequest(progress, map, *hovered);
+        ImGui::EndTooltip();
+    }
     draw->PopClipRect();
 
     const float pad = ImGui::GetStyle().WindowPadding.x;
     ImGui::SetCursorScreenPos(ImVec2(canvas_min.x + pad, canvas_max.y - ImGui::GetTextLineHeight() - pad));
-    ImGui::TextColored(theme::kTextDim, "Click a sector for details. M: back to the ship");
+    ImGui::TextColored(theme::kTextDim,
+                       "Green diamonds: deliveries (hollow: waiting on a tech). Hover or click a sector for details");
     if (m.selected)
         DrawSectorPanel(world, current, *m.selected, ImVec2(canvas_min.x + pad, canvas_min.y + pad));
 }

@@ -21,7 +21,7 @@
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/fleet.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
@@ -173,7 +173,7 @@ struct SaveAccess {
         } else if (const auto* hold = dynamic_cast<const CargoHold*>(&b)) {
             j["stored"] = save_inventory(hold->stored);
         } else if (const auto* provider = dynamic_cast<const Provider*>(&b)) {
-            j["stored"] = save_inventory(provider->stored);
+            // Nothing it took: that's passed on by the end of each tick.
             j["cooldown"] = provider->cooldown;
         } else if (const auto* requester = dynamic_cast<const Requester*>(&b)) {
             j["filter"] = save_optional_item(requester->filter);
@@ -199,18 +199,32 @@ struct SaveAccess {
             if (m->only_when_requested)
                 j["only_when_requested"] = true;
         }
-        // Survey scanners hold no state.
     }
 
-    // The fleet's milestone progress: the milestone being worked on, and
-    // what has been produced toward it, as item counts. The key is
-    // "delivered", from when milestones counted deliveries to the bridge.
+    // The fleet's progress: by delivery name, the complete ones
+    // ({"done": true}) and those with something delivered toward them
+    // ({"done": false, "delivered": {item counts}}), the rest left out; the
+    // points to spend; and the techs bought, by name.
     static Json save_progress(const Progress& progress) {
-        Json produced = Json::object();
-        for (int i = 0; i < kItemKindCount; ++i)
-            if (const int n = progress.produced[static_cast<std::size_t>(i)]; n != 0)
-                produced[item_id(static_cast<ItemKind>(i))] = n;
-        Json j = {{"milestone", progress.current}, {"delivered", std::move(produced)}};
+        Json deliveries = Json::object();
+        const std::vector<Delivery>& table = all_deliveries();
+        for (std::size_t d = 0; d < table.size(); ++d) {
+            if (progress.complete_[d]) {
+                deliveries[table[d].name] = {{"done", true}};
+                continue;
+            }
+            Json delivered = Json::object();
+            for (const ItemStack& want : table[d].wants)
+                if (const int n = progress.delivered(d, want.kind); n > 0)
+                    delivered[item_id(want.kind)] = n;
+            if (!delivered.empty())
+                deliveries[table[d].name] = {{"done", false}, {"delivered", std::move(delivered)}};
+        }
+        Json techs = Json::array();
+        for (std::size_t t = 0; t < all_techs().size(); ++t)
+            if (progress.bought_[t])
+                techs.push_back(all_techs()[t].name);
+        Json j = {{"deliveries", std::move(deliveries)}, {"points", progress.points_}, {"techs", std::move(techs)}};
         // The kinds of weapon found.
         Json found = Json::array();
         for (const ItemKind w : progress.found)
@@ -219,46 +233,71 @@ struct SaveAccess {
         return j;
     }
 
-    // `before_reserves`: a save from before resources ran out, made with the
-    // milestones as they were then (five of them, the same names in the
-    // same order, but asking for other things): one past the last of them
-    // is past every one now too, and what was delivered toward one that
-    // now asks for other things is dropped, rather than refused.
-    static Progress load_progress_of(const Json& j, bool before_reserves) {
+    // A delivery or tech no longer known is left out, and what was delivered
+    // of an item no longer known with it.
+    static Progress load_progress_of(const Json& j) {
         Progress progress;
-        progress.current = static_cast<std::size_t>(
-            load_int(j.at("milestone"), 0, static_cast<std::int64_t>(all_milestones().size())));
-        constexpr std::size_t kMilestonesBeforeReserves = 5;
-        if (before_reserves && progress.current >= kMilestonesBeforeReserves)
-            progress.current = all_milestones().size();
-        const Json& produced = j.at("delivered");
-        if (!produced.is_object())
-            throw LoadError("expected an object of item counts, not " + produced.dump());
-        const Milestone* milestone = progress.current_milestone();
-        for (const auto& [id, count] : produced.items()) {
-            const std::optional<ItemKind> known = load_item(Json(id));
-            if (!known)
+        progress.points_ = static_cast<int>(load_int(j.at("points"), 0, 1'000'000'000));
+        const std::vector<Tech>& techs = all_techs();
+        for (const Json& jt : load_array(j.at("techs"), "techs")) {
+            const std::string name = load_string(jt, "a tech");
+            const auto known = std::find_if(techs.begin(), techs.end(), [&](const Tech& t) { return name == t.name; });
+            if (known == techs.end())
                 continue;
-            const ItemKind kind = *known;
-            const bool asked = milestone && std::any_of(milestone->produce.begin(), milestone->produce.end(),
-                                                        [&](const ItemStack& d) { return d.kind == kind; });
-            if (!asked && before_reserves)
-                continue;
-            if (!asked)
-                throw LoadError(std::string(item_id(kind)) + " produced, which the milestone doesn't ask for");
-            // Below 0 in a save from when what unloaders took out of a
-            // bridge counted against a milestone: nothing does now.
-            progress.produced[static_cast<std::size_t>(kind)] =
-                std::max(0, static_cast<int>(load_int(count, -kMaxSavedCount, kMaxSavedCount)));
+            const auto t = static_cast<std::size_t>(known - techs.begin());
+            if (progress.bought_[t])
+                throw LoadError(name + " bought twice");
+            progress.bought_[t] = true;
         }
-        // A milestone completes as soon as every count reaches what it
-        // needs, so they can't all have.
-        if (milestone && std::all_of(milestone->produce.begin(), milestone->produce.end(), [&](const ItemStack& d) {
-                return progress.produced[static_cast<std::size_t>(d.kind)] >= d.count;
-            })) {
-            if (!before_reserves)
-                throw LoadError("everything the milestone needs produced, but not complete");
-            progress.complete_current();  // what it asks for now was already there
+        for (std::size_t t = 0; t < techs.size(); ++t)
+            if (progress.bought_[t])
+                for (const std::size_t before : tech_prerequisites(t))
+                    if (!progress.bought_[before])
+                        throw LoadError(std::string(techs[t].name) + " bought before " + techs[before].name);
+        const Json& deliveries = j.at("deliveries");
+        if (!deliveries.is_object())
+            throw LoadError("expected an object of deliveries, not " + deliveries.dump());
+        const std::vector<Delivery>& table = all_deliveries();
+        // The complete ones first, so the rest can be checked against them.
+        std::vector<std::pair<std::size_t, const Json*>> partial;
+        for (const auto& [name, jd] : deliveries.items()) {
+            const auto known = std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
+            if (known == table.end())
+                continue;
+            const auto d = static_cast<std::size_t>(known - table.begin());
+            if (jd.at("done").get<bool>())
+                progress.complete_[d] = true;
+            else
+                partial.emplace_back(d, &jd);
+        }
+        for (std::size_t d = 0; d < table.size(); ++d)
+            if (progress.complete_[d]) {
+                if (const std::optional<std::size_t> before = delivery_before(d); before && !progress.complete_[*before])
+                    throw LoadError(std::string(table[d].name) + " complete before " + table[*before].name);
+                for (const ItemStack& want : table[d].wants)
+                    progress.delivered_[d][static_cast<std::size_t>(want.kind)] = want.count;
+            }
+        for (const auto& [d, jd] : partial) {
+            if (!progress.open(d))
+                throw LoadError(std::string("something delivered toward ") + table[d].name + ", which isn't open");
+            const Json& delivered = jd->at("delivered");
+            if (!delivered.is_object())
+                throw LoadError("expected an object of item counts, not " + delivered.dump());
+            for (const auto& [id, count] : delivered.items()) {
+                const std::optional<ItemKind> kind = load_item(Json(id));
+                if (!kind)
+                    continue;
+                const std::vector<ItemStack>& wants = table[d].wants;
+                const auto want = std::find_if(wants.begin(), wants.end(), [&](const ItemStack& w) { return w.kind == *kind; });
+                if (want == wants.end())
+                    throw LoadError(std::string(id) + " delivered toward " + table[d].name + ", which doesn't want it");
+                progress.delivered_[d][static_cast<std::size_t>(*kind)] = static_cast<int>(load_int(count, 0, want->count));
+            }
+            // A delivery completes as soon as everything it wants is in.
+            if (std::all_of(table[d].wants.begin(), table[d].wants.end(), [&](const ItemStack& w) {
+                    return progress.delivered(d, w.kind) >= w.count;
+                }))
+                throw LoadError(std::string("everything ") + table[d].name + " wants delivered, but not complete");
         }
         // The weapons found (none, without the list).
         if (const auto found = j.find("found_weapons"); found != j.end())
@@ -376,14 +415,13 @@ struct SaveAccess {
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* provider = dynamic_cast<Provider*>(&b)) {
-            provider->stored = load_inventory(j.at("stored"));
-            if (provider->stored.total() > kLinkBuffer)
-                throw LoadError("too many items in a provider");
+            // What it held, in saves from before it passed items straight
+            // on, goes to its ship's bridge (see load_building).
             provider->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
         } else if (auto* requester = dynamic_cast<Requester*>(&b)) {
             requester->filter = load_item(j.at("filter"));
             requester->buffer = load_inventory(j.at("buffer"));
-            if (requester->buffer.total() > kLinkBuffer)
+            if (requester->buffer.total() > kRequesterBuffer)
                 throw LoadError("too many items in a requester");
             requester->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
             // Saves from before requesters took turns by how long they'd
@@ -452,8 +490,9 @@ struct SaveAccess {
         if (!layout)
             throw LoadError("unknown ship layout: " + id);
         ship.set_hull(*layout);
+        Inventory held;  // by providers, in older saves
         for (const Json& b : load_array(j.at("buildings"), "buildings"))
-            load_building(b, ship, progress);
+            load_building(b, ship, progress, held);
 
         // The bridge and every engine where the layout has them, and no others.
         if (!ship.bridge || ship.building_anchored_at(layout_to_grid(*layout, layout->bridge)) != ship.bridge)
@@ -463,10 +502,13 @@ struct SaveAccess {
                 throw LoadError("an engine missing from where the ship's layout has it");
         if (ship.thrusters().size() != layout->engines.size())
             throw LoadError("more engines than the ship's layout has");
+        ship.inventory().add(held.stacks());
         return ship;
     }
 
-    static void load_building(const Json& j, Ship& ship, const std::shared_ptr<Progress>& progress) {
+    // What a provider held, in a save from before providers passed items
+    // straight on, is added to `held`, for the ship's bridge.
+    static void load_building(const Json& j, Ship& ship, const std::shared_ptr<Progress>& progress, Inventory& held) {
         const Json& kind_json = j.at("kind");
         std::unique_ptr<Building> b;
         if (kind_json == kBridgeId) {
@@ -508,6 +550,9 @@ struct SaveAccess {
                 throw LoadError(std::string("a ") + item_id(*kind) + " not where the ports allow: " + describe(ports));
 
         load_state(j, *b);
+        if (dynamic_cast<const Provider*>(b.get()))
+            if (const auto stored = j.find("stored"); stored != j.end())
+                held.add(load_inventory(*stored).stacks());
         if (auto* bridge = dynamic_cast<Bridge*>(b.get()))
             ship.bridge = bridge;
         ship.add_building(p, std::move(b));
@@ -629,10 +674,10 @@ struct SaveAccess {
 
     // `now`: the World's tick, which cargo in flight lands after; ships are
     // in one of `map`'s visited sectors.
-    static Fleet load_fleet(const Json& j, Tick now, const StarMap& map, bool before_reserves) {
+    static Fleet load_fleet(const Json& j, Tick now, const StarMap& map) {
         Fleet fleet;
         fleet.next_id = static_cast<int>(load_int(j.at("next_ship_id"), 2, 1'000'000));
-        *fleet.progress = load_progress_of(j.at("progress"), before_reserves);
+        *fleet.progress = load_progress_of(j.at("progress"));
         for (const Json& s : load_array(j.at("ships"), "ships")) {
             const int id = static_cast<int>(load_int(s.at("id"), 1, fleet.next_id - 1));
             if (fleet.find(id))
@@ -694,18 +739,18 @@ struct SaveAccess {
                 {"enemy", s.enemy ? Json(enemy_id(*s.enemy)) : Json(nullptr)},
                 {"beaten", s.beaten},
                 {"visited", s.visited},
-                {"surveyed", s.surveyed},
             });
         }
-        return {{"sectors", std::move(sectors)}};
+        // Where each delivery is taken, by name.
+        Json deliveries = Json::object();
+        for (std::size_t d = 0; d < all_deliveries().size(); ++d)
+            deliveries[all_deliveries()[d].name] = map.delivery_sector(d);
+        return {{"sectors", std::move(sectors)}, {"deliveries", std::move(deliveries)}};
     }
 
     // Checks the links: both ways, none to itself or twice, and every
     // sector reachable from home.
-    // `before_reserves` is set for a save from before resources ran out
-    // (none of its sectors has any reserves saved).
-    static StarMap load_map(const Json& j, bool& before_reserves) {
-        before_reserves = true;
+    static StarMap load_map(const Json& j) {
         StarMap map;
         const Json& sectors = load_array(j.at("sectors"), "sectors");
         if (sectors.empty() || sectors.size() > 1'000)
@@ -718,19 +763,13 @@ struct SaveAccess {
             s.y = load_float(js.at("y"), 10'000.0f);
             for (const Json& link : load_array(js.at("neighbors"), "sector links"))
                 s.neighbors.push_back(static_cast<int>(load_int(link, 0, n - 1)));
-            // Saves from before resources ran out: home as a new map's, and
-            // every other sector with all of every resource.
-            if (const auto reserves = js.find("reserves"); reserves != js.end()) {
-                before_reserves = false;
-                for (int r = 0; r < kRawResourceCount; ++r) {
-                    const Json& left = reserves->at(item_id(kRawResources[r]));
-                    s.reserves[static_cast<std::size_t>(r)] = static_cast<int>(load_int(left, 0, 100'000'000));
-                }
-                if (reserves->size() != static_cast<std::size_t>(kRawResourceCount))
-                    throw LoadError("reserves of something that isn't a raw resource");
-            } else {
-                s.reserves = map.sectors.empty() ? kHomeReserves : kSectorReserves;
+            const Json& reserves = js.at("reserves");
+            for (int r = 0; r < kRawResourceCount; ++r) {
+                const Json& left = reserves.at(item_id(kRawResources[r]));
+                s.reserves[static_cast<std::size_t>(r)] = static_cast<int>(load_int(left, 0, 100'000'000));
             }
+            if (reserves.size() != static_cast<std::size_t>(kRawResourceCount))
+                throw LoadError("reserves of something that isn't a raw resource");
             s.threat = static_cast<int>(load_int(js.at("threat"), 0, kMaxThreat));
             if (const Json& enemy = js.at("enemy"); !enemy.is_null()) {
                 s.enemy = enemy_from_id(load_string(enemy, "an enemy class"));
@@ -739,9 +778,6 @@ struct SaveAccess {
             }
             s.beaten = js.at("beaten").get<bool>();
             s.visited = js.at("visited").get<bool>();
-            s.surveyed = js.at("surveyed").get<bool>();
-            if (s.visited && !s.surveyed)
-                throw LoadError("a sector visited but not surveyed");
             map.sectors.push_back(std::move(s));
         }
         std::vector<bool> reached(map.sectors.size(), false);
@@ -768,6 +804,22 @@ struct SaveAccess {
         }
         if (std::find(reached.begin(), reached.end(), false) != reached.end())
             throw LoadError("a sector out of reach of home");
+        // Every delivery known now is taken somewhere (one no longer known
+        // is left out).
+        const Json& deliveries = j.at("deliveries");
+        if (!deliveries.is_object())
+            throw LoadError("expected an object of delivery sectors, not " + deliveries.dump());
+        const std::vector<Delivery>& table = all_deliveries();
+        map.delivery_sectors.assign(table.size(), -1);
+        for (const auto& [name, sector] : deliveries.items()) {
+            const auto known = std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
+            if (known != table.end())
+                map.delivery_sectors[static_cast<std::size_t>(known - table.begin())] =
+                    static_cast<int>(load_int(sector, 0, n - 1));
+        }
+        for (std::size_t d = 0; d < table.size(); ++d)
+            if (map.delivery_sectors[d] < 0)
+                throw LoadError(std::string("no sector for the delivery ") + table[d].name);
         return map;
     }
 
@@ -791,9 +843,8 @@ struct SaveAccess {
         if (!j.at("rng").is_number_unsigned())
             throw LoadError("expected the random number state, not " + j.at("rng").dump());
         world.rng.state = j.at("rng").get<std::uint64_t>();
-        bool before_reserves = false;
-        world.map = load_map(j.at("star_map"), before_reserves);
-        world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map, before_reserves);
+        world.map = load_map(j.at("star_map"));
+        world.fleet = load_fleet(j.at("fleet"), world.current_tick, world.map);
         for (const Json& e : load_array(j.at("engagements"), "fights")) {
             Engagement fight = load_engagement(e, world.current_tick, world.map, world.fleet);
             if (world.engagement_in(fight.sector))

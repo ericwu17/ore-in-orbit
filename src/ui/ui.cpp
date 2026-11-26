@@ -16,15 +16,16 @@ namespace ui {
 
 namespace {
 
-// The banner over the grid when a milestone is completed: the fleet
-// progress it follows, the milestone it last saw being worked on, and until
-// when (ImGui::GetTime()) it shows.
-struct MilestoneBanner {
+// The banner over the grid when a delivery is completed: the fleet
+// progress it follows, the deliveries it last saw complete, the one it
+// announces, and until when (ImGui::GetTime()) it shows.
+struct DeliveryBanner {
     const Progress* progress = nullptr;
-    std::size_t seen = 0;
+    std::vector<bool> seen;
+    std::size_t shown = 0;
     double until = 0.0;
 };
-MilestoneBanner g_banner;
+DeliveryBanner g_banner;
 
 // A banner plate centered across the grid (`grid_min`, `grid_size`): a band
 // along its top in `band` (hazard stripes when `hazard`), `title` in mono
@@ -61,23 +62,30 @@ float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 b
     return h;
 }
 
-// Announces a milestone just completed, for a few seconds, at the top of
+// Announces a delivery just completed, for a few seconds, at the top of
 // the grid (`grid_min`, `grid_size`). Returns its height (0 when there's
 // none).
-float DrawMilestoneBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
-    const std::size_t current = progress.current_index();
-    MilestoneBanner& banner = g_banner;
+float DrawDeliveryBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
+    const std::size_t count = all_deliveries().size();
+    std::vector<bool> done(count);
+    for (std::size_t d = 0; d < count; ++d)
+        done[d] = progress.done(d);
+    DeliveryBanner& banner = g_banner;
     if (banner.progress != &progress)
-        banner = {&progress, current, 0.0};  // a new or loaded game: nothing to announce
-    if (current > banner.seen)
-        banner.until = ImGui::GetTime() + 5.0;
-    banner.seen = current;
-    if (current == 0 || ImGui::GetTime() >= banner.until)
+        banner = {&progress, done, 0, 0.0};  // a new or loaded game: nothing to announce
+    for (std::size_t d = 0; d < count; ++d)
+        if (done[d] && !banner.seen[d]) {
+            banner.shown = d;
+            banner.until = ImGui::GetTime() + 5.0;
+        }
+    banner.seen = done;
+    if (ImGui::GetTime() >= banner.until)
         return 0.0f;
 
-    const std::string title = std::string("MILESTONE COMPLETE: ") + all_milestones()[current - 1].name;
-    const char* subtitle = progress.all_complete() ? "Every milestone done!" : "New recipes unlocked";
-    return DrawBanner(title.c_str(), subtitle, theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
+    const std::string title = std::string("DELIVERY COMPLETE: ") + all_deliveries()[banner.shown].name;
+    const std::string subtitle = "+" + std::to_string(delivery_points(banner.shown)) + " " + kPointsName +
+                                 (progress.all_complete() ? ": every delivery made!" : ", to spend in the Shop");
+    return DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 
 // The shown ship's last jump: which ship, to where, and when
@@ -481,6 +489,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             g_fleet.show_send = false;
         else if (g_fleet.show_build)
             g_fleet.show_build = false;
+        else if (g_fleet.show_shop)
+            g_fleet.show_shop = false;
         else if (g_build.inspected) {
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -587,13 +597,13 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     } else {
         DrawShipGrid(shown.ship, shown.id, fight, world.get_tick(), grid_avail);
     }
-    const float milestone_h = DrawMilestoneBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
+    const float delivery_h = DrawDeliveryBanner(world.get_fleet().get_progress(), grid_min, grid_avail);
     const float battle_h = g_map.shown ? 0.0f : DrawBattleBanner(world, shown, grid_min, grid_avail);
     DrawToast(grid_min, grid_avail, battle_h);
     // The jump over all of that, then where the ship came out.
     if (!g_map.shown) {
         DrawJumpTransition(shown.id, grid_min, grid_avail);
-        DrawJumpBanner(world, shown.id, grid_min, grid_avail, milestone_h);
+        DrawJumpBanner(world, shown.id, grid_min, grid_avail, delivery_h);
     }
     DrawSalvageWindow(world, grid_min, grid_avail);
     DrawHintBar(ImVec2(grid_min.x, grid_min.y + grid_avail.y + ImGui::GetStyle().ItemSpacing.y), grid_avail.x);
@@ -610,7 +620,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             g_build.craft_in_fight = true;
             PlayUi(audio::Sound::UiTabSwitch);
         }
-        ImGui::SetItemTooltip("The milestone, fleet, craft queue and hand-crafting");
+        ImGui::SetItemTooltip("The deliveries, fleet, craft queue and hand-crafting");
         ImGui::SetCursorScreenPos(ImVec2(column_min.x + column_avail.x + gap, column_min.y + strip_h));
         if (g_build.craft_in_fight)
             DrawCraftPanel(world, shown, craft_w);
@@ -623,6 +633,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawBlueprintLibrary(blueprints_dir);
         DrawSendCargoWindow(world, shown);
         DrawBuildShipWindow(world, shown);
+        DrawShopWindow(world);
         DrawInspectorWindow(world.get_fleet(), shown);
         DrawKeysWindow();
     }

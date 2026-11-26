@@ -58,10 +58,10 @@ const Recipe& recipe_named(const char* name) {
 }
 
 // A ship with one of everything that holds state, part way through running:
-// a collector (aimed at silica) feeding belts into a cargo hold, a survey
-// scanner, a filter sorter with items queued on the belt into it, two machines
+// a collector (aimed at silica) feeding belts into a cargo hold, an empty
+// cargo hold, a filter sorter with items queued on the belt into it, two machines
 // mid-craft, a west-facing express belt, a junction and a router holding
-// items, and the bridge hand-crafting, part way through a milestone; an
+// items, and the bridge hand-crafting, part way through a delivery; an
 // engine (ion thruster) part charged, a burst laser with fuel and
 // ammunition and a damaged cargo hold, in a fight with a Raider, targeting
 // its bridge, with a weapon found; and a second ship, with cargo on its
@@ -73,15 +73,16 @@ World busy_world() {
                                       {ItemKind::FilterSorter, 1},
                                       {ItemKind::Junction, 1},
                                       {ItemKind::Router, 1},
-                                      {ItemKind::SurveyScanner, 1},
+                                      {ItemKind::CargoHold, 1},
                                       {ItemKind::BurstLaser, 1},
                                       {ItemKind::Refinery, 1}});
-    // Two milestones done (the refinery's recipes need them), and some way
-    // into the third.
+    // Two techs bought (the refinery's recipes need them), a delivery made,
+    // some way into the next, and points to spend.
     Progress& progress = world.flagship().get_bridge().get_progress();
-    assert(progress.complete_current() && progress.complete_current());
-    for (int i = 0; i < 3; ++i)
-        assert(!progress.on_produced(ItemKind::AdvancedCircuit));
+    assert(progress.grant(tech_index("Steelworks")) && progress.grant(tech_index("Refining")));
+    assert(progress.complete(delivery_index("Hull plating")));
+    progress.add_points(7);
+    assert(!progress.deliver(delivery_index("Girders"), ItemKind::Gear, 3));
     Ship& ship = world.flagship();
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
@@ -89,9 +90,11 @@ World busy_world() {
     for (int x = x0 + 2; x <= x0 + 4; ++x)
         assert(ship.place(ItemKind::TransportBelt, {x, c - 6}, Direction::East) == BuildResult::Ok);
     assert(ship.place(ItemKind::CargoHold, {x0 + 5, c - 6}) == BuildResult::Ok);
-    assert(ship.place(ItemKind::SurveyScanner, {x0 + 8, c - 6}) == BuildResult::Ok);
-    for (int i = 0; i < 3; ++i)
-        assert(ship.insert_item(kEngine, {kEngine.x, kEngine.y - 1}, ItemKind::FuelCell));
+    assert(ship.place(ItemKind::CargoHold, {x0 + 8, c - 6}) == BuildResult::Ok);
+    // The engines spent, and 3 fuel cells left to go into the first.
+    ship.burn_thrusters();
+    ship.inventory().take(ItemKind::FuelCell, ship.inventory().count(ItemKind::FuelCell));
+    ship.inventory().add(ItemKind::FuelCell, 3);
     assert(ship.place(ItemKind::BurstLaser, kGun) == BuildResult::Ok);
     for (int i = 0; i < 3; ++i) {
         assert(ship.insert_item(kGun, {kGun.x, kGun.y - 1}, ItemKind::FocusCrystal));
@@ -232,7 +235,14 @@ void test_round_trip() {
     assert(tender.name == "Tender");
     assert(&tender.ship.get_bridge().get_progress() == &fleet.get_progress());
     assert(&copy.get_bridge().get_progress() == &fleet.get_progress());
-    assert(fleet.get_progress().produced_count(ItemKind::AdvancedCircuit) == 3);
+    assert(fleet.get_progress().delivered(delivery_index("Girders"), ItemKind::Gear) == 3);
+    assert(fleet.get_progress().done(delivery_index("Hull plating")));
+    assert(fleet.get_progress().open(delivery_index("Girders")));
+    assert(fleet.get_progress().points() == delivery_points(delivery_index("Hull plating")) + 7);
+    assert(fleet.get_progress().bought(tech_index("Refining")) && !fleet.get_progress().bought(tech_index("Logistics")));
+    // Where the deliveries are taken.
+    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
+        assert(loaded->world.get_map().delivery_sector(d) == world.get_map().delivery_sector(d));
     assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].to == tender.id);
 }
 
@@ -302,13 +312,14 @@ Json minimal() {
           "star_map": {"sectors": [
             {"name": "Home", "x": 0, "y": 0, "neighbors": [1],
              "reserves": {"IronOre": 7000, "CopperOre": 1200, "Silica": 1100, "Carbon": 1700, "IridiumOre": 0},
-             "threat": 0, "enemy": null, "beaten": false, "visited": true, "surveyed": true},
+             "threat": 0, "enemy": null, "beaten": false, "visited": true},
             {"name": "Next door", "x": 10, "y": -5.5, "neighbors": [0],
              "reserves": {"IronOre": 0, "CopperOre": 2700, "Silica": 1650, "Carbon": 2550, "IridiumOre": 0},
-             "threat": 1, "enemy": "Scout", "beaten": false, "visited": false, "surveyed": false}]},
+             "threat": 1, "enemy": "Scout", "beaten": false, "visited": false}],
+           "deliveries": {}},
           "fleet": {
             "next_ship_id": 2,
-            "progress": {"milestone": 0, "delivered": {}},
+            "progress": {"deliveries": {}, "points": 0, "techs": []},
             "ships": [{"id": 1, "name": "Flagship", "sector": 0, "ship": {
                 "layout": "skiff",
                 "buildings": [
@@ -317,6 +328,9 @@ Json minimal() {
                 ]}}],
             "transfers": []},
           "engagements": []}})");
+    // Every delivery taken next door.
+    for (const Delivery& d : all_deliveries())
+        save["world"]["star_map"]["deliveries"][d.name] = 1;
     save["version"] = kSaveVersion;
     const ShipLayout& layout = starter_layout();
     const GridPos at = layout_to_grid(layout, layout.bridge);
@@ -376,12 +390,33 @@ void test_refused() {
     refused_after(save, "a recipe that isn't unlocked yet", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Advanced circuit", "elapsed": 0}])");
     });
-    refused_after(save, "a milestone past the last", [](Json& j) { progress(j)["milestone"] = 99; });
-    refused_after(save, "no milestone", [](Json& j) { progress(j).erase("milestone"); });
-    refused_after(save, "everything the milestone needs produced, but not complete",
-                  [](Json& j) { progress(j)["delivered"] = {{"IronPlate", 50}, {"CopperPlate", 20}}; });
-    refused_after(save, "a count the milestone doesn't need",
-                  [](Json& j) { progress(j)["delivered"] = {{"Gear", 1}}; });
+    refused_after(save, "no deliveries", [](Json& j) { progress(j).erase("deliveries"); });
+    refused_after(save, "no points", [](Json& j) { progress(j).erase("points"); });
+    refused_after(save, "points below zero", [](Json& j) { progress(j)["points"] = -5; });
+    refused_after(save, "no techs", [](Json& j) { progress(j).erase("techs"); });
+    refused_after(save, "a tech bought twice", [](Json& j) { progress(j)["techs"] = {"Steelworks", "Steelworks"}; });
+    refused_after(save, "a tech bought before the one it comes after",
+                  [](Json& j) { progress(j)["techs"] = {"Refining"}; });
+    refused_after(save, "a delivery complete before the one it comes after", [](Json& j) {
+        progress(j)["deliveries"]["Girders"] = {{"done", true}};
+    });
+    refused_after(save, "something delivered toward a delivery not open yet", [](Json& j) {
+        progress(j)["deliveries"]["Girders"] = Json::parse(R"({"done": false, "delivered": {"Gear": 1}})");
+    });
+    refused_after(save, "everything a delivery wants delivered, but not complete", [](Json& j) {
+        progress(j)["deliveries"]["Hull plating"] =
+            Json::parse(R"({"done": false, "delivered": {"IronPlate": 60, "Gear": 30}})");
+    });
+    refused_after(save, "something delivered that the delivery doesn't want", [](Json& j) {
+        progress(j)["deliveries"]["Hull plating"] = Json::parse(R"({"done": false, "delivered": {"Steel": 1}})");
+    });
+    refused_after(save, "more delivered than wanted", [](Json& j) {
+        progress(j)["deliveries"]["Hull plating"] = Json::parse(R"({"done": false, "delivered": {"IronPlate": 61}})");
+    });
+    refused_after(save, "a delivery without a sector",
+                  [](Json& j) { j["world"]["star_map"]["deliveries"].erase("Hull plating"); });
+    refused_after(save, "a delivery in a sector that isn't there",
+                  [](Json& j) { j["world"]["star_map"]["deliveries"]["Hull plating"] = 2; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
         bridge(j)["queue"] = Json::parse(R"([{"recipe": "Glass", "elapsed": 0}])");
     });
@@ -447,7 +482,7 @@ void test_refused() {
     refused_after(save, "missing reserves", [](Json& j) { sectors(j)[1]["reserves"].erase("Carbon"); });
     refused_after(save, "a threat past the highest", [](Json& j) { sectors(j)[1]["threat"] = kMaxThreat + 1; });
     refused_after(save, "a sector at infinity", [](Json& j) { sectors(j)[1]["x"] = 1e300; });
-    refused_after(save, "a visited sector not surveyed", [](Json& j) { sectors(j)[1]["visited"] = true; });
+    refused_after(save, "no reserves", [](Json& j) { sectors(j)[1].erase("reserves"); });
     refused_after(save, "an unknown enemy", [](Json& j) { sectors(j)[1]["enemy"] = "Kraken"; });
     refused_after(save, "no word of beaten enemies", [](Json& j) { sectors(j)[1].erase("beaten"); });
     refused_after(save, "no random number state", [](Json& j) { j["world"].erase("rng"); });
@@ -564,9 +599,6 @@ void test_refused() {
     refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
             "an unloader waiting longer than it ever does");
-    refused(with_building(R"({"kind": "Provider", "x": 70, "y": 64, "facing": "North", "output_side": 0,
-                              "stored": {"Gear": 21}, "cooldown": 0})"),
-            "a provider holding more than it can");
     refused(with_building(R"({"kind": "Requester", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "filter": "Gear", "buffer": {"Gear": 21}, "cooldown": 0,
                               "last_received": 0})"),
@@ -719,7 +751,7 @@ void test_unloader_round_trip() {
     assert(save_text(loaded->world) == save_text(world));
 }
 
-// Providers keep what they hold and their wait, requesters their filter,
+// Providers keep their wait, requesters their filter,
 // what waits to go out and their wait, so a loaded game links just as the
 // original does.
 void test_link_round_trip() {
@@ -731,10 +763,13 @@ void test_link_round_trip() {
     assert(ship.place(ItemKind::Provider, provider) == BuildResult::Ok);
     assert(ship.place(ItemKind::Requester, requester) == BuildResult::Ok);
     assert(ship.set_filter(requester, ItemKind::Gear));
-    for (int i = 0; i < 15; ++i)
-        assert(ship.insert_item(provider, {x0 - 1, c + 11}, i % 3 ? ItemKind::Gear : ItemKind::Steel));
-    run(world, 2 * kLinkTicks + 2);
+    // Fed gears flat out, so it's part-way through its wait when saved.
+    for (Tick t = 0; t < 3 * kLinkTicks + 2; ++t) {
+        ship.insert_item(provider, {x0 - 1, c + 11}, ItemKind::Gear);
+        run(world, 1);
+    }
     assert(dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().total() > 0);
+    assert(!dynamic_cast<const Provider&>(*ship.building_at(provider)).ready());
 
     const std::string text = save_text(world);
     std::string error;
@@ -748,10 +783,33 @@ void test_link_round_trip() {
            dynamic_cast<const Requester&>(*ship.building_at(requester)).get_last_received());
     assert(r.get_buffer().count(ItemKind::Gear) ==
            dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().count(ItemKind::Gear));
-    assert(dynamic_cast<const Provider&>(*copy.building_at(provider)).get_stored().count(ItemKind::Steel) == 5);
+    assert(!dynamic_cast<const Provider&>(*copy.building_at(provider)).ready());
     run(world, 40);
     run(loaded->world, 40);
     assert(save_text(loaded->world) == save_text(world));
+
+    // A save from when providers held what they took loads, what they held
+    // going to their ship's bridge.
+    Json held = Json::parse(save_text(world));
+    int providers = 0;
+    const std::function<void(Json&)> hold = [&](Json& j) {
+        if (j.is_object() && j.contains("kind") && j["kind"] == "Provider") {
+            assert(!j.contains("stored"));
+            j["stored"] = {{"Steel", 5}, {"Gear", 2}};
+            ++providers;
+        }
+        if (j.is_structured())
+            for (Json& child : j)
+                hold(child);
+    };
+    hold(held);
+    assert(providers == 1);
+    std::optional<LoadedSave> holding = load_text(held.dump(), error);
+    assert(holding && error.empty());
+    const Inventory& bridge = holding->world.flagship().inventory();
+    assert(bridge.count(ItemKind::Steel) == ship.inventory().count(ItemKind::Steel) + 5);
+    assert(bridge.count(ItemKind::Gear) == ship.inventory().count(ItemKind::Gear) + 2);
+    assert(holding->world.flagship().building_at(provider)->contents().empty());
 
     // A save from before requesters kept when they last pulled loads, as
     // if they never had.
@@ -830,20 +888,33 @@ void test_before_requests() {
     assert(text.find("requests") == std::string::npos && text.find("only_when_requested") == std::string::npos);
 }
 
-// A count below 0, from when what unloaders took out of a bridge counted
-// against a milestone, loads as 0: nothing takes from it now.
-void test_before_production_counts() {
+// What was delivered toward the open deliveries, which are complete, the
+// points to spend, and the techs bought load back as they were; a
+// delivery, tech or item no longer known is left out.
+void test_delivery_progress() {
     Json save = minimal();
-    progress(save)["delivered"] = {{"IronPlate", -4}, {"CopperPlate", 3}};
+    progress(save)["deliveries"]["Hull plating"] = {{"done", true}};
+    progress(save)["deliveries"]["Girders"] =
+        Json::parse(R"({"done": false, "delivered": {"Gear": 12, "BatteryBank": 3}})");
+    progress(save)["deliveries"]["Win the war"] = {{"done", true}};
+    progress(save)["points"] = 5;
+    progress(save)["techs"] = {"Steelworks", "Warp drive"};
+    save["world"]["star_map"]["deliveries"]["Win the war"] = 1;
     std::string error;
     const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    if (!loaded)
+        std::fprintf(stderr, "refused: %s\n", error.c_str());
     assert(loaded && error.empty());
     const Progress& p = loaded->world.get_fleet().get_progress();
-    assert(p.produced_count(ItemKind::IronPlate) == 0 && p.produced_count(ItemKind::CopperPlate) == 3);
+    assert(p.done(delivery_index("Hull plating")) && p.done_count() == 1);
+    assert(p.delivered(delivery_index("Girders"), ItemKind::Gear) == 12);
+    assert(p.delivered(delivery_index("Frame order"), ItemKind::Steel) == 0);
+    assert(p.points() == 5 && p.bought(tech_index("Steelworks")) && p.bought_count() == 1);
+    assert(p.unlocked(ItemKind::Steel) && !p.unlocked(ItemKind::Refinery));
+    assert(loaded->world.get_map().delivery_sector(delivery_index("Command spire")) == 1);
 }
 
-// What's left to gather in each sector loads back as it was; a save from
-// before resources ran out has as much as a new map would.
+// What's left to gather in each sector loads back as it was.
 void test_reserves_round_trip() {
     World world;
     world.drain_sector(0, 42);
@@ -853,26 +924,6 @@ void test_reserves_round_trip() {
     assert(loaded->world.get_map().at(0).left(ItemKind::IronOre) == 42);
     assert(loaded->world.get_map().at(1).reserves == world.get_map().at(1).reserves);
 
-    // From before resources ran out: no reserves saved, and the milestones
-    // as they were (Escape velocity asked for processors).
-    Json old = minimal();
-    for (Json& s : sectors(old))
-        s.erase("reserves");
-    progress(old)["milestone"] = milestone_index("Escape velocity");
-    progress(old)["delivered"] = {{"Processor", 5}, {"Glass", 7}};
-    const std::optional<LoadedSave> before = load_text(old.dump(), error);
-    assert(before && error.empty());
-    const StarMap& map = before->world.get_map();
-    assert(map.at(0).reserves == kHomeReserves);
-    assert(map.at(1).reserves == kSectorReserves);
-    const Progress& p = before->world.get_fleet().get_progress();
-    assert(p.current_index() == milestone_index("Escape velocity"));
-    assert(p.produced_count(ItemKind::Processor) == 0 && p.produced_count(ItemKind::Glass) == 7);
-    // Every old milestone done: every one now is too.
-    progress(old)["milestone"] = 5;
-    progress(old)["delivered"] = Json::object();
-    const std::optional<LoadedSave> done = load_text(old.dump(), error);
-    assert(done && done->world.get_fleet().get_progress().all_complete());
 
     Json save = minimal();
     sectors(save)[0]["reserves"] = {{"IronOre", 5}, {"CopperOre", 5}, {"Silica", 5}, {"Carbon", 5}};
@@ -930,7 +981,7 @@ void test_skips_unknown() {
         assert(false && "no building there");
         return flagship;
     };
-    // A solar panel where the survey scanner is (both 2x2, holding nothing).
+    // A solar panel where the empty cargo hold is (both 2x2, holding nothing).
     at(x0 + 8, c - 6)["kind"] = "SolarPanel";
     for (Json& b : flagship["buildings"])
         if (b["kind"] == "Bridge") {
@@ -988,7 +1039,7 @@ int main() {
     test_link_round_trip();
     test_request_round_trip();
     test_before_requests();
-    test_before_production_counts();
+    test_delivery_progress();
     test_provider_round_trip();
     test_reserves_round_trip();
     test_determinism();

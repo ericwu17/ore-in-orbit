@@ -22,7 +22,7 @@ DebugGiveState g_debug_give;
 
 // The debug menu, while a game is on: pause and single-step the simulation,
 // give the bridge any items, reveal the map, charge the thrusters, spawn
-// or beat an enemy ship, give every weapon, and complete milestones. It is
+// or beat an enemy ship, give every weapon, and complete deliveries. It is
 // a developer tool, so it is drawn in stock Dear ImGui (dark colors,
 // default sizes), not the game's theme.
 void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
@@ -158,13 +158,33 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
         ImGui::SetItemTooltip("One of each weapon into %s's bridge, every one found (their ammunition unlocked)",
                               current.name.c_str());
 
-        ImGui::SeparatorText("Milestones");
+        ImGui::SeparatorText("Deliveries");
         Progress& progress = world.get_fleet().get_progress();
-        ImGui::Text("Done: %zu / %zu", progress.current_index(), all_milestones().size());
-        ImGui::BeginDisabled(progress.all_complete());
-        if (ImGui::Button("Complete milestone"))
-            progress.complete_current();
-        ImGui::EndDisabled();
+        ImGui::Text("Done: %zu / %zu", progress.done_count(), all_deliveries().size());
+        for (const std::size_t d : progress.open_deliveries()) {
+            ImGui::PushID(static_cast<int>(d));
+            if (ImGui::Button("Complete"))
+                progress.complete(d);
+            ImGui::SameLine();
+            ImGui::Text("D%zu: %s", d + 1, all_deliveries()[d].name);
+            ImGui::PopID();
+        }
+
+        ImGui::SeparatorText("Shop");
+        ImGui::Text("%d %s", progress.points(), kPointsName);
+        if (ImGui::Button("Give 100"))
+            progress.add_points(100);
+        ImGui::SetItemTooltip("100 %s to spend in the Shop", kPointsName);
+        for (std::size_t t = 0; t < all_techs().size(); ++t) {
+            if (!progress.for_sale(t))
+                continue;
+            ImGui::PushID(static_cast<int>(1000 + t));
+            if (ImGui::Button("Grant"))
+                progress.grant(t);
+            ImGui::SameLine();
+            ImGui::Text("%s", all_techs()[t].name);
+            ImGui::PopID();
+        }
 
         ImGui::SeparatorText("Widgets");
         static bool show_imgui_demo = false;

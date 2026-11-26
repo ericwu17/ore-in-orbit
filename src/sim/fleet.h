@@ -1,4 +1,4 @@
-// fleet.h — Fleet: the player's ships, the milestone progress they share,
+// fleet.h — Fleet: the player's ships, the delivery progress they share,
 // and the cargo pods in flight between them.
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 //
@@ -27,16 +27,20 @@
 // as long as they have it (link). Each moves one item every kLinkTicks, an
 // express belt's worth; nothing is used up, and nothing is in flight.
 //
-// The milestones are the fleet's: every bridge shares one Progress, so what
-// any ship produces counts, and a recipe unlocked is unlocked on every ship.
-// Cargo that arrives by pod goes straight into the inventory, and counts for
-// nothing: it was counted when it was made.
+// Providers also make the deliveries (see deliveries.h): in a sector where
+// an open delivery is taken, each provider hands over what it holds of what
+// the delivery still wants, one item every kLinkTicks, as it would to a
+// requester (requesters there go first), and those items are used up
+// (deliver).
+//
+// The deliveries are the fleet's: every bridge shares one Progress, so what
+// any ship delivers counts, and a recipe unlocked is unlocked on every ship.
 #pragma once
 
 #include "sim/building.h"
 #include "sim/events.h"
 #include "sim/game_types.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/sector.h"
 #include "sim/ship.h"
@@ -91,7 +95,7 @@ enum class FleetResult {
     NoSuchShip,
     SameShip,       // sending to itself
     OtherSector,    // the ships aren't in the same sector
-    LayoutLocked,   // its milestone isn't complete yet
+    LayoutLocked,   // its delivery isn't complete yet
     NoStarterPack,  // launching takes one from the bridge inventory
     NotEnoughForLayout,  // the layout's cost isn't all in the bridge inventory
     NothingToSend,
@@ -126,13 +130,19 @@ private:
     // Tops up every ship's requests from the providers in its sector (see
     // the top of this file).
     void dispatch(Tick now);
-    // Each requester that wants an item now pulls one of its filter's kind
-    // from the ready provider in its sector holding the most of it (ties:
-    // the first found, oldest ship first). The requester that has waited
-    // longest since its last item goes first (ties: oldest ship, then
-    // oldest building), so providers short of items share them out evenly,
-    // however many requesters there are.
-    void link(Tick now);
+    // Hands on what each provider took this tick: to the requester in its
+    // sector that wants it and has waited longest since its last item
+    // (ties: oldest ship, then oldest building), so a provider short of
+    // items shares them out evenly however many requesters there are;
+    // failing that, toward an open delivery taken there (on `map`; none if
+    // null), reporting each it completes in `events`.
+    void link(Tick now, EventLog& events, const StarMap* map);
+    // Sets what the providers in each sector take between them this tick:
+    // an item for each requester there that will be ready for one, and what
+    // the open deliveries there (on `map`; none if null) still want, less
+    // what those providers took already and still have to pass on. Nothing
+    // else.
+    void limit_providers(const StarMap* map);
 
 public:
     // No ships yet (loading fills it in). Games start from new_game().
@@ -183,11 +193,13 @@ public:
     // the cargo on its way to it with it (see Transfer).
     void remove(int id);
 
-    // One simulation step at tick `now`: every ship ticks, then requesters
-    // pull from providers (link), then the cargo due by `now` lands (each
-    // landing reported in `events`), then (every kDispatchInterval)
-    // providing ships send what bridges request.
+    // One simulation step at tick `now`: providers are set to take what
+    // their sector asks for (limit_providers), every ship ticks (its belts
+    // feeding its providers), then what the providers took goes on to
+    // requesters and deliveries (link), then the cargo due by `now` lands (each landing reported in
+    // `events`), then (every kDispatchInterval) providing ships send what
+    // bridges request.
     // Each ship's collectors gather from its sector's reserves on `map`
-    // (null: no end to them).
+    // (null: no end to them, and no deliveries).
     void tick(Tick now, EventLog& events, StarMap* map = nullptr);
 };

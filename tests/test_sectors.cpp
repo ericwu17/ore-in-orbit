@@ -1,6 +1,6 @@
 // test_sectors.cpp — headless tests for the star map and travel: the map a
-// seed makes (the same every time, all of it reachable, home safe), what
-// the player knows of it, survey scanners, charging the layout's ion
+// seed makes (the same every time, all of it reachable, home and the
+// sectors around it safe), what the map shows, charging the layout's ion
 // thrusters with fuel cells, jumping, collectors gathering, and running a
 // sector's resources out.
 #include "sim/building.h"
@@ -22,7 +22,6 @@ namespace {
 const GridPos kThrusterA = layout_to_grid(starter_layout(), starter_layout().engines.at(0));
 const GridPos kThrusterB = layout_to_grid(starter_layout(), starter_layout().engines.at(1));
 // Room on the starting hull, away from the bridge, for 2x2 buildings.
-const GridPos kScanner = layout_to_grid(starter_layout(), {2, 10});
 const GridPos kCollectorA = layout_to_grid(starter_layout(), {2, 14});
 const GridPos kCollectorB = layout_to_grid(starter_layout(), {2, 18});
 
@@ -31,9 +30,10 @@ void run(World& world, Tick ticks) {
         world.advance_tick();
 }
 
-void charge(Ship& ship, GridPos thruster) {
-    while (ship.insert_item(thruster, {thruster.x, thruster.y - 1}, ItemKind::FuelCell)) {
-    }
+// Charges the thrusters from the bridge, as a tick would.
+void charge(Ship& ship) {
+    ship.inventory().add(ItemKind::FuelCell, kThrusterCharge * static_cast<int>(ship.thrusters().size()));
+    ship.refuel_thrusters();
 }
 
 // Every sector reachable from home, following links.
@@ -80,20 +80,25 @@ void test_generate() {
                 present += s.reserves[r] > 0 ? 1 : 0;
             }
             assert(present >= 2);
-            // Only home is visited; the others are surveyed only when visited.
-            assert(s.visited == (i == 0) && s.surveyed == (i == 0));
+            // Only home is visited.
+            assert(s.visited == (i == 0));
         }
-        // Home: safe, with everything but iridium, none of which is there;
-        // its neighbors an easy first step, with everything between them.
+        // Home: safe, with some of everything; its neighbors and the other
+        // safe sectors too, with all of everything.
         const Sector& home = map.at(0);
         assert(home.name == "Home" && home.threat == 0);
-        assert(home.reserves == kHomeReserves && home.left(ItemKind::IridiumOre) == 0);
+        assert(home.reserves == kHomeReserves);
+        for (const int left : home.reserves)
+            assert(left > 0);
         for (const int n : home.neighbors)
-            assert(map.at(n).threat <= 1);
-        for (int r = 0; r < kRawResourceCount; ++r)
-            assert(std::any_of(home.neighbors.begin(), home.neighbors.end(), [&](int n) {
-                return map.at(n).reserves[static_cast<std::size_t>(r)] > 0;
-            }));
+            assert(map.at(n).threat == 0 && !map.at(n).enemy && map.at(n).reserves == kSectorReserves);
+        int safe = 0;
+        for (int i = 1; i < map.size(); ++i)
+            if (map.at(i).threat == 0 && !map.at(i).enemy) {
+                ++safe;
+                assert(map.at(i).reserves == kSectorReserves);
+            }
+        assert(safe >= kSafeSectors);
         // Elsewhere, there's more of what there is than at home.
         for (std::size_t r = 0; r < kSectorReserves.size(); ++r)
             assert(kSectorReserves[r] > kHomeReserves[r]);
@@ -130,41 +135,98 @@ void test_known() {
         assert(map.known(i) == (i == 0 || map.linked(0, i)));
 }
 
-// A survey scanner surveys the sectors next to the ship's, once a second.
-void test_scanner() {
+// The map shows the known sectors, with what's there, and those taking an
+// open delivery, however far; revealed (the debug menu), it shows them all.
+void test_shown() {
     World world;
     const StarMap& map = world.get_map();
-    const int next_door = map.at(0).neighbors.front();
-    world.flagship().inventory().add(ItemKind::SurveyScanner);
-    run(world, kTicksPerSecond);
-    assert(!map.at(next_door).surveyed);
-    assert(world.flagship().place(ItemKind::SurveyScanner, kScanner) == BuildResult::Ok);
-    run(world, kTicksPerSecond);
+    const Progress& progress = world.get_fleet().get_progress();
+    const auto takes_open = [&](int i) {
+        const std::vector<std::size_t> here = map.deliveries_at(i);
+        return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
+    };
+    int hidden = 0;
+    for (int i = 0; i < map.size(); ++i) {
+        assert(world.shown(i) == (map.known(i) || takes_open(i)));
+        hidden += world.shown(i) ? 0 : 1;
+    }
+    assert(hidden > 0);
     for (const int n : map.at(0).neighbors)
-        assert(map.at(n).surveyed && !map.at(n).visited);
+        assert(world.shown(n) && !map.at(n).visited);
+    // A later delivery's sector, out of sight, shows once it opens (its
+    // techs bought, the ones before it made).
+    Progress& p = world.get_fleet().get_progress();
+    const auto far = std::find_if(all_deliveries().begin(), all_deliveries().end(), [&](const Delivery& d) {
+        return !world.shown(map.delivery_sector(delivery_index(d.name)));
+    });
+    assert(far != all_deliveries().end());
+    const std::size_t later = delivery_index(far->name);
+    assert(!world.shown(map.delivery_sector(later)));
+    while (!p.open(later)) {
+        if (!p.open_deliveries().empty()) {
+            assert(p.complete(p.open_deliveries().front()));
+            continue;
+        }
+        std::size_t t = 0;
+        while (!p.for_sale(t))
+            ++t;
+        assert(p.grant(t));
+    }
+    assert(world.shown(map.delivery_sector(later)));
+    world.reveal_map();
+    for (int i = 0; i < map.size(); ++i)
+        assert(world.shown(i));
 }
 
-// Thrusters take fuel cells from belts until charged.
+// A new game starts charged, with fuel for three more jumps in the bridge.
+// Thrusters draw fuel cells from the bridge each tick, until charged, and
+// take none from belts.
 void test_charging() {
     World world;
     Ship& ship = world.flagship();
+    const int per_jump = kThrusterCharge * static_cast<int>(ship.thrusters().size());
+    for (const Thruster* t : ship.thrusters())
+        assert(t->charged());
+    assert(ship.inventory().count(ItemKind::FuelCell) == 3 * per_jump);
+
+    const auto* thruster = dynamic_cast<const Thruster*>(ship.building_at(kThrusterA));
+    assert(thruster);
+    ship.burn_thrusters();
+    ship.inventory().take(ItemKind::FuelCell, ship.inventory().count(ItemKind::FuelCell));
+    ship.inventory().add(ItemKind::FuelCell, kThrusterCharge + 3);
+    run(world, 1);
+    const auto* other = dynamic_cast<const Thruster*>(ship.building_at(kThrusterB));
+    assert(thruster->get_fuel() + other->get_fuel() == kThrusterCharge + 3);
+    assert(ship.inventory().count(ItemKind::FuelCell) == 0);
+    // More in the bridge tops them up, and what's past full stays there.
+    ship.inventory().add(ItemKind::FuelCell, kThrusterCharge);
+    run(world, 1);
+    assert(thruster->charged() && other->charged());
+    assert(ship.inventory().count(ItemKind::FuelCell) == 3);
+
+    // Belts can't feed them.
+    ship.burn_thrusters();
+    ship.inventory().take(ItemKind::FuelCell, 3);
     ship.inventory().add(ItemKind::TransportBelt, 1);
     const GridPos belt{kThrusterA.x, kThrusterA.y - 1};
     assert(ship.place(ItemKind::TransportBelt, belt, Direction::South) == BuildResult::Ok);
-    const auto* thruster = dynamic_cast<const Thruster*>(ship.building_at(kThrusterA));
-    assert(thruster && thruster->get_fuel() == 0 && !thruster->charged());
-    assert(!ship.insert_item(kThrusterA, belt, ItemKind::Carbon));
-
-    for (int i = 0; i < kThrusterCharge + 3; ++i) {
-        ship.insert_item(belt, {belt.x, belt.y - 1}, ItemKind::FuelCell);
-        run(world, kTicksPerSecond);
-    }
-    assert(thruster->charged() && thruster->get_fuel() == kThrusterCharge);
-    // The rest wait on the belt.
-    assert(!dynamic_cast<const Conveyor*>(ship.building_at(belt))->get_items().empty());
-    // Part of the layout: it stays, fuel and all.
+    assert(!ship.insert_item(kThrusterA, belt, ItemKind::FuelCell));
+    // Part of the layout: it stays.
     assert(ship.remove_building(kThrusterA) == BuildResult::NotRemovable);
-    assert(thruster->get_fuel() == kThrusterCharge);
+}
+
+// Four jumps on the fuel a new game starts with, and no fifth.
+void test_four_jumps() {
+    World world;
+    const int id = world.get_fleet().flagship().id;
+    for (int jump = 0; jump < 4; ++jump) {
+        const FleetShip& s = *world.get_fleet().find(id);
+        const int to = world.get_map().at(s.sector).neighbors.front();
+        assert(world.jump(id, to) == JumpResult::Ok);
+        run(world, 1);
+    }
+    const FleetShip& s = *world.get_fleet().find(id);
+    assert(world.jump(id, world.get_map().at(s.sector).neighbors.front()) == JumpResult::NotCharged);
 }
 
 void test_jump() {
@@ -184,12 +246,14 @@ void test_jump() {
     assert(world.jump(id, far) == JumpResult::NotLinked);
     assert(world.jump(id, 0) == JumpResult::NotLinked);  // already there
 
-    // Every engine the layout has needs charging.
+    // Every engine the layout has needs charging (a new game's are).
     assert(ship.thrusters().size() == 2);
+    assert(world.can_jump(id, next_door) == JumpResult::Ok);
+    const int spare = ship.inventory().count(ItemKind::FuelCell);
+    ship.inventory().take(ItemKind::FuelCell, spare);
+    ship.burn_thrusters();
     assert(world.jump(id, next_door) == JumpResult::NotCharged);
-    charge(ship, kThrusterA);
-    assert(world.jump(id, next_door) == JumpResult::NotCharged);
-    charge(ship, kThrusterB);
+    charge(ship);
     assert(world.can_jump(id, next_door) == JumpResult::Ok);
 
     // One knocked offline grounds the ship till it mends.
@@ -201,7 +265,7 @@ void test_jump() {
 
     assert(world.jump(id, next_door) == JumpResult::Ok);
     assert(world.get_fleet().flagship().sector == next_door);
-    assert(map.at(next_door).visited && map.at(next_door).surveyed);
+    assert(map.at(next_door).visited);
     for (const Thruster* t : ship.thrusters())
         assert(t->get_fuel() == 0);
     // Its neighbors are known now.
@@ -227,7 +291,8 @@ void test_collector_speed() {
     run(world, interval / 2);
     assert(collector->catch_progress() == 0.5f);
 
-    // Home has no iridium: a tractor array aimed at it stalls.
+    // Where a sector has none left, a tractor array aimed at it stalls.
+    world.drain_sector(0, 0);
     ship.inventory().add(ItemKind::TractorArray);
     assert(ship.place(ItemKind::TractorArray, kCollectorB) == BuildResult::Ok);
     assert(ship.set_collector_target(kCollectorB, ItemKind::IridiumOre));
@@ -329,8 +394,9 @@ void test_shared_reserves() {
 int main() {
     test_generate();
     test_known();
-    test_scanner();
+    test_shown();
     test_charging();
+    test_four_jumps();
     test_jump();
     test_collector_speed();
     test_launch_in_sector();

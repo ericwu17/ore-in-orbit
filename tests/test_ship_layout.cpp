@@ -1,9 +1,9 @@
 // test_ship_layout.cpp — headless tests for the ship layout table: every
 // layout fits the build grid, with its bridge and engines on its hull and
 // clear of each other; ids are unique; the starter is the smallest; and the
-// bigger ones unlock in milestone order.
+// bigger ones unlock with ever deeper deliveries.
 #include "sim/building.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
 
@@ -68,29 +68,31 @@ void test_table() {
 }
 
 void test_unlocks() {
-    // The starter from the start; the rest by their milestone, in order.
+    // The starter from the start; the rest by their tech, each further
+    // along the tech tree than the one before.
     Progress progress;
-    assert(!starter_layout().milestone && layout_unlocked(starter_layout(), progress));
-    std::size_t previous = 0;
+    assert(!starter_layout().tech && layout_unlocked(starter_layout(), progress));
+    std::optional<std::size_t> previous;
     for (const ShipLayout& layout : all_layouts()) {
-        if (!layout.milestone)
+        if (!layout.tech)
             continue;
-        assert(*layout.milestone < all_milestones().size() && *layout.milestone >= previous);
-        previous = *layout.milestone;
+        assert(*layout.tech < all_techs().size() && (!previous || *layout.tech > *previous));
+        previous = layout.tech;
         assert(!layout_unlocked(layout, progress));
     }
-    while (progress.complete_current()) {
-    }
+    for (std::size_t t = 0; t < all_techs().size(); ++t)
+        assert(progress.grant(t));
     for (const ShipLayout& layout : all_layouts())
         assert(layout_unlocked(layout, progress));
 
-    // Exactly when its milestone is done.
+    // Exactly when its tech is bought.
     const ShipLayout& hauler = *find_layout("hauler");
     Progress partway;
-    while (partway.current_index() < *hauler.milestone)
-        assert(partway.complete_current());
+    for (std::size_t t = 0; !partway.for_sale(*hauler.tech); ++t)
+        partway.grant(t);
     assert(!layout_unlocked(hauler, partway));
-    assert(partway.complete_current());
+    partway.add_points(all_techs()[*hauler.tech].cost);
+    assert(partway.buy(*hauler.tech));
     assert(layout_unlocked(hauler, partway));
     assert(!find_layout("battlestar"));
 }

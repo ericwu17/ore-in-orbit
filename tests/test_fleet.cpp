@@ -1,10 +1,10 @@
 // test_fleet.cpp — headless tests for the fleet: building a ship in a
 // layout, from a starter pack and the layout's cost, sending cargo between
-// ships in cargo pods, every ship ticking, and the milestone progress every
+// ships in cargo pods, every ship ticking, and the delivery progress every
 // ship shares.
 #include "sim/building.h"
 #include "sim/fleet.h"
-#include "sim/milestones.h"
+#include "sim/deliveries.h"
 #include "sim/recipes.h"
 #include "sim/ship.h"
 #include "sim/ship_layout.h"
@@ -99,18 +99,19 @@ void test_launch() {
     assert(third != id && third != flagship);
 }
 
-// Bigger layouts unlock with the milestones.
+// Bigger layouts unlock with the techs.
 void test_layout_unlocks() {
     World world;
     Fleet& fleet = world.get_fleet();
     const int flagship = fleet.flagship().id;
     const ShipLayout& hauler = *find_layout("hauler");
-    assert(hauler.milestone);
+    assert(hauler.tech);
     stock_for(world.flagship().inventory(), hauler);
     assert(fleet.can_launch(flagship, starter_layout()) != FleetResult::LayoutLocked);
     assert(fleet.launch(flagship, hauler) == FleetResult::LayoutLocked);
-    while (fleet.get_progress().current_index() <= *hauler.milestone)
-        assert(fleet.get_progress().complete_current());
+    for (std::size_t t = 0; t <= *hauler.tech; ++t)
+        fleet.get_progress().grant(t);
+    assert(fleet.get_progress().bought(*hauler.tech));
     int id = 0;
     assert(fleet.launch(flagship, hauler, &id) == FleetResult::Ok);
     assert(fleet.find(id)->ship.get_layout() == &hauler);
@@ -173,8 +174,12 @@ void test_other_sector() {
     assert(fleet.send(from, to, {{ItemKind::Gear, 5}}, 0) == FleetResult::OtherSector);
 }
 
-// Cargo goes into the inventory, but doesn't count toward the milestone;
-// what any ship makes does, and unlocks recipes on every ship.
+template <typename Fits>
+GridPos place_somewhere(Ship& ship, ItemKind kind, Fits fits);
+GridPos place_somewhere(Ship& ship, ItemKind kind);
+
+// Cargo goes into the inventory, and counts toward no delivery; what any
+// ship's providers deliver does, and its points buy techs for every ship.
 void test_shared_progress() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -182,29 +187,34 @@ void test_shared_progress() {
     const int to = launch_second(world);
     Ship& second = fleet.find(to)->ship;
     const Progress& progress = fleet.get_progress();
-    const Milestone& first = all_milestones().front();
+    const std::size_t first = 0;
+    const Delivery& delivery = all_deliveries()[first];
 
     world.flagship().inventory().add({{ItemKind::IronPlate, 10}, {ItemKind::CargoPod, 1}});
     assert(fleet.send(from, to, {{ItemKind::IronPlate, 10}}, world.get_tick()) == FleetResult::Ok);
     run(world, kTransferTicks);
     assert(second.inventory().count(ItemKind::IronPlate) == 10);
-    assert(progress.produced_count(ItemKind::IronPlate) == 0);
+    assert(progress.delivered(first, ItemKind::IronPlate) == 0);
 
-    // Hand-craft the whole first milestone on the second ship.
-    Bridge& bridge = second.get_bridge();
-    for (const ItemStack& s : first.produce) {
-        const Recipe& recipe = *recipe_for(s.kind);
-        assert(recipe.hand_craftable && recipe.outputs.size() == 1 && recipe.outputs.front().count == 1);
-        for (int i = 0; i < s.count; ++i) {
-            bridge.get_inventory().add(recipe.inputs);
-            assert(bridge.queue_craft(recipe));
+    // The second ship's provider makes the whole first delivery, in the
+    // sector that takes it.
+    fleet.find(to)->sector = world.get_map().delivery_sector(first);
+    const GridPos at = place_somewhere(second, ItemKind::Provider);
+    auto& provider = dynamic_cast<Provider&>(*second.building_anchored_at(at));
+    for (const ItemStack& s : delivery.wants)
+        while (progress.delivered(first, s.kind) < s.count) {
+            if (provider.accepts(s.kind))
+                provider.receive(s.kind);
+            run(world, 1);
         }
-    }
-    while (progress.current_index() == 0 && !bridge.craft_queue().empty())
-        run(world, 1);
-    assert(progress.current_index() == 1);
-    // Steel is unlocked by it, on the flagship too.
-    assert(world.flagship().get_bridge().get_progress().unlocked(ItemKind::Steel));
+    assert(progress.done(first));
+    // It paid out, for every ship; the tech its points buy unlocks steel
+    // on the flagship too.
+    Progress& flagship_progress = world.flagship().get_bridge().get_progress();
+    assert(flagship_progress.points() == delivery_points(first));
+    flagship_progress.add_points(all_techs()[tech_index("Steelworks")].cost);
+    assert(flagship_progress.buy(tech_index("Steelworks")));
+    assert(progress.unlocked(ItemKind::Steel));
     world.flagship().inventory().add({{ItemKind::IronPlate, 3}, {ItemKind::Carbon, 1}});
     const GridPos furnace{kBesideBridge.x + 1, kBesideBridge.y + 2};
     assert(world.flagship().place(ItemKind::SolarFurnace, furnace) == BuildResult::Ok);
@@ -553,22 +563,45 @@ int held_in_hold(const Ship& ship, GridPos requester) {
     return dynamic_cast<const CargoHold&>(*ship.building_at({requester.x + 1, requester.y})).get_stored().total();
 }
 
-// Fills the provider up with `kind`, as belts feeding it flat out would.
-void top_up(Provider& provider, ItemKind kind) {
-    while (provider.accepts(kind))
-        provider.receive(kind);
-}
-
-// Runs `ticks`, keeping the provider at `p` on `ship` full of `kind`.
+// Runs `ticks`, an express belt feeding the provider at `p` on `ship`
+// `kind` flat out: 12 a second, the provider's own rate. A belt hands the
+// provider its items as the ship ticks, as in a game (fed between ticks
+// instead, it would take what was asked for a tick before). The first time,
+// the belt is put down beside the provider, full, alone so that no
+// requester puts its items out onto it.
 void run_fed(World& world, Ship& ship, GridPos p, ItemKind kind, Tick ticks) {
+    std::optional<GridPos> belt;
+    for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+        const GridPos b = neighbor(p, d);
+        if (const Building* there = ship.building_at(b);
+            there && there->item_kind() == ItemKind::ExpressBelt && there->facing() == direction_to(b, p))
+            belt = b;
+    }
+    if (!belt) {
+        ship.inventory().add(ItemKind::ExpressBelt, 1);
+        for (const Direction d : {Direction::North, Direction::East, Direction::South, Direction::West}) {
+            const GridPos b = neighbor(p, d);
+            const Direction facing = direction_to(b, p);
+            if (!belt && ship.can_place(ItemKind::ExpressBelt, b, facing) == BuildResult::Ok && alone(ship, b, facing)) {
+                assert(ship.place(ItemKind::ExpressBelt, b, facing) == BuildResult::Ok);
+                belt = b;
+            }
+        }
+        assert(belt);
+        auto& conveyor = dynamic_cast<Conveyor&>(*ship.building_anchored_at(*belt));
+        for (int pos = kBeltLength; pos >= 0; pos -= kBeltSpacing)
+            conveyor.insert(kind, pos);
+    }
+    const GridPos back = neighbor(*belt, rotated_cw(rotated_cw(direction_to(*belt, p))));
     for (Tick t = 0; t < ticks; ++t) {
-        top_up(provider_at(ship, p), kind);
+        ship.insert_item(*belt, back, kind);
         world.advance_tick();
     }
 }
 
-// A requester pulls its item from a provider on another ship in the sector,
-// at an express belt's rate, and puts it out to its neighbors.
+// A requester takes its item from a provider on another ship in the sector,
+// which passes it straight on, at an express belt's rate, and puts it out
+// to its neighbors.
 void test_link_between_ships() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -577,19 +610,17 @@ void test_link_between_ships() {
     const GridPos provider = place_somewhere(from, ItemKind::Provider);
     const GridPos requester = place_requester_into_hold(to);
 
-    // A provider holds kLinkBuffer, of any kind.
+    // No filter: nothing asks for anything, so it takes nothing.
     Provider& p = provider_at(from, provider);
-    top_up(p, ItemKind::Gear);
-    assert(p.get_stored().total() == kLinkBuffer && !p.accepts(ItemKind::Circuit));
+    const int gears = from.inventory().count(ItemKind::Gear);
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(!p.accepts(ItemKind::Gear) && !p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
 
-    // No filter: nothing moves.
-    run(world, kTicksPerSecond);
-    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
-
-    // Set to another item: still nothing.
+    // Set to another item: it takes that, and still no gears.
     assert(to.set_filter(requester, ItemKind::Circuit));
-    run(world, kTicksPerSecond);
-    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(!p.accepts(ItemKind::Gear) && p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
+    assert(from.inventory().count(ItemKind::Gear) == gears);  // none taken to hand back
 
     assert(to.set_filter(requester, ItemKind::Gear));
     run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);  // warm up
@@ -632,8 +663,9 @@ void test_link_same_ship() {
     assert(held_in_hold(ship, requester) > 0);
 }
 
-// With nowhere to put its items, a requester pulls kLinkBuffer and stops;
-// a new filter refunds what it held to the bridge.
+// With nowhere to put its items, a requester takes kRequesterBuffer and stops,
+// and then the provider takes no more for it: they wait on the belts. A
+// new filter refunds what the requester held to the bridge.
 void test_requester_buffer() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -643,15 +675,16 @@ void test_requester_buffer() {
     const GridPos requester =
         place_somewhere(to, ItemKind::Requester, [&](GridPos p) { return alone(to, p); });
     assert(to.set_filter(requester, ItemKind::Gear));
-    top_up(provider_at(from, provider), ItemKind::Gear);
-    run(world, 10 * kTicksPerSecond);
-    assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kLinkBuffer);
-    assert(provider_at(from, provider).get_stored().total() == 0);
+    const int spare = from.inventory().count(ItemKind::Gear);
+    run_fed(world, from, provider, ItemKind::Gear, 10 * kTicksPerSecond);
+    assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kRequesterBuffer);
+    assert(!provider_at(from, provider).accepts(ItemKind::Gear));
+    assert(from.inventory().count(ItemKind::Gear) == spare);  // none taken to hand back
 
     const int gears = to.inventory().count(ItemKind::Gear);
     assert(to.set_filter(requester, ItemKind::Circuit));
     assert(requester_at(to, requester).get_buffer().total() == 0);
-    assert(to.inventory().count(ItemKind::Gear) == gears + kLinkBuffer);
+    assert(to.inventory().count(ItemKind::Gear) == gears + kRequesterBuffer);
 }
 
 // Two requesters on one provider share what it sends, which is no more
@@ -693,14 +726,14 @@ void test_requesters_share_evenly() {
         }
         // Short enough that none fills up (and stops asking).
         run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
-        int least = kLinkBuffer;
+        int least = kRequesterBuffer;
         int most = 0;
         for (const GridPos r : requesters) {
             const int got = requester_at(to, r).get_buffer().total();
             least = std::min(least, got);
             most = std::max(most, got);
         }
-        assert(most < kLinkBuffer);
+        assert(most < kRequesterBuffer);
         assert(most - least <= 1);
     }
 }
