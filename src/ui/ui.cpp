@@ -398,6 +398,7 @@ void DrawKeysWindow() {
         {copy.c_str(), "Copy an area (drag a box)"},
         {paste.c_str(), "Pick the last copy up to paste"},
         {"B", "Blueprint library"},
+        {"E", "Encyclopedia (over a building: look it up)"},
         {"M", "Star map"},
         {"[ / ]", "Previous / next ship"},
         {"?", "This list"},
@@ -473,10 +474,11 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     }
     // Escape opens the pause menu, or closes it again; first, though, it puts
     // the copy / paste tool away, then closes what's open, one at a time:
-    // the Send cargo window, the Build a new ship window, the inspector, the
-    // keys overlay, the star map, the Blueprints window. Not when it closed a
-    // dropdown or tooltip popup: ImGui already did that before we got here,
-    // so look at whether one was open last frame.
+    // the Send cargo window, the Build a new ship window, the Shop, the
+    // encyclopedia, the inspector, the keys overlay, the star map, the
+    // Blueprints window. Not when it closed a dropdown or tooltip popup:
+    // ImGui already did that before we got here, so look at whether one was
+    // open last frame.
     static bool popup_was_open = false;
     BlueprintUiState& bp = g_blueprints;
     if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {
@@ -491,6 +493,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             g_fleet.show_build = false;
         else if (g_fleet.show_shop)
             g_fleet.show_shop = false;
+        else if (g_encyclopedia.shown)
+            ToggleEncyclopedia();
         else if (g_build.inspected) {
             g_build.inspected.reset();
             g_build.inspected_building = nullptr;
@@ -563,6 +567,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         }
         if (ShortcutPressed(ImGuiKey_B))
             bp.show_library = !bp.show_library;
+        if (ShortcutPressed(ImGuiKey_E))
+            LookUpOrToggleEncyclopedia(ship);
     }
 
     // The mouse wheel zooms the grid; it never scrolls the page.
@@ -634,6 +640,7 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawSendCargoWindow(world, shown);
         DrawBuildShipWindow(world, shown);
         DrawShopWindow(world);
+        DrawEncyclopediaWindow(world, shown);
         DrawInspectorWindow(world.get_fleet(), shown);
         DrawKeysWindow();
     }

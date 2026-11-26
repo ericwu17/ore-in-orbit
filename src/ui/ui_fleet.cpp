@@ -24,6 +24,10 @@ void DrawFleetStrip(World& world) {
         }
         ImGui::SetItemTooltip("Spend %s on new technology (the deliveries earn them)", kPointsName);
     }
+    ImGui::SameLine();
+    if (theme::SegmentedButton("Encyclopedia", g_encyclopedia.shown))
+        ToggleEncyclopedia();
+    ImGui::SetItemTooltip("Look up any item, building, tech, ship or enemy, and its supply chain (E)");
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
     std::optional<int> show;

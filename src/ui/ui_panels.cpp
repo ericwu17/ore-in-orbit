@@ -707,6 +707,12 @@ void DrawInspectorHeader(const Building& b) {
     ImGui::PushFont(nullptr, theme::kFontTitle);
     ImGui::TextUnformatted(kind ? item_name(*kind) : "Bridge");
     ImGui::PopFont();
+    if (kind) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Look up"))
+            OpenEncyclopedia(*kind);
+        ImGui::SetItemTooltip("Its entry in the encyclopedia: what it does, what it costs, what it's used in");
+    }
     const std::string health = "Health " + Fraction(b.get_hp(), b.max_hp());
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, b.damaged() ? theme::kBad : theme::kGood);
     ImGui::ProgressBar(static_cast<float>(b.get_hp()) / static_cast<float>(std::max(1, b.max_hp())),
@@ -781,8 +787,11 @@ void ItemIcons(const std::vector<ItemKind>& kinds) {
     flow.Start(icon);
     for (const ItemKind kind : kinds) {
         flow.Next();
-        IconTile(ItemIcon(kind), icon);
-        ImGui::SetItemTooltip("%s", item_name(kind));
+        ImGui::PushID(static_cast<int>(kind));
+        if (IconButton("##item", ItemIcon(kind), icon, false))
+            OpenEncyclopedia(kind);
+        ImGui::SetItemTooltip("%s\nClick to look it up", item_name(kind));
+        ImGui::PopID();
     }
 }
 
@@ -901,6 +910,10 @@ void DrawShopWindow(World& world) {
             ImGui::PushID(static_cast<int>(t));
             ImGui::AlignTextToFramePadding();
             ImGui::TextColored(progress.bought(t) ? theme::kTextDim : theme::kText, "T%zu: %s", t + 1, tech.name);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("?"))
+                OpenEncyclopediaTech(t);
+            ImGui::SetItemTooltip("Look it up in the encyclopedia: what it leads to, and what it unlocks");
             ImGui::SameLine();
             if (progress.bought(t)) {
                 ImGui::TextColored(theme::kGood, "Owned");
@@ -1032,8 +1045,10 @@ void DrawCraftPanel(World& world, FleetShip& current, float width) {
             flow.Next();
             const std::string locked = LockedBadge(bridge.get_progress(), r);
             IconTile(RecipeIcon(r), icon, {locked.empty() ? nullptr : locked.c_str()});
+            if (ImGui::IsItemClicked())
+                OpenEncyclopedia(r.outputs.front().kind);
             const std::string hint = LockedHint(bridge.get_progress(), r);
-            RecipeTooltip(r, &bridge.get_inventory(), hint.empty() ? nullptr : hint.c_str());
+            RecipeTooltip(r, &bridge.get_inventory(), hint.empty() ? "Click to look it up" : hint.c_str());
         }
         ImGui::TreePop();
     }
