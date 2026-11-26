@@ -891,38 +891,60 @@ void DrawShopWindow(World& world) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::Text("%d %s to spend", progress.points(), kPointsName);
     ImGui::TextColored(theme::kTextDim, "Deliveries earn %s. Each tech unlocks new recipes.", kPointsName);
+    // Tier by tier, so the choices open at each step sit together.
     const std::vector<Tech>& techs = all_techs();
-    for (std::size_t t = 0; t < techs.size(); ++t) {
-        const Tech& tech = techs[t];
-        ImGui::Separator();
-        ImGui::PushID(static_cast<int>(t));
-        ImGui::Text("T%zu: %s", t + 1, tech.name);
-        ImGui::SameLine();
-        if (progress.bought(t)) {
-            ImGui::TextColored(theme::kGood, "Owned");
-        } else {
-            ImGui::BeginDisabled(!progress.can_buy(t));
-            const std::string buy = "Buy: " + std::to_string(tech.cost) + " " + kPointsShort;
-            if (theme::PrimaryButton(buy.c_str())) {
-                progress.buy(t);
-                PlayUi(audio::Sound::UiConfirm);
+    int deepest = 1;
+    for (std::size_t t = 0; t < techs.size(); ++t)
+        deepest = std::max(deepest, tech_tier(t));
+    for (int tier = 1; tier <= deepest; ++tier) {
+        ImGui::SeparatorText(("Tier " + std::to_string(tier)).c_str());
+        for (std::size_t t = 0; t < techs.size(); ++t) {
+            if (tech_tier(t) != tier)
+                continue;
+            const Tech& tech = techs[t];
+            ImGui::PushID(static_cast<int>(t));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(progress.bought(t) ? theme::kTextDim : theme::kText, "T%zu: %s", t + 1, tech.name);
+            ImGui::SameLine();
+            if (progress.bought(t)) {
+                ImGui::TextColored(theme::kGood, "Owned");
+            } else {
+                ImGui::BeginDisabled(!progress.can_buy(t));
+                const std::string buy = "Buy: " + std::to_string(tech.cost) + " " + kPointsShort;
+                if (theme::PrimaryButton(buy.c_str())) {
+                    progress.buy(t);
+                    PlayUi(audio::Sound::UiConfirm);
+                }
+                ImGui::EndDisabled();
             }
-            ImGui::EndDisabled();
-            if (!progress.for_sale(t)) {
-                std::string needs;
-                for (const std::size_t p : tech_prerequisites(t))
-                    if (!progress.bought(p))
-                        needs += (needs.empty() ? "" : ", ") + std::string(techs[p].name);
-                ImGui::TextColored(theme::kTextDim, "Needs %s first", needs.c_str());
-            } else if (!progress.can_buy(t)) {
-                ImGui::TextColored(theme::kTextDim, "%d more %s needed", tech.cost - progress.points(), kPointsName);
+            ImGui::TextColored(theme::kTextDim, "%s", tech.blurb);
+            if (!progress.bought(t)) {
+                if (!progress.for_sale(t)) {
+                    std::string needs;
+                    for (const std::size_t p : tech_prerequisites(t))
+                        if (!progress.bought(p))
+                            needs += (needs.empty() ? "" : ", ") + std::string(techs[p].name);
+                    ImGui::TextColored(theme::kWarnText, "Needs %s first", needs.c_str());
+                } else if (!progress.can_buy(t)) {
+                    ImGui::TextColored(theme::kTextDim, "%d more %s needed", tech.cost - progress.points(),
+                                       kPointsName);
+                }
             }
+            if (!tech.unlocks.empty())
+                ItemIcons(tech.unlocks);
+            for (const ShipLayout& layout : all_layouts())
+                if (layout.tech == t)
+                    ImGui::TextColored(theme::kTextDim, "Unlocks the %s", layout.name);
+            // The deliveries waiting on it: a reason to pick it.
+            std::string opens;
+            for (const std::size_t d : deliveries_opened_by(t))
+                if (!progress.done(d))
+                    opens += (opens.empty() ? "" : ", ") + std::string(all_deliveries()[d].name);
+            if (!opens.empty() && !progress.bought(t))
+                ImGui::TextColored(theme::kGood, "Deliveries needing it: %s", opens.c_str());
+            ImGui::Spacing();
+            ImGui::PopID();
         }
-        ItemIcons(tech.unlocks);
-        for (const ShipLayout& layout : all_layouts())
-            if (layout.tech == t)
-                ImGui::TextColored(theme::kTextDim, "and the %s, a bigger ship", layout.name);
-        ImGui::PopID();
     }
     ImGui::PopTextWrapPos();
     ImGui::End();

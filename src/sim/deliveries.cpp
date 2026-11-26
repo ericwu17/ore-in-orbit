@@ -36,7 +36,7 @@ const std::vector<Delivery>& all_deliveries() {
         // Chain 4: a frontier outpost, the furthest out.
         {"Outpost kit", 4, {{Steel, 30}, {Circuit, 50}}},
         {"Habitat ring", 4, {{StructuralFrame, 20}, {AdvancedCircuit, 20}}},
-        {"Iridium bulkheads", 4, {{IridiumPlate, 80}, {StructuralFrame, 30}}},
+        {"Iridium bulkheads", 4, {{IridiumPlate, 100}, {StructuralFrame, 40}}},
         {"Command spire", 4, {{Processor, 40}, {IridiumPlate, 80}, {FocusCrystal, 20}}},
     };
     return deliveries;
@@ -44,18 +44,44 @@ const std::vector<Delivery>& all_deliveries() {
 
 const std::vector<Tech>& all_techs() {
     using enum ItemKind;
-    // Travel needs none of them: fuel cells and providers are there from
-    // the start. Two branches open after Steelworks and after Escape
-    // velocity, and join up again after.
+    // A wide tree of cheap techs, so there's a choice at every step: four
+    // to pick from at the start, each opening more. Travel needs none of
+    // them: fuel cells and providers are there from the start. Steel and
+    // refining lead on to most of the rest; the ships, fabricators and
+    // combat techs branch off them, and join up again in the capstones.
     static const std::vector<Tech> techs = {
-        {"Steelworks", 10, {}, {Steel, FilterSorter, ReverseSorter, Router, Unloader}},
-        {"Refining", 25, {"Steelworks"}, {Refinery, Plastic, Silicon, AdvancedCircuit, StructuralFrame}},
-        {"Logistics", 20, {"Steelworks"}, {ExpressBelt, BeltTunnel, CargoPod}},
-        {"Deep space", 50, {"Refining", "Logistics"}, {FabricatorMk2, TractorArray, ShipStarterPack, Requester}},
-        {"Escape velocity", 70, {"Deep space"}, {FocusCrystal, IridiumPlate}},
-        {"Shielding", 80, {"Escape velocity"}, {ShieldProjector}},
-        {"Iridium processing", 80, {"Escape velocity"}, {Processor}},
-        {"Starforge", 100, {"Shielding", "Iridium processing"}, {FabricatorMk3}},
+        // Tier 1: from the start.
+        {"Steelworks", 8, {}, {Steel}, "Steel, in a solar furnace: the way to bigger deliveries"},
+        {"Sorting", 5, {}, {FilterSorter, ReverseSorter, Router}, "Split and merge belts"},
+        {"Unloading", 5, {}, {Unloader, BeltTunnel},
+         "Pull items out of the bridge and other buildings, and tunnel belts under others"},
+        {"Optics", 8, {}, {FocusCrystal}, "Focus crystals: the burst laser's ammunition, and two late deliveries"},
+        // Tier 2.
+        {"Refining", 15, {"Steelworks"}, {Refinery, Plastic, Silicon}, "The refinery, for plastic and silicon"},
+        {"Structures", 12, {"Steelworks"}, {StructuralFrame}, "Structural frames, from steel and gears"},
+        {"Logistics", 12, {"Steelworks", "Sorting"}, {ExpressBelt, CargoPod},
+         "Express belts, twice as fast; cargo pods, to send cargo between ships"},
+        // Tier 3.
+        {"Microelectronics", 20, {"Refining"}, {AdvancedCircuit}, "Advanced circuits, for nearly all that follows"},
+        // Tier 4.
+        {"Shipwright", 30, {"Structures", "Microelectronics"}, {ShipStarterPack},
+         "Ship starter packs, to build a second ship, and the Hauler"},
+        {"Fabrication", 25, {"Structures", "Microelectronics"}, {FabricatorMk2}, "The Fabricator Mk2: faster assembly"},
+        {"Tractor beams", 15, {"Structures", "Microelectronics"}, {TractorArray},
+         "The tractor array: a faster collector, for every resource"},
+        {"Requesters", 20, {"Logistics", "Microelectronics"}, {Requester},
+         "Requesters, to pull items from providers on other ships"},
+        {"Shielding", 25, {"Structures", "Microelectronics"}, {ShieldProjector}, "Shield projectors, for fights"},
+        // Tier 5: iridium (which only tractor arrays gather), the Frigate,
+        // and what they lead to.
+        {"Iridium refining", 15, {"Tractor beams"}, {IridiumPlate}, "Iridium plates, from the ore tractor arrays gather"},
+        {"Frigate hull", 35, {"Shipwright", "Shielding"}, {}, "The Frigate, a bigger warship"},
+        // Tier 6.
+        {"Processors", 25, {"Microelectronics", "Iridium refining"}, {Processor},
+         "Processors, for the last deliveries"},
+        // Tier 7: the capstones.
+        {"Starforge", 50, {"Fabrication", "Processors"}, {FabricatorMk3}, "The Fabricator Mk3: the fastest assembly"},
+        {"Carrier hull", 50, {"Frigate hull", "Processors"}, {}, "The Carrier, the biggest ship"},
     };
     return techs;
 }
@@ -114,7 +140,7 @@ int delivery_points(std::size_t d) {
     double raw = 0.0;
     for (const ItemStack& s : all_deliveries()[d].wants)
         raw += raw_resources_in(s.kind, s.count);
-    return std::max(1, static_cast<int>(std::lround(raw / 20.0)));
+    return std::max(1, static_cast<int>(std::lround(raw / kRawPerPoint)));
 }
 
 std::vector<std::size_t> tech_prerequisites(std::size_t t) {
@@ -133,6 +159,24 @@ std::optional<ItemKind> weapon_unlocking(ItemKind kind) {
     case IridiumLens: return BeamEmitter;
     default: return std::nullopt;
     }
+}
+
+int tech_tier(std::size_t t) {
+    int tier = 1;
+    for (const std::size_t p : tech_prerequisites(t))
+        tier = std::max(tier, tech_tier(p) + 1);
+    return tier;
+}
+
+std::vector<std::size_t> deliveries_opened_by(std::size_t t) {
+    std::vector<std::size_t> opened;
+    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
+        for (const ItemStack& want : all_deliveries()[d].wants)
+            if (tech_unlocking(want.kind) == t) {
+                opened.push_back(d);
+                break;
+            }
+    return opened;
 }
 
 std::optional<std::size_t> tech_unlocking(ItemKind kind) {

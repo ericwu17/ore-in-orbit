@@ -135,7 +135,7 @@ panel lists each sector's current request: the open ones and how far along
 they are, then those waiting on a tech, and which.
 
 Each delivery made pays out currency (a placeholder name, set in one place
-in `deliveries.h`): one for every 20 raw resources its goods take. Currency
+in `deliveries.h`): one for every 25 raw resources its goods take. Currency
 buys techs in the Shop (the button beside Map, or from the deliveries list;
 no sector to visit), and techs unlock recipes and bigger ship layouts.
 Locked recipes show greyed out, marked with the tech that unlocks them
@@ -144,24 +144,40 @@ Locked recipes show greyed out, marked with the tech that unlocks them
 Fuel cells (pressed from carbon in a fabricator) and providers are there
 from the start (a new game has one provider ready to place, and more can
 be hand-crafted), so the first deliveries, the nearest next to home, are
-the first reason to jump. The techs, cheapest first: Steelworks (steel, filter
-and reverse sorters, routers, unloaders); then Refining (the refinery,
-plastic, silicon, advanced circuits, frames) and Logistics (express belts,
-belt tunnels, cargo pods), in either order; Deep space (Fabricator Mk2,
-tractor arrays, ship starter packs, requesters, the Hauler) after both;
-Escape velocity (focus crystals, the first weapon's ammunition, iridium
-plates, the Frigate); then Shielding (shield projectors) and Iridium
-processing (processors) side by side; and Starforge (Fabricator Mk3, the
-Carrier) last.
+the first reason to jump.
+
+The techs are a wide tree of cheap ones (5 to 50 currency each), so there's
+a choice at every step; the Shop lists them tier by tier, with what each
+is for and the deliveries waiting on it.
+
+- Tier 1, open from the start: Steelworks (steel), Sorting (filter and
+  reverse sorters, routers), Unloading (unloaders, belt tunnels) and Optics
+  (focus crystals, the burst laser's ammunition).
+- Tier 2: Refining (the refinery, plastic, silicon) and Structures
+  (structural frames), after Steelworks; Logistics (express belts, cargo
+  pods), after Steelworks and Sorting.
+- Tier 3: Microelectronics (advanced circuits), after Refining.
+- Tier 4: Shipwright (ship starter packs, the Hauler), Fabrication
+  (Fabricator Mk2), Tractor beams (tractor arrays), Shielding (shield
+  projectors) and Requesters (also after Logistics), each after Structures
+  and Microelectronics.
+- Tier 5: Iridium refining (iridium plates, from the ore only tractor arrays
+  gather), after Tractor beams; Frigate hull, after Shipwright and
+  Shielding.
+- Tier 6: Processors, after Microelectronics and Iridium refining.
+- Tier 7, the capstones: Starforge (Fabricator Mk3), after Fabrication and
+  Processors; Carrier hull, after Frigate hull and Processors.
+
+Every delivery pays 402 currency in all, and every tech costs 375.
 
 ### The fleet
 
 The player commands a fleet. "Build a new ship...", in the right panel's
 Fleet section, opens a window to pick a layout and build a ship in it from
 the bridge of the ship on screen: it takes a ship starter pack (unlocked by
-the "Deep space" tech) and the layout's cost, in raw and processed
+the "Shipwright" tech) and the layout's cost, in raw and processed
 resources. The layouts, smallest first: Skiff (from the start), Hauler (from
-"Deep space"), Frigate ("Escape velocity") and Carrier ("Starforge"); bigger
+"Shipwright"), Frigate ("Frigate hull") and Carrier ("Carrier hull"); bigger
 ones have more engines.
 
 Every ship keeps running while another is on screen; the tabs above the grid
@@ -171,7 +187,7 @@ the currency is shared, and a recipe unlocked is unlocked on every ship. "Send c
 from one bridge's inventory to another's, between ships in the same sector:
 each 50 items use up a cargo pod, and they land 5 seconds later.
 
-For bulk, providers and requesters (Deep space) link ships with no pods:
+For bulk, providers and requesters (the Requesters tech) link ships with no pods:
 belt items into a provider (it holds 20, of any kind), and set a requester
 to an item: it pulls that item from the providers in its sector, on any ship
 of the fleet, its own included, as long as they have it, and puts it out to
@@ -258,7 +274,7 @@ one of each. Ammunition is dear, each round a volley's worth of refined
 parts, so a ship's guns need a factory behind them. Weapons can't be made:
 they are found, salvaged from beaten enemy ships, and finding one unlocks
 its ammunition's recipe. A new game starts with a burst laser, which fires
-focus crystals (from "Escape velocity"); the others are the heavy laser
+focus crystals (from "Optics"); the others are the heavy laser
 (focus crystals too), the missile launcher (through shields), the ion
 blaster (knocks shields down and stuns what it hits), the flak cannon (a
 spread of pellets) and the beam emitter (sweeps a line, weakened by every

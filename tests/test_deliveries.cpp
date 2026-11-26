@@ -54,7 +54,15 @@ void test_table() {
     std::size_t roots = 0;
     for (std::size_t t = 0; t < techs.size(); ++t) {
         const Tech& tech = techs[t];
-        assert(tech.cost > 0 && !tech.unlocks.empty());
+        // Each unlocks something: recipes, or a ship layout. Cheap, and
+        // says what it's for.
+        const bool unlocks_layout = std::any_of(all_layouts().begin(), all_layouts().end(),
+                                                [&](const ShipLayout& l) { return l.tech == t; });
+        assert(tech.cost > 0 && tech.cost <= 50 && (!tech.unlocks.empty() || unlocks_layout));
+        assert(tech.blurb && *tech.blurb);
+        assert(tech_tier(t) >= 1);
+        for (const std::size_t before : tech_prerequisites(t))
+            assert(tech_tier(before) < tech_tier(t));
         assert(tech_index(tech.name) == t);
         // Each item is unlocked once, and only items with a recipe.
         for (const ItemKind kind : tech.unlocks) {
@@ -67,7 +75,18 @@ void test_table() {
             assert(before < t);
         roots += tech_prerequisites(t).empty() ? 1u : 0u;
     }
-    assert(roots == 1);
+    // A wide tree: several to choose from at the start, several tiers with
+    // three or more side by side, and more than twice as many techs as
+    // tiers.
+    assert(roots >= 3);
+    std::array<int, 16> per_tier{};
+    int deepest = 0;
+    for (std::size_t t = 0; t < techs.size(); ++t) {
+        ++per_tier[static_cast<std::size_t>(tech_tier(t))];
+        deepest = std::max(deepest, tech_tier(t));
+    }
+    assert(std::count_if(per_tier.begin(), per_tier.end(), [](int n) { return n >= 3; }) >= 2);
+    assert(static_cast<int>(techs.size()) > 2 * deepest);
     // What a new ship makes, and travel, need no tech.
     for (const ItemKind kind : {ItemKind::TransportBelt, ItemKind::AsteroidCollector, ItemKind::SolarFurnace,
                                 ItemKind::FabricatorMk1, ItemKind::IronPlate, ItemKind::CopperPlate, ItemKind::Gear,
@@ -231,7 +250,7 @@ int deepest_wanted(std::size_t d) {
 void test_balance() {
     const std::vector<Delivery>& deliveries = all_deliveries();
     for (std::size_t d = 0; d < deliveries.size(); ++d) {
-        assert(std::abs(delivery_points(d) - std::max(1.0, raw_total(d) / 20.0)) <= 0.5);
+        assert(std::abs(delivery_points(d) - std::max(1.0, raw_total(d) / kRawPerPoint)) <= 0.5);
         if (const std::optional<std::size_t> before = delivery_before(d)) {
             const double ratio = raw_total(d) / raw_total(*before);
             if (ratio <= 1.0 || ratio > 3.0)
@@ -383,8 +402,13 @@ void test_progress() {
 
     // Layouts come with techs.
     assert(!layout_unlocked(all_layouts()[1], progress));
-    assert(progress.grant(tech_index("Logistics")) && progress.grant(tech_index("Deep space")));
+    assert(progress.grant(tech_index("Structures")) && progress.grant(tech_index("Microelectronics")));
+    assert(progress.grant(tech_index("Shipwright")));
     assert(layout_unlocked(all_layouts()[1], progress));
+    // What a tech opens.
+    const std::vector<std::size_t> opened = deliveries_opened_by(steelworks);
+    assert(std::find(opened.begin(), opened.end(), girders) != opened.end());
+    assert(std::find(opened.begin(), opened.end(), hull) == opened.end());
 
     for (std::size_t t = 0; t < all_techs().size(); ++t)
         progress.grant(t);

@@ -16,8 +16,9 @@
 // the raw resources it took.
 //
 // Points buy techs, at the shop (no sector to visit): each tech has a price
-// and comes after others, and unlocks the recipes making the items it
-// lists. A recipe no tech lists is unlocked from the start, unless it makes
+// and comes after others (a wide tree: several to choose from at each
+// step), and unlocks the recipes making the items it lists, or a ship
+// layout. A recipe no tech lists is unlocked from the start, unless it makes
 // the ammunition of a weapon the fleet has yet to find.
 //
 // Weapons have no recipes at all: they are found, salvaged from beaten enemy
@@ -51,6 +52,7 @@ struct Tech {
     int cost;                             // in points
     std::vector<std::string_view> after;  // the techs it comes after, by name
     std::vector<ItemKind> unlocks;        // the items whose recipes it unlocks
+    const char* blurb;                    // what it's good for, in a few words
 };
 
 // How many delivery chains there are (each taken in its own sector).
@@ -70,14 +72,21 @@ std::size_t tech_index(std::string_view name);
 std::vector<std::size_t> chain_deliveries(int chain);
 // The delivery before `d` in its chain, if any.
 std::optional<std::size_t> delivery_before(std::size_t d);
-// What delivery `d` pays out: one point for every 20 raw resources its
-// goods take, rounded (at least one).
+// Raw resources a delivery's goods take for each point it pays.
+constexpr double kRawPerPoint = 25.0;
+// What delivery `d` pays out: one point for every kRawPerPoint raw
+// resources its goods take, rounded (at least one).
 int delivery_points(std::size_t d);
 // What `count` of `kind` take in raw resources, all kinds together.
 double raw_resources_in(ItemKind kind, double count);
 
 // The indices of the techs that tech `t` comes after.
 std::vector<std::size_t> tech_prerequisites(std::size_t t);
+// How deep tech `t` is in the tree: 1 with none before it, otherwise one
+// more than the deepest it comes after.
+int tech_tier(std::size_t t);
+// The deliveries asking for something tech `t` unlocks (which wait for it).
+std::vector<std::size_t> deliveries_opened_by(std::size_t t);
 
 // The index of the tech that unlocks the recipe making `kind`, or nullopt
 // if it is unlocked from the start.
