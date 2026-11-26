@@ -217,13 +217,14 @@ void ApplyLastSettings(Ship& ship, GridPos p, ItemKind kind) {
 
 // Turns the belt this drag put at `p` to face `facing` (taking it up and
 // putting it down again), so the one before a corner points round it.
-void RefaceDragged(Ship& ship, GridPos p, ItemKind kind, Direction facing) {
+void RefaceDragged(Ship& ship, BuildHistory& history, GridPos p, ItemKind kind, Direction facing) {
     const std::vector<GridPos>& placed = g_build.drag_placed;
     const Building* b = ship.building_anchored_at(p);
     if (!b || b->item_kind() != kind || b->facing() == facing ||
         std::find(placed.begin(), placed.end(), p) == placed.end())
         return;
     const Direction before = b->facing();
+    history.touch(ship, p);
     if (ship.remove_building(p) == BuildResult::Ok && ship.place(kind, p, facing) != BuildResult::Ok)
         ship.place(kind, p, before);
 }
@@ -234,7 +235,7 @@ void RefaceDragged(Ship& ship, GridPos p, ItemKind kind, Direction facing) {
 // to face the way it goes. Belt tunnels go down on the press only: a row of
 // them would pair off cell by cell. A press that builds nothing inspects the
 // building there, or says why.
-void BuildDrag(Ship& ship, GridPos cell) {
+void BuildDrag(Ship& ship, BuildHistory& history, GridPos cell) {
     BuildUiState& build = g_build;
     const bool pressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
     if (pressed || !build.drag_last) {
@@ -262,8 +263,9 @@ void BuildDrag(Ship& ship, GridPos cell) {
         const ItemKind kind = *build.selected;
         if (DragTurns(kind) && (p.x != prev.x || p.y != prev.y)) {
             build.facing = DirectionBetween(prev, p);
-            RefaceDragged(ship, prev, kind, build.facing);
+            RefaceDragged(ship, history, prev, kind, build.facing);
         }
+        history.touch(ship, p);
         result = ship.place(kind, p, build.facing);
         if (result == BuildResult::Ok) {
             build.drag_placed.push_back(p);
@@ -286,7 +288,7 @@ void BuildDrag(Ship& ship, GridPos cell) {
 // Shift + mouse on the grid, over `cell`: a right click copies the settings
 // of the building there, a left click (or drag) pastes them onto each one
 // it goes over.
-void SettingsDrag(Ship& ship, GridPos cell) {
+void SettingsDrag(Ship& ship, BuildHistory& history, GridPos cell) {
     const Building* b = ship.building_at(cell);
     const std::optional<BuildingSettings> here = b ? SettingsOf(*b) : std::nullopt;
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -309,6 +311,7 @@ void SettingsDrag(Ship& ship, GridPos cell) {
             SetMessage("Shift+right-click a building first, to copy its settings");
         return;
     }
+    history.touch(ship, cell);
     if (ApplySettings(ship, cell, *g_settings.copied)) {
         if (const std::optional<BuildingSettings> now = SettingsOf(*ship.building_at(cell)))
             RememberSettings(*now);
@@ -398,7 +401,13 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                 }
             }
         } else if (paste_at && ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            // A paste is one action of its own, done at once.
+            BuildHistory& history = History(ship_id);
+            history.commit(ship);
+            for (const BlueprintBuilding& b : bp.held->buildings)
+                history.touch(ship, {paste_at->x + b.offset.x, paste_at->y + b.offset.y});
             const PasteResult result = paste(ship, *bp.held, *paste_at);
+            history.commit(ship);
             if (result.pasted)
                 PlayUi(audio::Sound::BuildBlueprintPlace);
             else
@@ -409,12 +418,13 @@ void DrawShipGrid(Ship& ship, int ship_id, const Engagement* fight, Tick now, Im
                            theme::kWarnText);
         }
     } else if (hover_cell && ImGui::IsItemActive() && ImGui::GetIO().KeyShift) {
-        SettingsDrag(ship, *hover_cell);
+        SettingsDrag(ship, History(ship_id), *hover_cell);
     } else if (hover_cell && ImGui::IsItemActive()) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            BuildDrag(ship, *hover_cell);
+            BuildDrag(ship, History(ship_id), *hover_cell);
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
             const bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+            History(ship_id).touch(ship, *hover_cell);
             const BuildResult r = ship.remove_building(*hover_cell);
             if (r == BuildResult::Ok)
                 PlayUi(audio::Sound::BuildRemove);

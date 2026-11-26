@@ -299,6 +299,7 @@ void LeaveGame(Screen& screen) {
     g_blueprints.show_library = false;
     g_build.show_keys = false;
     g_settings = {};
+    g_undo.clear();
 }
 
 // One hint in the bar under the grid: a key cap, then what it does.
@@ -380,6 +381,7 @@ void DrawKeysWindow() {
     }
     const std::string copy = std::string(kCtrlName) + "+C";
     const std::string paste = std::string(kCtrlName) + "+V";
+    const std::string undo = std::string(kCtrlName) + "+Z";
     const struct {
         const char* key;
         const char* does;
@@ -397,6 +399,7 @@ void DrawKeysWindow() {
         {"Q", "Pick the building under the mouse, or build nothing"},
         {copy.c_str(), "Copy an area (drag a box)"},
         {paste.c_str(), "Pick the last copy up to paste"},
+        {undo.c_str(), "Undo the last build: placing, removing, a paste or a settings change"},
         {"B", "Blueprint library"},
         {"M", "Star map"},
         {"[ / ]", "Previous / next ship"},
@@ -563,6 +566,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         }
         if (ShortcutPressed(ImGuiKey_B))
             bp.show_library = !bp.show_library;
+        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z) && !g_map.shown)
+            UndoBuildAction(ship, current.id);
     }
 
     // The mouse wheel zooms the grid; it never scrolls the page.
@@ -638,6 +643,11 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawKeysWindow();
     }
     popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    // Close the undo actions made this frame, unless something is still
+    // held down (a drag on the grid, a field being typed in): that goes on
+    // as the same action.
+    if (!ImGui::IsAnyItemActive())
+        CommitBuildActions(world.get_fleet());
 
     // The pause menu: a modal over the game, which dims it and takes the
     // mouse while it is open.
