@@ -436,8 +436,8 @@ void top_up(Provider& provider, ItemKind kind) {
 // A provider on a ship in the sector that takes a delivery hands over what
 // it wants, an item every kLinkTicks, using it up; one anywhere else, or
 // holding what the delivery doesn't want, hands over nothing. The last
-// item completes it, as an event. There, it takes only what the delivery
-// still wants (and what requesters there pull), so it can't jam.
+// item completes it, as an event. It takes only what the delivery still
+// wants and what requesters in its sector pull, so it can't jam.
 void test_provider_delivers() {
     World world;
     FleetShip& flagship = world.get_fleet().flagship();
@@ -459,15 +459,17 @@ void test_provider_delivers() {
     assert(placed);
     auto& provider = dynamic_cast<Provider&>(*ship.building_anchored_at(at));
 
-    // At home, nothing goes.
-    top_up(provider, ItemKind::IronPlate);
-    for (Tick t = 0; t < kTicksPerSecond; ++t)
+    // At home, nothing asks for it: it takes none, and nothing goes.
+    for (Tick t = 0; t < kTicksPerSecond; ++t) {
+        top_up(provider, ItemKind::IronPlate);
         world.advance_tick();
+    }
     assert(progress.delivered(first, ItemKind::IronPlate) == 0);
-    assert(provider.get_stored().count(ItemKind::IronPlate) == kLinkBuffer);
+    assert(provider.get_stored().total() == 0);
 
     // In the sector that takes it: an item every kLinkTicks, used up.
     flagship.sector = sector;
+    world.advance_tick();
     const Tick run = 20 * kLinkTicks;
     for (Tick t = 0; t < run; ++t) {
         top_up(provider, ItemKind::IronPlate);
@@ -480,7 +482,7 @@ void test_provider_delivers() {
     while (provider.get_stored().count(ItemKind::IronPlate) > 0)
         world.advance_tick();
     world.advance_tick();
-    assert(provider.limited() && !provider.accepts(ItemKind::Steel) && provider.accepts(ItemKind::Gear));
+    assert(!provider.accepts(ItemKind::Steel) && provider.accepts(ItemKind::Gear));
     top_up(provider, ItemKind::Steel);
     assert(provider.get_stored().count(ItemKind::Steel) == 0);
 
@@ -500,7 +502,7 @@ void test_provider_delivers() {
     while (provider.get_stored().count(ItemKind::Gear) > 0)
         provider.sent(ItemKind::Gear);
 
-    // What a requester here pulls, it takes as ever.
+    // What a requester in its sector pulls, it takes too.
     Ship& other = ship;
     other.inventory().add(ItemKind::Requester, 1);
     GridPos req{};
@@ -515,10 +517,11 @@ void test_provider_delivers() {
     assert(other.set_filter(req, ItemKind::Steel));
     world.advance_tick();
     assert(provider.accepts(ItemKind::Steel) && !provider.accepts(ItemKind::IronPlate));
-    // Away from any delivery, it takes anything.
+    // Away from any delivery, only that.
     flagship.sector = 0;
     world.advance_tick();
-    assert(!provider.limited() && provider.accepts(ItemKind::IronPlate));
+    assert(provider.accepts(ItemKind::Steel) && !provider.accepts(ItemKind::Gear) &&
+           !provider.accepts(ItemKind::IronPlate));
     flagship.sector = sector;
     assert(other.remove_building(req) == BuildResult::Ok);
 

@@ -448,11 +448,10 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                            "Belt items into it: it sends them to requesters on any ship in this sector, "
                            "this one included, up to %d a second",
                            static_cast<int>(kTicksPerSecond / kLinkTicks));
-        if (provider->limited())
-            ImGui::TextColored(theme::kGood,
-                               "A delivery is taken here: it only takes what the delivery still wants, "
-                               "and what requesters here pull");
-        ImGui::Text("Stored: %d / %d", provider->get_stored().total(), kLinkBuffer);
+        ImGui::TextColored(theme::kTextDim,
+                           "It only takes what requesters here have room for, and what a delivery taken "
+                           "here still wants; the rest waits on the belts");
+        ImGui::Text("Holding: %d", provider->get_stored().total());
         for (const ItemStack& s : provider->get_stored().stacks())
             AmountLine(ItemIcon(s.kind), std::to_string(s.count), theme::kText, in_tooltip);
     }
@@ -469,7 +468,7 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                                item_name(*filter), static_cast<int>(kTicksPerSecond / kLinkTicks));
         else
             ImGui::TextColored(theme::kWarnText, "No filter: pick the item it pulls from providers");
-        ImGui::Text("Waiting to go out: %d / %d", requester->get_buffer().total(), kLinkBuffer);
+        ImGui::Text("Waiting to go out: %d / %d", requester->get_buffer().total(), kRequesterBuffer);
     }
     const auto* producer_collector = dynamic_cast<const Collector*>(&b);
     const auto* producer_machine = dynamic_cast<const Machine*>(&b);

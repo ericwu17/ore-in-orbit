@@ -415,14 +415,14 @@ struct SaveAccess {
         } else if (auto* hold = dynamic_cast<CargoHold*>(&b)) {
             hold->stored = load_inventory(j.at("stored"));
         } else if (auto* provider = dynamic_cast<Provider*>(&b)) {
+            // Any number: saves from when it held up to 20, of any kind,
+            // load as they were.
             provider->stored = load_inventory(j.at("stored"));
-            if (provider->stored.total() > kLinkBuffer)
-                throw LoadError("too many items in a provider");
             provider->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
         } else if (auto* requester = dynamic_cast<Requester*>(&b)) {
             requester->filter = load_item(j.at("filter"));
             requester->buffer = load_inventory(j.at("buffer"));
-            if (requester->buffer.total() > kLinkBuffer)
+            if (requester->buffer.total() > kRequesterBuffer)
                 throw LoadError("too many items in a requester");
             requester->cooldown = load_tick(j.at("cooldown"), kLinkTicks);
             // Saves from before requesters took turns by how long they'd

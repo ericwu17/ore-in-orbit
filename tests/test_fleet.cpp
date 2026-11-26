@@ -587,19 +587,15 @@ void test_link_between_ships() {
     const GridPos provider = place_somewhere(from, ItemKind::Provider);
     const GridPos requester = place_requester_into_hold(to);
 
-    // A provider holds kLinkBuffer, of any kind.
+    // No filter: nothing asks for anything, so it takes nothing.
     Provider& p = provider_at(from, provider);
-    top_up(p, ItemKind::Gear);
-    assert(p.get_stored().total() == kLinkBuffer && !p.accepts(ItemKind::Circuit));
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(p.get_stored().total() == 0 && !p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
 
-    // No filter: nothing moves.
-    run(world, kTicksPerSecond);
-    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
-
-    // Set to another item: still nothing.
+    // Set to another item: it takes that, and still no gears.
     assert(to.set_filter(requester, ItemKind::Circuit));
-    run(world, kTicksPerSecond);
-    assert(p.get_stored().count(ItemKind::Gear) == kLinkBuffer && held_in_hold(to, requester) == 0);
+    run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
+    assert(p.get_stored().total() == 0 && p.accepts(ItemKind::Circuit) && held_in_hold(to, requester) == 0);
 
     assert(to.set_filter(requester, ItemKind::Gear));
     run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);  // warm up
@@ -642,8 +638,9 @@ void test_link_same_ship() {
     assert(held_in_hold(ship, requester) > 0);
 }
 
-// With nowhere to put its items, a requester pulls kLinkBuffer and stops;
-// a new filter refunds what it held to the bridge.
+// With nowhere to put its items, a requester pulls kRequesterBuffer and stops,
+// and then the provider takes no more for it: they wait on the belts. A
+// new filter refunds what the requester held to the bridge.
 void test_requester_buffer() {
     World world;
     Fleet& fleet = world.get_fleet();
@@ -653,15 +650,15 @@ void test_requester_buffer() {
     const GridPos requester =
         place_somewhere(to, ItemKind::Requester, [&](GridPos p) { return alone(to, p); });
     assert(to.set_filter(requester, ItemKind::Gear));
-    top_up(provider_at(from, provider), ItemKind::Gear);
-    run(world, 10 * kTicksPerSecond);
-    assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kLinkBuffer);
+    run_fed(world, from, provider, ItemKind::Gear, 10 * kTicksPerSecond);
+    assert(requester_at(to, requester).get_buffer().count(ItemKind::Gear) == kRequesterBuffer);
     assert(provider_at(from, provider).get_stored().total() == 0);
+    assert(!provider_at(from, provider).accepts(ItemKind::Gear));
 
     const int gears = to.inventory().count(ItemKind::Gear);
     assert(to.set_filter(requester, ItemKind::Circuit));
     assert(requester_at(to, requester).get_buffer().total() == 0);
-    assert(to.inventory().count(ItemKind::Gear) == gears + kLinkBuffer);
+    assert(to.inventory().count(ItemKind::Gear) == gears + kRequesterBuffer);
 }
 
 // Two requesters on one provider share what it sends, which is no more
@@ -703,14 +700,14 @@ void test_requesters_share_evenly() {
         }
         // Short enough that none fills up (and stops asking).
         run_fed(world, from, provider, ItemKind::Gear, kTicksPerSecond);
-        int least = kLinkBuffer;
+        int least = kRequesterBuffer;
         int most = 0;
         for (const GridPos r : requesters) {
             const int got = requester_at(to, r).get_buffer().total();
             least = std::min(least, got);
             most = std::max(most, got);
         }
-        assert(most < kLinkBuffer);
+        assert(most < kRequesterBuffer);
         assert(most - least <= 1);
     }
 }

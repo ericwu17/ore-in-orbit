@@ -599,9 +599,6 @@ void test_refused() {
     refused(with_building(R"({"kind": "Unloader", "x": 70, "y": 64, "facing": "East", "output_side": 0,
                               "filter": null, "cooldown": 99, "next_kind": 0})"),
             "an unloader waiting longer than it ever does");
-    refused(with_building(R"({"kind": "Provider", "x": 70, "y": 64, "facing": "North", "output_side": 0,
-                              "stored": {"Gear": 21}, "cooldown": 0})"),
-            "a provider holding more than it can");
     refused(with_building(R"({"kind": "Requester", "x": 70, "y": 64, "facing": "North", "output_side": 0,
                               "filter": "Gear", "buffer": {"Gear": 21}, "cooldown": 0,
                               "last_received": 0})"),
@@ -766,8 +763,14 @@ void test_link_round_trip() {
     assert(ship.place(ItemKind::Provider, provider) == BuildResult::Ok);
     assert(ship.place(ItemKind::Requester, requester) == BuildResult::Ok);
     assert(ship.set_filter(requester, ItemKind::Gear));
-    for (int i = 0; i < 15; ++i)
-        assert(ship.insert_item(provider, {x0 - 1, c + 11}, i % 3 ? ItemKind::Gear : ItemKind::Steel));
+    run(world, 1);  // the provider now takes the gears the requester pulls
+    for (int i = 0; i < 10; ++i)
+        assert(ship.insert_item(provider, {x0 - 1, c + 11}, ItemKind::Gear));
+    // And holds steel nothing pulls, as a game saved when it took anything
+    // might.
+    auto& held = dynamic_cast<Provider&>(*ship.building_anchored_at(provider));
+    for (int i = 0; i < 5; ++i)
+        held.receive(ItemKind::Steel);
     run(world, 2 * kLinkTicks + 2);
     assert(dynamic_cast<const Requester&>(*ship.building_at(requester)).get_buffer().total() > 0);
 
