@@ -57,7 +57,7 @@ void DrawFleetStrip(World& world) {
                 s->name + (s->provides ? " (S)" : "") + "  \xc2\xb7  " + sector.name + (attacked ? "  (!)" : "");
             if (attacked && s->id != f.current)
                 ImGui::PushStyleColor(ImGuiCol_Text, theme::kBad);
-            if (theme::SegmentedButton(label.c_str(), s->id == f.current))
+            if (theme::SegmentedButton(label.c_str(), s->id == f.current && !g_map.shown))
                 show = s->id;
             if (attacked && s->id != f.current)
                 ImGui::PopStyleColor();
@@ -78,8 +78,11 @@ void DrawFleetStrip(World& world) {
         ImGui::SameLine();
         ImGui::TextColored(theme::kTextDim, "[ ] switch ships");
     }
-    if (show)
+    // A ship's tab shows that ship's grid: off the star map, too.
+    if (show) {
         SwitchToShip(*show);
+        ShowStarMap(false);
+    }
 }
 
 void CycleShip(const Fleet& fleet, int step) {

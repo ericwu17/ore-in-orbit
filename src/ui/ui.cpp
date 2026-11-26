@@ -468,15 +468,37 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         if (e.kind == EventKind::ResourceRunOut)
             run_out += (run_out.empty() ? "" : "; ") + world.get_map().at(e.sector).name + " has run out of " +
                        LowerItemName(e.item);
+    // A fight starting somewhere the player isn't looking (another ship's
+    // sector, or anywhere while the star map is up): say so, not just the
+    // ship's tab turning red. Over the run-out message, if both happened.
+    std::string attacked;
+    {
+        Fleet& fleet = world.get_fleet();
+        const FleetShip* viewed = fleet.find(g_fleet.current);
+        for (const Event& e : events) {
+            if (e.kind != EventKind::EnemyEngaged)
+                continue;
+            if (!g_map.shown && viewed && viewed->sector == e.sector)
+                continue;
+            const FleetShip* s = fleet.find(e.ship);
+            if (!s)
+                continue;
+            attacked += (attacked.empty() ? "" : "; ") + s->name + " is under attack in " +
+                        world.get_map().at(e.sector).name + "!";
+        }
+    }
     if (!run_out.empty())
         SetMessage(run_out + ": find more in another sector", theme::kWarnText);
+    if (!attacked.empty())
+        SetMessage(attacked + " Click its tab to see the fight", theme::kBad);
     if (world.fleet_lost()) {
         paused = false;
         DrawFleetLost(screen);
         return;
     }
     // Escape opens the pause menu, or closes it again; first, though, it puts
-    // the copy / paste tool away, then closes what's open, one at a time:
+    // the copy / paste tool away, or the building picked to place, then
+    // closes what's open, one at a time:
     // the Send cargo window, the Build a new ship window, the Shop, the
     // encyclopedia, the inspector, the keys overlay, the star map, the
     // Blueprints window. Not when it closed a dropdown or tooltip popup:
@@ -490,6 +512,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             PlayUi(audio::Sound::UiPanelClose);
         } else if (bp.tool != Tool::Build)
             LeaveBlueprintTool();
+        else if (g_build.selected)
+            g_build.selected.reset();
         else if (g_fleet.show_send)
             g_fleet.show_send = false;
         else if (g_fleet.show_build)
