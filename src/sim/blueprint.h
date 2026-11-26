@@ -46,6 +46,10 @@ struct Blueprint {
     bool operator==(const Blueprint&) const = default;
 };
 
+// The building `b` as a blueprint piece: its kind, facing and settings, at
+// `offset`. Only for a building made from an item (not the bridge).
+BlueprintBuilding blueprint_building(const Building& b, GridPos offset);
+
 // The buildings in the rectangle with corners `a` and `b` (either way
 // round): a building partly inside it comes whole. Trimmed to what it holds;
 // nullopt if that's nothing.

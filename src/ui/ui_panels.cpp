@@ -503,8 +503,10 @@ void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
         int count = r.count;
         ImGui::SetNextItemWidth(ImGui::GetFrameHeight() * 5.0f);
-        if (ImGui::InputInt("##count", &count, 1, 10))
+        if (ImGui::InputInt("##count", &count, 1, 10)) {
+            History(ship_id).touch_requests(bridge);
             bridge.set_request(r.kind, std::clamp(count, 0, kMaxRequest));
+        }
         ImGui::SetItemTooltip("How many %s to keep in the bridge", item_name(r.kind));
         const int have = bridge.get_inventory().count(r.kind);
         ImGui::SameLine();
@@ -516,8 +518,10 @@ void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
         }
         ImGui::SameLine();
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
-        if (theme::CloseButton("##remove"))
+        if (theme::CloseButton("##remove")) {
+            History(ship_id).touch_requests(bridge);
             bridge.remove_request(r.kind);
+        }
         ImGui::SetItemTooltip("Stop requesting %s", item_name(r.kind));
         ImGui::PopID();
     }
@@ -525,8 +529,10 @@ void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
     if (BeginIconCombo("##add_request", Icon{}, "Request an item")) {
         BeginComboSearch();
         if (const std::optional<ItemKind> picked = ComboSearchItemOptions(std::nullopt))
-            if (!bridge.request_for(*picked))
+            if (!bridge.request_for(*picked)) {
+                History(ship_id).touch_requests(bridge);
                 bridge.set_request(*picked, kNewRequest);
+            }
         EndComboSearch();
         ImGui::EndCombo();
     }
@@ -535,14 +541,16 @@ void DrawRequests(Bridge& bridge, const Fleet& fleet, int ship_id) {
 // For a machine or collector, in its inspector: whether it runs only while
 // the bridge requests what it makes, and how that request stands. Not one
 // of the settings new ones start with: they always run.
-void DrawOnRequest(Ship& ship, const Building& b) {
+void DrawOnRequest(Ship& ship, BuildHistory& history, const Building& b) {
     const auto* collector = dynamic_cast<const Collector*>(&b);
     const auto* machine = dynamic_cast<const Machine*>(&b);
     if (!collector && !machine)
         return;
     bool on = collector ? collector->get_only_when_requested() : machine->get_only_when_requested();
-    if (SoundCheckbox("Only while the bridge requests it", &on))
+    if (SoundCheckbox("Only while the bridge requests it", &on)) {
+        history.touch(ship, *g_build.inspected);
         ship.set_only_when_requested(*g_build.inspected, on);
+    }
     ImGui::SetItemTooltip("Runs only while the bridge has fewer of what it makes than\nit requests (click the bridge to request items)");
     const std::optional<ItemKind> product = product_of(b);
     if (!on || !product)
@@ -597,6 +605,12 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
         return;
     }
     ImGui::SeparatorText("Settings");
+    // Each change is an action to undo: noted before it's made.
+    BuildHistory& history = History(shown.id);
+    const auto touch = [&] {
+        history.touch(ship, *g_build.inspected);
+        return true;
+    };
     // Whatever is picked below is what new ones of its kind start with.
     const auto remember = [&] {
         if (const Building* changed = ship.building_at(*g_build.inspected))
@@ -612,7 +626,7 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
                            current ? recipe_name(*current) : "Pick a recipe")) {
             BeginComboSearch();
             if (ComboSearchShows("None")) {
-                if (ComboSearchOption(Icon{}, current == nullptr) && ship.set_recipe(*g_build.inspected, nullptr))
+                if (ComboSearchOption(Icon{}, current == nullptr) && touch() && ship.set_recipe(*g_build.inspected, nullptr))
                     remember();
                 ImGui::SetItemTooltip("None");
             }
@@ -624,7 +638,7 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
                 ImGui::PushID(static_cast<int>(i));
                 const std::string hint = LockedHint(progress, *r);
                 ImGui::BeginDisabled(!hint.empty());
-                if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current &&
+                if (ComboSearchOption(RecipeIcon(*r), r == current) && r != current && touch() &&
                     ship.set_recipe(*g_build.inspected, r))
                     remember();
                 ImGui::EndDisabled();
@@ -647,7 +661,7 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
                 if (!ComboSearchShows(item_name(kind)))
                     continue;
                 ImGui::PushID(static_cast<int>(kind));
-                if (ComboSearchOption(ItemIcon(kind), kind == current) && kind != current &&
+                if (ComboSearchOption(ItemIcon(kind), kind == current) && kind != current && touch() &&
                     ship.set_collector_target(*g_build.inspected, kind))
                     remember();
                 ImGui::SetItemTooltip("%s", item_name(kind));
@@ -658,7 +672,7 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
         }
         ImGui::Spacing();
     }
-    DrawOnRequest(ship, b);
+    DrawOnRequest(ship, history, b);
     if (const std::optional<BuildingSettings> settings = SettingsOf(b); settings && settings->has_filter) {
         const std::optional<ItemKind> current = settings->filter;
         ImGui::TextColored(theme::kTextDim, "Filter");
@@ -667,12 +681,12 @@ void DrawSettings(Fleet& fleet, FleetShip& shown, const Building& b) {
                            current ? item_name(*current) : "Pick a filter")) {
             BeginComboSearch();
             if (ComboSearchShows("None")) {
-                if (ComboSearchOption(Icon{}, !current) && ship.set_filter(*g_build.inspected, std::nullopt))
+                if (ComboSearchOption(Icon{}, !current) && touch() && ship.set_filter(*g_build.inspected, std::nullopt))
                     remember();
                 ImGui::SetItemTooltip("None");
             }
             if (const std::optional<ItemKind> picked = ComboSearchItemOptions(current))
-                if (ship.set_filter(*g_build.inspected, *picked))
+                if (touch() && ship.set_filter(*g_build.inspected, *picked))
                     remember();
             EndComboSearch();
             ImGui::EndCombo();

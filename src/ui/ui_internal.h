@@ -28,6 +28,7 @@
 #include "audio/sounds.h"
 
 #include "sim/blueprint.h"
+#include "sim/build_history.h"
 #include "sim/building.h"
 #include "sim/combat.h"
 #include "sim/fleet.h"
@@ -104,6 +105,20 @@ struct BuildUiState {
     bool craft_in_fight = false;
 };
 extern BuildUiState g_build;
+
+// Each ship's undo history (Ctrl/Cmd+Z), by ship id; not saved. A change
+// the player makes to a ship's buildings touch()es its history first (see
+// build_history.h); the game screen commits the open action once nothing is
+// held down any more, so a drag, or typing in a field, is one action.
+extern std::unordered_map<int, BuildHistory> g_undo;
+// Ship `ship_id`'s history.
+BuildHistory& History(int ship_id);
+// Commits every ship's open action (forgetting the histories of ships no
+// longer in the fleet).
+void CommitBuildActions(const Fleet& fleet);
+// Undoes the last action on `ship` (ship `ship_id`), saying what was undone,
+// or why it couldn't be.
+void UndoBuildAction(Ship& ship, int ship_id);
 
 // How long a message (SetMessage) shows.
 constexpr double kMessageSeconds = 3.0;

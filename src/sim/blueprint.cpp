@@ -16,6 +16,28 @@ bool overlaps(GridPos a, GridSize as, GridPos b, GridSize bs) {
 
 }  // namespace
 
+BlueprintBuilding blueprint_building(const Building& b, GridPos offset) {
+    BlueprintBuilding copy;
+    copy.kind = *b.item_kind();
+    copy.offset = offset;
+    copy.facing = b.facing();
+    if (const auto* machine = dynamic_cast<const Machine*>(&b)) {
+        copy.recipe = machine->get_recipe();
+        copy.only_when_requested = machine->get_only_when_requested();
+    }
+    if (const auto* collector = dynamic_cast<const Collector*>(&b)) {
+        copy.target = collector->get_target();
+        copy.only_when_requested = collector->get_only_when_requested();
+    }
+    if (const auto* sorter = dynamic_cast<const Sorter*>(&b))
+        copy.filter = sorter->get_filter();
+    if (const auto* unloader = dynamic_cast<const Unloader*>(&b))
+        copy.filter = unloader->get_filter();
+    if (const auto* requester = dynamic_cast<const Requester*>(&b))
+        copy.filter = requester->get_filter();
+    return copy;
+}
+
 std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
     const int last = ship.size() - 1;
     const GridPos lo{std::clamp(std::min(a.x, b.x), 0, last), std::clamp(std::min(a.y, b.y), 0, last)};
@@ -52,27 +74,8 @@ std::optional<Blueprint> copy_region(const Ship& ship, GridPos a, GridPos b) {
 
     Blueprint blueprint;
     blueprint.size = {max.x - min.x + 1, max.y - min.y + 1};
-    for (const Taken& t : taken) {
-        BlueprintBuilding copy;
-        copy.kind = *t.building->item_kind();
-        copy.offset = {t.at.x - min.x, t.at.y - min.y};
-        copy.facing = t.building->facing();
-        if (const auto* machine = dynamic_cast<const Machine*>(t.building)) {
-            copy.recipe = machine->get_recipe();
-            copy.only_when_requested = machine->get_only_when_requested();
-        }
-        if (const auto* collector = dynamic_cast<const Collector*>(t.building)) {
-            copy.target = collector->get_target();
-            copy.only_when_requested = collector->get_only_when_requested();
-        }
-        if (const auto* sorter = dynamic_cast<const Sorter*>(t.building))
-            copy.filter = sorter->get_filter();
-        if (const auto* unloader = dynamic_cast<const Unloader*>(t.building))
-            copy.filter = unloader->get_filter();
-        if (const auto* requester = dynamic_cast<const Requester*>(t.building))
-            copy.filter = requester->get_filter();
-        blueprint.buildings.push_back(copy);
-    }
+    for (const Taken& t : taken)
+        blueprint.buildings.push_back(blueprint_building(*t.building, {t.at.x - min.x, t.at.y - min.y}));
     return blueprint;
 }
 

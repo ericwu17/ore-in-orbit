@@ -40,6 +40,40 @@ bool ChordPressed(ImGuiKeyChord chord) {
 
 BuildUiState g_build;
 
+std::unordered_map<int, BuildHistory> g_undo;
+
+BuildHistory& History(int ship_id) {
+    return g_undo[ship_id];
+}
+
+void CommitBuildActions(const Fleet& fleet) {
+    for (auto it = g_undo.begin(); it != g_undo.end();) {
+        const FleetShip* s = fleet.find(it->first);
+        if (!s) {
+            it = g_undo.erase(it);
+            continue;
+        }
+        it->second.commit(s->ship);
+        ++it;
+    }
+}
+
+void UndoBuildAction(Ship& ship, int ship_id) {
+    const UndoOutcome outcome = History(ship_id).undo(ship);
+    if (outcome.result != UndoResult::Ok) {
+        SetMessage(describe(outcome));
+        PlayUi(audio::Sound::BuildInvalid);
+        return;
+    }
+    if (outcome.settings_skipped > 0)
+        SetMessage(describe(outcome) + " (" + std::to_string(outcome.settings_skipped) +
+                       " recipe(s) no longer allowed, left unset)",
+                   theme::kWarnText);
+    else
+        SetMessage(describe(outcome), theme::kGood);
+    PlayUi(audio::Sound::BuildRemove);
+}
+
 SettingsUiState g_settings;
 
 const Building* InspectedBuilding(const Ship& ship) {

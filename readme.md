@@ -368,6 +368,8 @@ the recipe book.
   copy is picked up to paste. **Ctrl+V** (Cmd+V): pick up the last copy.
   While pasting: **left click** pastes, **R** turns it, **right click**,
   **Escape** or **Q** puts it away (see Blueprints).
+- **Ctrl+Z** (Cmd+Z): undo the last build action on the ship shown (see
+  Undo).
 - **B**: the Blueprints window (saved blueprints, import and export).
 - **E**: the encyclopedia; over a building on the grid, its entry.
 - **Accent Grave**: the debug menu, while playing: pause and single-step the
@@ -377,6 +379,26 @@ the recipe book.
   tech for sale, and the Dear ImGui demo
   window (widget reference).
 - **F2**: the ImPlot demo window.
+
+## Undo
+
+Ctrl+Z (Cmd+Z on macOS) undoes the last build action on the ship shown,
+and again for the one before (up to 200 of them a ship, kept until the game
+is left; not saved). An action is one gesture: a click or a drag that built
+or removed (belts turned round corners included), a blueprint paste, a
+Shift-drag of settings, or one change in the inspector (a recipe, a
+collector's target, a filter, running only on request, the bridge's item
+requests).
+
+Undoing puts the setup back, not the items: what it takes away is
+refunded, with what it held, as a removal is; what it puts back is paid for
+again from the bridge, as placing is, and comes back empty, with its
+settings (whatever it held when removed stays in the bridge). It's all or
+nothing, and only while the ship still stands as the action left it: if a
+building it touched has been destroyed or changed since, something now
+stands in the way, or the bridge no longer has the buildings to put back,
+nothing changes, the message says why, and that action is skipped, so the
+next Ctrl+Z goes on to the one before.
 
 ## Blueprints
 
@@ -565,6 +587,10 @@ One directory per layer under `src/`; includes name their layer
     and their settings), turning it, and pasting it all or nothing (each
     piece checked by `Ship::can_place` against the ones before it,
     `PlannedChanges`).
+  - `build_history.h/.cpp` — `BuildHistory`: a ship's undo history, each
+    action kept as what it changed at each building's top-left cell
+    (before and after, as blueprint pieces), and undoing the last one, all
+    or nothing.
   - `deliveries.h/.cpp` — the deliveries (their chains, what each wants,
     what each pays), the techs (price, what each comes after, what it
     unlocks) and `Progress`, the fleet's way through them (deliveries made,
