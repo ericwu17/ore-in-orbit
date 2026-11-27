@@ -403,9 +403,6 @@ void test_progress() {
     // Layouts come with techs.
     assert(!layout_unlocked(all_layouts()[1], progress));
     assert(progress.grant(tech_index("Structures")) && progress.grant(tech_index("Microelectronics")));
-    // Shipwright needs Logistics too, so a second ship can be sent cargo.
-    assert(!progress.grant(tech_index("Shipwright")));
-    assert(progress.grant(tech_index("Sorting")) && progress.grant(tech_index("Logistics")));
     assert(progress.grant(tech_index("Shipwright")));
     assert(layout_unlocked(all_layouts()[1], progress));
     // What a tech opens.

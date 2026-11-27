@@ -157,11 +157,10 @@ is for and the deliveries waiting on it.
   (structural frames), after Steelworks; Logistics (express belts, cargo
   pods), after Steelworks and Sorting.
 - Tier 3: Microelectronics (advanced circuits), after Refining.
-- Tier 4: Shipwright (ship starter packs, the Hauler; also after Logistics,
-  so a new ship can be sent cargo pods), Fabrication (Fabricator Mk2),
-  Tractor beams (tractor arrays), Shielding (shield projectors) and
-  Requesters (also after Logistics), each after Structures and
-  Microelectronics.
+- Tier 4: Shipwright (ship starter packs, the Hauler), Fabrication
+  (Fabricator Mk2), Tractor beams (tractor arrays), Shielding (shield
+  projectors) and Requesters (also after Logistics), each after Structures
+  and Microelectronics.
 - Tier 5: Iridium refining (iridium plates, from the ore only tractor arrays
   gather), after Tractor beams; Frigate hull, after Shipwright and
   Shielding.
