@@ -32,6 +32,8 @@ const char* craft_category_name(CraftCategory category);
 struct ItemStack {
     ItemKind kind;
     int count = 1;
+
+    bool operator==(const ItemStack&) const = default;
 };
 
 struct Recipe {

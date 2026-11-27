@@ -142,7 +142,7 @@ void test_shown() {
     const StarMap& map = world.get_map();
     const Progress& progress = world.get_fleet().get_progress();
     const auto takes_open = [&](int i) {
-        const std::vector<std::size_t> here = map.deliveries_at(i);
+        const std::vector<std::size_t> here = map.deliveries_at(i, progress);
         return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
     };
     int hidden = 0;
@@ -156,15 +156,19 @@ void test_shown() {
     // A later delivery's sector, out of sight, shows once it opens (its
     // techs bought, the ones before it made).
     Progress& p = world.get_fleet().get_progress();
-    const auto far = std::find_if(all_deliveries().begin(), all_deliveries().end(), [&](const Delivery& d) {
-        return !world.shown(map.delivery_sector(delivery_index(d.name)));
-    });
-    assert(far != all_deliveries().end());
-    const std::size_t later = delivery_index(far->name);
-    assert(!world.shown(map.delivery_sector(later)));
+    const auto far = std::find_if(p.deliveries().begin(), p.deliveries().end(),
+                                  [&](const Delivery& d) { return !world.shown(map.delivery_sector(d)); });
+    assert(far != p.deliveries().end());
+    const auto later = static_cast<std::size_t>(far - p.deliveries().begin());
+    assert(!world.shown(map.delivery_sector(p.delivery(later))));
     while (!p.open(later)) {
-        if (!p.open_deliveries().empty()) {
-            assert(p.complete(p.open_deliveries().front()));
+        // The finite chains' open deliveries made (an endless one never
+        // runs out), else a tech.
+        const std::vector<std::size_t> open = p.open_deliveries();
+        const auto finite = std::find_if(open.begin(), open.end(),
+                                         [&](std::size_t d) { return !chain_endless(p.delivery(d).chain); });
+        if (finite != open.end()) {
+            assert(p.complete(*finite));
             continue;
         }
         std::size_t t = 0;
@@ -172,7 +176,7 @@ void test_shown() {
             ++t;
         assert(p.grant(t));
     }
-    assert(world.shown(map.delivery_sector(later)));
+    assert(world.shown(map.delivery_sector(p.delivery(later))));
     world.reveal_map();
     for (int i = 0; i < map.size(); ++i)
         assert(world.shown(i));

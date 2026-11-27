@@ -78,10 +78,15 @@ void test_ammunition() {
 }
 
 void test_deliveries_layouts_and_techs() {
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        for (const ItemStack& s : all_deliveries()[d].wants)
-            assert(contains(deliveries_wanting(s.kind), d));
-    assert(deliveries_wanting(ItemKind::TransportBelt).empty());
+    Progress progress;
+    for (std::size_t d = 0; d < progress.delivery_count(); ++d)
+        for (const ItemStack& s : progress.delivery(d).wants)
+            assert(contains(deliveries_wanting(progress, s.kind), d));
+    assert(deliveries_wanting(progress, ItemKind::TransportBelt).empty());
+    // One made is no longer listed.
+    const std::size_t first = progress.open_deliveries().front();
+    const ItemKind kind = progress.delivery(first).wants.front().kind;
+    assert(progress.complete(first) && !contains(deliveries_wanting(progress, kind), first));
 
     assert(layouts_costing(ItemKind::ShipStarterPack).size() == all_layouts().size());
     for (std::size_t l = 0; l < all_layouts().size(); ++l)

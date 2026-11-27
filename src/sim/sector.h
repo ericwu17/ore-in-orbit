@@ -27,6 +27,7 @@
 // and enemy.
 #pragma once
 
+#include "sim/deliveries.h"
 #include "sim/enemies.h"
 #include "sim/game_types.h"
 
@@ -92,8 +93,8 @@ private:
     friend struct SaveAccess;
 
     std::vector<Sector> sectors;
-    // The sector each delivery is taken in, by delivery index.
-    std::vector<int> delivery_sectors;
+    // The sector each delivery chain is taken in, by chain.
+    std::vector<int> chain_sectors;
 
 public:
     // About kStarMapSize sectors scattered around home (sector 0, visited),
@@ -114,10 +115,13 @@ public:
     // A ship arrived in `i`: visited from now on.
     void visit(int i);
 
-    // The sector delivery `d` is taken in (-1 if the map has none for it).
-    int delivery_sector(std::size_t d) const;
-    // The deliveries taken in sector `i`, in table order.
-    std::vector<std::size_t> deliveries_at(int i) const;
+    // The sector delivery chain `chain` is taken in (-1 if the map has
+    // none for it).
+    int chain_sector(int chain) const;
+    // The sector `delivery` is taken in (its chain's).
+    int delivery_sector(const Delivery& delivery) const { return chain_sector(delivery.chain); }
+    // The deliveries of `progress` taken in sector `i`, in order.
+    std::vector<std::size_t> deliveries_at(int i, const Progress& progress) const;
 };
 
 // How many sectors StarMap::generate() makes.

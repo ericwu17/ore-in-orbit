@@ -353,24 +353,27 @@ void ThreatPips(int threat) {
 void DrawSectorRequest(const Progress& progress, const StarMap& map, int index) {
     std::vector<int> chains_seen;
     bool any = false;
-    for (const std::size_t d : map.deliveries_at(index)) {
+    for (const std::size_t d : map.deliveries_at(index, progress)) {
         any = true;
-        const Delivery& delivery = all_deliveries()[d];
+        const Delivery& delivery = progress.delivery(d);
         if (progress.done(d) ||
             std::find(chains_seen.begin(), chains_seen.end(), delivery.chain) != chains_seen.end())
             continue;
         chains_seen.push_back(delivery.chain);
         if (progress.open(d)) {
-            ImGui::TextColored(theme::kGood, "Delivery request: %s", delivery.name);
+            ImGui::TextColored(theme::kGood, "%s: %s", chain_endless(delivery.chain) ? "Standing order" : "Delivery request",
+                               delivery.name.c_str());
             for (const ItemStack& want : delivery.wants)
                 AmountLine(ItemIcon(want.kind),
                            std::to_string(progress.delivered(d, want.kind)) + " / " + std::to_string(want.count),
                            theme::kText, true);
-            ImGui::TextColored(theme::kAccent, "Pays %d %s", delivery_points(d), kPointsName);
+            ImGui::TextColored(theme::kAccent, "Pays %d %s", delivery.points, kPointsName);
+            if (chain_endless(delivery.chain))
+                ImGui::TextColored(theme::kTextDim, "Another after it, bigger the more %s you've earned", kPointsName);
             continue;
         }
         // Waiting on a tech for something it asks for.
-        ImGui::TextColored(theme::kTextDim, "Next request: %s", delivery.name);
+        ImGui::TextColored(theme::kTextDim, "Next request: %s", delivery.name.c_str());
         for (const ItemStack& want : delivery.wants)
             if (!progress.unlocked(want.kind)) {
                 if (const std::optional<std::size_t> t = tech_unlocking(want.kind))
@@ -403,7 +406,7 @@ void DrawSectorPanel(World& world, const FleetShip& current, int index, ImVec2 m
     // The delivery taken here now, and how many are made.
     const Progress& progress = world.get_fleet().get_progress();
     int made = 0;
-    for (const std::size_t d : map.deliveries_at(index))
+    for (const std::size_t d : map.deliveries_at(index, progress))
         made += progress.done(d) ? 1 : 0;
     DrawSectorRequest(progress, map, index);
     if (made > 0)
@@ -567,15 +570,15 @@ void DrawStarMap(World& world, const FleetShip& current, ImVec2 avail) {
     const ImU32 halo = theme::U32(theme::kInset);
     const Progress& progress = world.get_fleet().get_progress();
     const auto takes_delivery = [&](int i) {
-        const std::vector<std::size_t> here = map.deliveries_at(i);
+        const std::vector<std::size_t> here = map.deliveries_at(i, progress);
         return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return progress.open(d); });
     };
     // A request here not made, nor open: the next in its chain, waiting on
     // a tech.
     const auto awaits_tech = [&](int i) {
-        const std::vector<std::size_t> here = map.deliveries_at(i);
+        const std::vector<std::size_t> here = map.deliveries_at(i, progress);
         return std::any_of(here.begin(), here.end(), [&](std::size_t d) {
-            return !progress.done(d) && !progress.open(d) && progress.chain_current(all_deliveries()[d].chain) == d;
+            return !progress.done(d) && !progress.open(d) && progress.chain_current(progress.delivery(d).chain) == d;
         });
     };
     for (int i = 0; i < map.size(); ++i) {

@@ -296,23 +296,23 @@ void BuildingStats(ItemKind kind) {
 
 // The deliveries asking for `kind`: how many, where, and how far along.
 void DeliveryRows(const World& world, ItemKind kind) {
-    const std::vector<std::size_t> wanting = deliveries_wanting(kind);
+    const Progress& progress = world.get_fleet().get_progress();
+    const std::vector<std::size_t> wanting = deliveries_wanting(progress, kind);
     if (wanting.empty())
         return;
     ImGui::SeparatorText("Deliveries wanting it");
-    const Progress& progress = world.get_fleet().get_progress();
     const StarMap& map = world.get_map();
     for (const std::size_t d : wanting) {
-        const Delivery& delivery = all_deliveries()[d];
+        const Delivery& delivery = progress.delivery(d);
         int count = 0;
         for (const ItemStack& s : delivery.wants)
             if (s.kind == kind)
                 count = s.count;
-        const int sector = map.delivery_sector(d);
-        ImGui::Text("%s: %d", delivery.name, count);
+        const int sector = map.delivery_sector(delivery);
+        ImGui::Text("%s: %d", delivery.name.c_str(), count);
         ImGui::SameLine();
         ImGui::TextColored(theme::kTextDim, "to %s, +%d %s", sector >= 0 ? map.at(sector).name.c_str() : "?",
-                           delivery_points(d), kPointsShort);
+                           delivery.points, kPointsShort);
         ImGui::SameLine();
         if (progress.done(d))
             ImGui::TextColored(theme::kGood, "Done");
@@ -478,16 +478,13 @@ void DrawTechEntry(const World& world, std::size_t t) {
     else
         TextLinks(after);
 
-    const std::vector<std::size_t> opens = deliveries_opened_by(t);
+    const std::vector<std::size_t> opens = progress.deliveries_opened_by(t);
     if (!opens.empty()) {
         ImGui::SeparatorText("Deliveries waiting on it");
         for (const std::size_t d : opens) {
-            ImGui::Text("%s", all_deliveries()[d].name);
+            ImGui::Text("%s", progress.delivery(d).name.c_str());
             ImGui::SameLine();
-            if (progress.done(d))
-                ImGui::TextColored(theme::kGood, "Done");
-            else
-                ImGui::TextColored(theme::kTextDim, "+%d %s", delivery_points(d), kPointsShort);
+            ImGui::TextColored(theme::kTextDim, "+%d %s", progress.delivery(d).points, kPointsShort);
         }
     }
 }

@@ -814,8 +814,7 @@ void ItemIcons(const std::vector<ItemKind>& kinds) {
 // waiting on a tech (and which); the points to spend, and the Shop.
 void DrawDeliveries(const World& world, const FleetShip& current) {
     const Progress& progress = world.get_fleet().get_progress();
-    const std::string label = "Deliveries (" + std::to_string(progress.done_count()) + " / " +
-                              std::to_string(all_deliveries().size()) + ")###deliveries";
+    const std::string label = "Deliveries (" + std::to_string(progress.done_count()) + " made)###deliveries";
     if (!theme::CollapsingSection(label.c_str()))
         return;
     ImGui::PushTextWrapPos(0.0f);
@@ -824,11 +823,6 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
     if (ImGui::SmallButton("Shop")) {
         g_fleet.show_shop = true;
         PlayUi(audio::Sound::UiPanelOpen);
-    }
-    if (progress.all_complete()) {
-        ImGui::TextColored(theme::kGood, "Every delivery made");
-        ImGui::PopTextWrapPos();
-        return;
     }
     const std::vector<std::size_t> open = progress.open_deliveries();
     if (open.empty())
@@ -840,14 +834,20 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
     const StarMap& map = world.get_map();
     const bool has_provider = current.ship.has_building(ItemKind::Provider);
     for (const std::size_t d : open) {
-        const Delivery& delivery = all_deliveries()[d];
-        const int sector = map.delivery_sector(d);
+        const Delivery& delivery = progress.delivery(d);
+        const int sector = map.delivery_sector(delivery);
         const bool here = sector == current.sector;
         ImGui::Separator();
         ImGui::PushID(static_cast<int>(d));
-        ImGui::Text("%s", delivery.name);
+        ImGui::Text("%s", delivery.name.c_str());
         ImGui::SameLine();
-        ImGui::TextColored(theme::kGood, "+%d %s", delivery_points(d), kPointsShort);
+        ImGui::TextColored(theme::kGood, "+%d %s", delivery.points, kPointsShort);
+        if (chain_endless(delivery.chain)) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kTextDim, "(standing order)");
+            ImGui::SetItemTooltip("%s keeps ordering: another after each one, bigger the more %s you've earned",
+                                  sector >= 0 ? map.at(sector).name.c_str() : "This sector", kPointsName);
+        }
         ImGui::TextColored(here ? theme::kGood : theme::kTextDim, "%s %s%s", here ? "Here, in" : "To",
                            sector >= 0 ? map.at(sector).name.c_str() : "?", here ? "" : " (see the map, M)");
         for (const ItemStack& s : delivery.wants) {
@@ -865,13 +865,13 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
         ImGui::PopID();
     }
     for (const std::size_t d : waiting) {
-        const Delivery& delivery = all_deliveries()[d];
-        const int sector = map.delivery_sector(d);
+        const Delivery& delivery = progress.delivery(d);
+        const int sector = map.delivery_sector(delivery);
         ImGui::Separator();
         ImGui::PushID(static_cast<int>(d));
-        ImGui::TextColored(theme::kTextDim, "%s", delivery.name);
+        ImGui::TextColored(theme::kTextDim, "%s", delivery.name.c_str());
         ImGui::SameLine();
-        ImGui::TextColored(theme::kTextDim, "+%d %s", delivery_points(d), kPointsShort);
+        ImGui::TextColored(theme::kTextDim, "+%d %s", delivery.points, kPointsShort);
         ImGui::TextColored(theme::kTextDim, "%s %s", sector == current.sector ? "Here, in" : "To",
                            sector >= 0 ? map.at(sector).name.c_str() : "?");
         ItemIcons([&] {
@@ -960,9 +960,8 @@ void DrawShopWindow(World& world) {
                     ImGui::TextColored(theme::kTextDim, "Unlocks the %s", layout.name);
             // The deliveries waiting on it: a reason to pick it.
             std::string opens;
-            for (const std::size_t d : deliveries_opened_by(t))
-                if (!progress.done(d))
-                    opens += (opens.empty() ? "" : ", ") + std::string(all_deliveries()[d].name);
+            for (const std::size_t d : progress.deliveries_opened_by(t))
+                opens += (opens.empty() ? "" : ", ") + progress.delivery(d).name;
             if (!opens.empty() && !progress.bought(t))
                 ImGui::TextColored(theme::kGood, "Deliveries needing it: %s", opens.c_str());
             ImGui::Spacing();

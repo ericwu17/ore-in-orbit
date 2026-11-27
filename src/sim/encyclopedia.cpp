@@ -225,10 +225,10 @@ std::vector<EnemyClass> enemies_carrying(ItemKind kind) {
     return found;
 }
 
-std::vector<std::size_t> deliveries_wanting(ItemKind kind) {
+std::vector<std::size_t> deliveries_wanting(const Progress& progress, ItemKind kind) {
     std::vector<std::size_t> found;
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        if (stacks_have(all_deliveries()[d].wants, kind))
+    for (std::size_t d = 0; d < progress.delivery_count(); ++d)
+        if (!progress.done(d) && stacks_have(progress.delivery(d).wants, kind))
             found.push_back(d);
     return found;
 }

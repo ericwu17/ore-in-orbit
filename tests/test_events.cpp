@@ -188,9 +188,9 @@ void test_delivery() {
     FleetShip& flagship = world.get_fleet().flagship();
     Progress& progress = world.get_fleet().get_progress();
     const std::size_t first = 0;
-    flagship.sector = world.get_map().delivery_sector(first);
+    flagship.sector = world.get_map().delivery_sector(progress.delivery(first));
     // All but one of what it wants, in already.
-    const std::vector<ItemStack>& wanted = all_deliveries()[first].wants;
+    const std::vector<ItemStack> wanted = progress.delivery(first).wants;
     for (const ItemStack& s : wanted)
         assert(!progress.deliver(first, s.kind, &s == &wanted.back() ? s.count - 1 : s.count));
     // The last one, from a provider.

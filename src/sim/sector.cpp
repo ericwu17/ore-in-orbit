@@ -39,14 +39,16 @@ void StarMap::visit(int i) {
     sectors[static_cast<std::size_t>(i)].visited = true;
 }
 
-int StarMap::delivery_sector(std::size_t d) const {
-    return d < delivery_sectors.size() ? delivery_sectors[d] : -1;
+int StarMap::chain_sector(int chain) const {
+    return chain >= 0 && static_cast<std::size_t>(chain) < chain_sectors.size()
+               ? chain_sectors[static_cast<std::size_t>(chain)]
+               : -1;
 }
 
-std::vector<std::size_t> StarMap::deliveries_at(int i) const {
+std::vector<std::size_t> StarMap::deliveries_at(int i, const Progress& progress) const {
     std::vector<std::size_t> here;
-    for (std::size_t d = 0; d < delivery_sectors.size(); ++d)
-        if (delivery_sectors[d] == i)
+    for (std::size_t d = 0; d < progress.delivery_count(); ++d)
+        if (delivery_sector(progress.delivery(d)) == i)
             here.push_back(d);
     return here;
 }
@@ -228,15 +230,12 @@ StarMap StarMap::generate(std::uint64_t seed) {
         s.reserves = kSectorReserves;  // all of everything: none runs short of a kind
     }
 
-    // Where each delivery is taken: each chain in its own safe sector,
-    // the first chain's nearest home (sharing the furthest, were there too
-    // few).
-    const std::vector<Delivery>& deliveries = all_deliveries();
-    map.delivery_sectors.assign(deliveries.size(), 0);
+    // Where each delivery chain is taken: each in its own safe sector, the
+    // first nearest home (sharing the furthest, were there too few).
+    map.chain_sectors.assign(kDeliveryChains, 0);
     if (!safe.empty())
-        for (std::size_t d = 0; d < deliveries.size(); ++d)
-            map.delivery_sectors[d] =
-                safe[std::min(static_cast<std::size_t>(deliveries[d].chain), safe.size() - 1)];
+        for (std::size_t c = 0; c < map.chain_sectors.size(); ++c)
+            map.chain_sectors[c] = safe[std::min(c, safe.size() - 1)];
     map.visit(0);
     return map;
 }

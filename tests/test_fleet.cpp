@@ -188,7 +188,7 @@ void test_shared_progress() {
     Ship& second = fleet.find(to)->ship;
     const Progress& progress = fleet.get_progress();
     const std::size_t first = 0;
-    const Delivery& delivery = all_deliveries()[first];
+    const Delivery delivery = progress.delivery(first);
 
     world.flagship().inventory().add({{ItemKind::IronPlate, 10}, {ItemKind::CargoPod, 1}});
     assert(fleet.send(from, to, {{ItemKind::IronPlate, 10}}, world.get_tick()) == FleetResult::Ok);
@@ -198,7 +198,7 @@ void test_shared_progress() {
 
     // The second ship's provider makes the whole first delivery, in the
     // sector that takes it.
-    fleet.find(to)->sector = world.get_map().delivery_sector(first);
+    fleet.find(to)->sector = world.get_map().delivery_sector(delivery);
     const GridPos at = place_somewhere(second, ItemKind::Provider);
     auto& provider = dynamic_cast<Provider&>(*second.building_anchored_at(at));
     for (const ItemStack& s : delivery.wants)
@@ -211,7 +211,7 @@ void test_shared_progress() {
     // It paid out, for every ship; the tech its points buy unlocks steel
     // on the flagship too.
     Progress& flagship_progress = world.flagship().get_bridge().get_progress();
-    assert(flagship_progress.points() == delivery_points(first));
+    assert(flagship_progress.points() == delivery.points);
     flagship_progress.add_points(all_techs()[tech_index("Steelworks")].cost);
     assert(flagship_progress.buy(tech_index("Steelworks")));
     assert(progress.unlocked(ItemKind::Steel));
