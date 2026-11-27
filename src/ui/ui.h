@@ -7,6 +7,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 
 class World;
@@ -17,10 +18,11 @@ enum class Screen {
     SaveSelect,
     Playing,
     Credits,
+    Settings,
 };
 
-// The title screen: the game's name and the Play / Credits buttons. Play
-// opens the save list.
+// The title screen: the game's name and the Play / Settings / Credits
+// buttons. Play opens the save list.
 void DrawMainMenu(Screen& screen);
 
 // What the save list asks main.cpp to do: it owns the World, so it starts
@@ -46,10 +48,22 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const std::filesystem::path& sav
 // Escape returns to the menu.
 void DrawCredits(Screen& screen);
 
+// The settings page: rebinding the action keys (the pause menu has the same
+// list). Back or Escape returns to the menu.
+void DrawSettings(Screen& screen);
+
+// The action keys the player rebound, as settings.json keeps them (action
+// name -> key; see persistence/settings_file.h). Load them once, at start;
+// after a frame where TakeKeyBindingsChanged() says they changed, save
+// KeyBindingsToSave(), which leaves out the keys still at their defaults.
+void LoadKeyBindings(const std::map<std::string, std::string>& saved);
+std::map<std::string, std::string> KeyBindingsToSave();
+bool TakeKeyBindingsChanged();
+
 // The game itself: the ship build grid and the build palette, copying and
 // pasting, and the blueprint library (kept in the folder `blueprints_dir`).
-// Escape opens the pause menu (Resume, or Main menu), and sets `paused`
-// while it is open: main.cpp doesn't step the simulation then.
+// Escape opens the pause menu (Resume, Settings, or Main menu), and sets
+// `paused` while it is open: main.cpp doesn't step the simulation then.
 void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesystem::path& blueprints_dir);
 
 // What the debug menu asks of the frame loop, which steps the simulation.

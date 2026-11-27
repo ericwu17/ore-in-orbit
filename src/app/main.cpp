@@ -70,15 +70,10 @@ static void step_world(World& world, float delta_time, float& tick_accumulator)
     }
 }
 
-// The volumes the settings file holds, and back.
+// The volumes the settings file holds.
 static audio::Volumes volumes_of(const Settings& settings)
 {
     return {.effects = settings.effects_volume, .music = settings.music_volume};
-}
-
-static Settings settings_of(const audio::Volumes& volumes)
-{
-    return {.effects_volume = volumes.effects, .music_volume = volumes.music};
 }
 
 // Seconds of play between autosaves.
@@ -195,7 +190,7 @@ int main(int, char**)
     SDL_GL_SetSwapInterval(1);  // enable vsync
 
     // Persistence: the window layout (imgui.ini), the settings (settings.json:
-    // the volumes), the saves/ folder and the
+    // the volumes and the rebound keys), the saves/ folder and the
     // blueprints/ folder (the blueprint library, shared by every game) live
     // in SDL's per-user app-data directory (SDL_GetPrefPath takes an org and
     // an app name — created if needed):
@@ -213,8 +208,10 @@ int main(int, char**)
 
     // Sound (audio/audio.h): without a device the game just runs silent.
     audio::Init();
-    audio::SetVolumes(volumes_of(read_settings_file(settings_path)));
+    Settings settings = read_settings_file(settings_path);
+    audio::SetVolumes(volumes_of(settings));
     audio::Volumes saved_volumes = audio::GetVolumes();
+    LoadKeyBindings(settings.key_bindings);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -300,16 +297,23 @@ int main(int, char**)
         }
         case Screen::Playing:  DrawPlaying(screen, session.world, paused, blueprints_dir); break;
         case Screen::Credits:  DrawCredits(screen); break;
+        case Screen::Settings: DrawSettings(screen); break;
         }
         DrawDevWindows(screen, session.world, debug);
         PlayFrameSounds(screen, session.world);
         // The volumes changed (in the pause menu): saved once the slider is
-        // let go, not on every step of the drag.
-        if (const audio::Volumes v = audio::GetVolumes();
-            (v.effects != saved_volumes.effects || v.music != saved_volumes.music) && !ImGui::IsAnyItemActive())
+        // let go, not on every step of the drag. A key rebound (in the
+        // Settings menu): saved right away.
+        const audio::Volumes v = audio::GetVolumes();
+        const bool volumes_changed =
+            (v.effects != saved_volumes.effects || v.music != saved_volumes.music) && !ImGui::IsAnyItemActive();
+        if (TakeKeyBindingsChanged() || volumes_changed)
         {
+            settings.effects_volume = v.effects;
+            settings.music_volume = v.music;
+            settings.key_bindings = KeyBindingsToSave();
             std::string error;
-            if (!write_settings_file(settings_path, settings_of(v), error))
+            if (!write_settings_file(settings_path, settings, error))
                 printf("Error: saving the settings: %s\n", error.c_str());
             saved_volumes = v;
         }

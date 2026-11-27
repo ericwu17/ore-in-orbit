@@ -34,10 +34,6 @@ bool ShortcutPressed(ImGuiKey key) {
     return !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(key, false);
 }
 
-bool ChordPressed(ImGuiKeyChord chord) {
-    return !ImGui::GetIO().WantTextInput && ImGui::IsKeyChordPressed(chord);
-}
-
 BuildUiState g_build;
 
 std::unordered_map<int, BuildHistory> g_undo;

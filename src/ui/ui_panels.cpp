@@ -32,7 +32,7 @@ void DrawBlueprintSection(const Ship& ship) {
             bp.tool = Tool::Copy;
         }
     }
-    ImGui::SetItemTooltip("Drag a box over what to copy (%s+C)", kCtrlName);
+    ImGui::SetItemTooltip("Drag a box over what to copy (%s)", KeyName(Action::Copy));
     ImGui::SameLine();
     ImGui::BeginDisabled(!bp.clipboard && bp.tool != Tool::Paste);
     if (theme::SegmentedButton("Paste", bp.tool == Tool::Paste, ImVec2(third, 0.0f))) {
@@ -42,11 +42,11 @@ void DrawBlueprintSection(const Ship& ship) {
             HoldBlueprint(*bp.clipboard);
     }
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Paste the clipboard (%s+V)", kCtrlName);
+    ImGui::SetItemTooltip("Paste the clipboard (%s)", KeyName(Action::Paste));
     ImGui::SameLine();
     if (theme::SegmentedButton("Library", bp.show_library, ImVec2(third, 0.0f)))
         bp.show_library = !bp.show_library;
-    ImGui::SetItemTooltip("Saved blueprints, import and export (B)");
+    ImGui::SetItemTooltip("Saved blueprints, import and export (%s)", KeyName(Action::Blueprints));
 
     if (bp.tool == Tool::Paste && bp.held) {
         ImGui::TextUnformatted(bp.held->name.empty() ? "Pasting the clipboard" : bp.held->name.c_str());
@@ -84,12 +84,13 @@ void DrawBuildPalette(Ship& ship, float width) {
     for (std::size_t i = 0; i < list.size(); ++i) {
         const ItemKind kind = list[i];
         const int count = ship.inventory().count(kind);
-        const std::string key = std::to_string(i + 1);
+        const char* key =
+            i < 9 ? KeyName(static_cast<Action>(static_cast<int>(Action::Build1) + static_cast<int>(i))) : nullptr;
         const std::string amount = ShortCount(count);
         flow.Next();
         ImGui::PushID(static_cast<int>(kind));
         if (IconButton("##build", ItemIcon(kind), icon, g_build.selected == kind,
-                       {i < 9 ? key.c_str() : nullptr, amount.c_str()}, count == 0 ? 0.4f : 1.0f))
+                       {key, amount.c_str()}, count == 0 ? 0.4f : 1.0f))
             ToggleSelected(kind);
         const Recipe* hand = HandRecipeFor(kind);
         if (hand && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
@@ -110,8 +111,8 @@ void DrawBuildPalette(Ship& ship, float width) {
                 ImGui::TextColored(ship.ports_taken(*port) < ship.ports(*port) ? theme::kTextDim : theme::kBad,
                                    "%d of %d %s ports taken", ship.ports_taken(*port), ship.ports(*port),
                                    port_name(*port));
-            if (i < 9)
-                ImGui::TextColored(theme::kTextDim, "Key %s", key.c_str());
+            if (key)
+                ImGui::TextColored(theme::kTextDim, "Key %s", key);
             if (hand) {
                 ImGui::TextColored(theme::kTextDim, "Right click: hand-craft 1 (Shift: 5)");
                 RecipeDetails(*hand, &bridge.get_inventory());
@@ -392,10 +393,10 @@ void BuildingDetails(const Building& b, bool in_tooltip) {
                            ImVec2(bar_w, 0.0f), fuel.c_str());
         if (thruster->offline())
             ImGui::TextColored(theme::kBad, "Knocked offline: it takes no fuel until it mends");
+        else if (thruster->charged())
+            ImGui::TextColored(theme::kGood, "Charged: ready to jump (see the map, %s)", KeyName(Action::StarMap));
         else
-            ImGui::TextColored(thruster->charged() ? theme::kGood : theme::kTextDim, "%s",
-                               thruster->charged() ? "Charged: ready to jump (see the map, M)"
-                                                   : "It draws fuel cells from the bridge to charge");
+            ImGui::TextColored(theme::kTextDim, "It draws fuel cells from the bridge to charge");
         ImGui::TextColored(theme::kTextDim, "Part of the ship's layout: it can't be removed");
     }
     if (const auto* weapon = dynamic_cast<const Weapon*>(&b)) {
@@ -848,8 +849,9 @@ void DrawDeliveries(const World& world, const FleetShip& current) {
         ImGui::Text("%s", delivery.name);
         ImGui::SameLine();
         ImGui::TextColored(theme::kGood, "+%d %s", delivery_points(d), kPointsShort);
+        const std::string see_map = std::string(" (see the map, ") + KeyName(Action::StarMap) + ")";
         ImGui::TextColored(here ? theme::kGood : theme::kTextDim, "%s %s%s", here ? "Here, in" : "To",
-                           sector >= 0 ? map.at(sector).name.c_str() : "?", here ? "" : " (see the map, M)");
+                           sector >= 0 ? map.at(sector).name.c_str() : "?", here ? "" : see_map.c_str());
         for (const ItemStack& s : delivery.wants) {
             const int have = progress.delivered(d, s.kind);
             const std::string overlay = std::to_string(have) + " / " + std::to_string(s.count);

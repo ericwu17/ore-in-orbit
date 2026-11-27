@@ -16,7 +16,10 @@
 //   ui_blueprints.cpp  the Blueprints window (the library)
 //   ui_encyclopedia.cpp the encyclopedia window (E): every item, tech, ship
 //                      and enemy, and their supply chains
-//   ui_menus.cpp       the main menu, the save list and the credits
+//   ui_menus.cpp       the main menu, the save list, the settings page and
+//                      the credits
+//   ui_keys.cpp        the action keys, which the player can rebind, and the
+//                      Settings menu's list of them
 //   ui_debug.cpp       the developer windows (GraveAccent / F2)
 //   ui_sound.cpp       the sounds of the player's actions and of the
 //                      simulation's events, and the music
@@ -66,16 +69,60 @@ void CenteredText(const char* text, ImVec4 color);
 // whenever any ImGui window has focus, and the screens are ImGui windows.)
 bool ShortcutPressed(ImGuiKey key);
 
-// ShortcutPressed() for a key with modifiers (ImGuiMod_Ctrl | ImGuiKey_C).
-// ImGuiMod_Ctrl is Cmd on macOS.
-bool ChordPressed(ImGuiKeyChord chord);
-
 // The key that goes with C and V for copy and paste.
 #ifdef __APPLE__
 constexpr const char* kCtrlName = "Cmd";
 #else
 constexpr const char* kCtrlName = "Ctrl";
 #endif
+
+// ---------------------------------------------------------------------------
+// Action keys (ui_keys.cpp)
+// ---------------------------------------------------------------------------
+
+// What the player does from the keyboard. Each has a key, which the
+// Settings menu rebinds; the mouse and Shift (turn back, x5, building
+// settings) stay as they are.
+enum class Action {
+    Pause,  // put the tool away, close what's open, then pause
+    PreviousShip,
+    NextShip,
+    StarMap,
+    Build1,  // the build palette's first nine slots: Build1 + i
+    Build2,
+    Build3,
+    Build4,
+    Build5,
+    Build6,
+    Build7,
+    Build8,
+    Build9,
+    Pick,
+    Rotate,
+    Copy,
+    Paste,
+    Undo,
+    Blueprints,
+    Encyclopedia,
+    KeysList,
+    Pan,  // held down
+};
+constexpr int kActionCount = static_cast<int>(Action::Pan) + 1;
+
+// The action's key went down this frame (ShortcutPressed()), with its Ctrl
+// or Alt if it has one and not otherwise. Shift doesn't matter.
+bool ActionPressed(Action action);
+// The action's key is held down (and its Ctrl or Alt, if it has one).
+bool ActionDown(Action action);
+// The action's key as the player reads it: "M", "Ctrl+C" ("Cmd+C" on
+// macOS), "Esc", "?".
+const char* KeyName(Action action);
+
+// The Settings menu's list of actions and their keys: click one, then press
+// its new key (Escape cancels). `height` tall, scrolling.
+void DrawKeyBindings(float height);
+// Whether the list is waiting for a new key: Escape is its, then.
+bool CapturingKey();
 
 // ---------------------------------------------------------------------------
 // The game screen's state (ui_common.cpp). UI-only: the simulation never

@@ -32,11 +32,17 @@ Settings read_settings_file(const std::filesystem::path& path) {
         return settings;
     settings.effects_volume = volume(j, "effects_volume", settings.effects_volume);
     settings.music_volume = volume(j, "music_volume", settings.music_volume);
+    if (const auto keys = j.find("keys"); keys != j.end() && keys->is_object())
+        for (const auto& [action, key] : keys->items())
+            if (key.is_string())
+                settings.key_bindings[action] = key.get<std::string>();
     return settings;
 }
 
 bool write_settings_file(const std::filesystem::path& path, const Settings& settings, std::string& error) {
-    const nlohmann::ordered_json j = {{"effects_volume", settings.effects_volume},
-                                      {"music_volume", settings.music_volume}};
+    nlohmann::ordered_json j = {{"effects_volume", settings.effects_volume},
+                                {"music_volume", settings.music_volume}};
+    if (!settings.key_bindings.empty())
+        j["keys"] = settings.key_bindings;
     return write_file_atomically(path, [&](std::ostream& out) { out << j.dump() << '\n'; }, error);
 }
