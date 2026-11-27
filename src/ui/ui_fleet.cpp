@@ -77,7 +77,8 @@ void DrawFleetStrip(World& world) {
     }
     if (fleet.get_ships().size() > 1) {
         ImGui::SameLine();
-        ImGui::TextColored(theme::kTextDim, "[ ] switch ships");
+        ImGui::TextColored(theme::kTextDim, "%s %s switch ships", KeyName(Action::PreviousShip),
+                           KeyName(Action::NextShip));
     }
     // A ship's tab shows that ship's grid: off the star map, too.
     if (show) {
