@@ -233,6 +233,15 @@ struct SaveAccess {
         return j;
     }
 
+    // Marks tech `t` and every tech it comes after bought, without points.
+    static void grant_with_prerequisites(Progress& progress, std::size_t t) {
+        if (progress.bought_[t])
+            return;
+        progress.bought_[t] = true;
+        for (const std::size_t before : tech_prerequisites(t))
+            grant_with_prerequisites(progress, before);
+    }
+
     // A delivery or tech no longer known is left out, and what was delivered
     // of an item no longer known with it.
     static Progress load_progress_of(const Json& j) {
@@ -249,6 +258,10 @@ struct SaveAccess {
                 throw LoadError(name + " bought twice");
             progress.bought_[t] = true;
         }
+        // Saves from before Shipwright needed Logistics may have it without:
+        // Logistics (and what it needs) is given for free, so they still load.
+        if (const std::size_t shipwright = tech_index("Shipwright"); progress.bought_[shipwright])
+            grant_with_prerequisites(progress, tech_index("Logistics"));
         for (std::size_t t = 0; t < techs.size(); ++t)
             if (progress.bought_[t])
                 for (const std::size_t before : tech_prerequisites(t))

@@ -1031,6 +1031,19 @@ void test_skips_unknown() {
     run(loaded->world, 600);
 }
 
+// Saves from before Shipwright came after Logistics may have Shipwright
+// without it: they load, with Logistics (and Sorting, which it needs) given.
+void test_shipwright_before_logistics() {
+    Json save = minimal();
+    progress(save)["techs"] = {"Steelworks", "Refining", "Structures", "Microelectronics", "Shipwright"};
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    assert(loaded);
+    const Progress& p = loaded->world.get_fleet().get_progress();
+    assert(p.bought(tech_index("Shipwright")) && p.bought(tech_index("Logistics")) && p.bought(tech_index("Sorting")));
+    assert(p.points() == 0);
+}
+
 int main() {
     test_names();
     test_round_trip();
@@ -1039,6 +1052,7 @@ int main() {
     test_link_round_trip();
     test_request_round_trip();
     test_before_requests();
+    test_shipwright_before_logistics();
     test_delivery_progress();
     test_provider_round_trip();
     test_reserves_round_trip();

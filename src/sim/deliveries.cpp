@@ -64,7 +64,9 @@ const std::vector<Tech>& all_techs() {
         // Tier 3.
         {"Microelectronics", 20, {"Refining"}, {AdvancedCircuit}, "Advanced circuits, for nearly all that follows"},
         // Tier 4.
-        {"Shipwright", 30, {"Structures", "Microelectronics"}, {ShipStarterPack},
+        // Logistics first, so a second ship can be sent cargo pods (and the fuel
+        // in them) from the start, rather than sitting empty.
+        {"Shipwright", 30, {"Structures", "Microelectronics", "Logistics"}, {ShipStarterPack},
          "Ship starter packs, to build a second ship, and the Hauler"},
         {"Fabrication", 25, {"Structures", "Microelectronics"}, {FabricatorMk2}, "The Fabricator Mk2: faster assembly"},
         {"Tractor beams", 15, {"Structures", "Microelectronics"}, {TractorArray},
