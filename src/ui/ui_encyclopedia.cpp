@@ -256,8 +256,8 @@ const char* TargetGroupName(TargetGroup group) {
 // adds (a machine's speed, a collector's pace, a belt's, a weapon's volley).
 void BuildingStats(ItemKind kind) {
     const GridSize size = footprint_of(kind);
-    ImGui::Text("Size %dx%d, health %d%s", size.w, size.h, max_hp_of(kind),
-                is_rotatable(kind) ? ", turns (R)" : "");
+    const std::string turns = std::string(", turns (") + KeyName(Action::Rotate) + ")";
+    ImGui::Text("Size %dx%d, health %d%s", size.w, size.h, max_hp_of(kind), is_rotatable(kind) ? turns.c_str() : "");
     if (const std::optional<Port> port = port_of(kind))
         ImGui::Text("Goes only over %s", PortName(*port));
     if (machine_crafting_speed(kind) > 0) {

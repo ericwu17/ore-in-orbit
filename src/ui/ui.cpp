@@ -302,6 +302,17 @@ void LeaveGame(Screen& screen) {
     g_undo.clear();
 }
 
+// "R / Shift+R": the turn key, and with Shift to turn back.
+std::string TurnKeys() {
+    const std::string key = KeyName(Action::Rotate);
+    return key + " / Shift+" + key;
+}
+
+// "1-9": the build palette's keys, first to last.
+std::string BuildKeys() {
+    return std::string(KeyName(Action::Build1)) + "-" + KeyName(Action::Build9);
+}
+
 // One hint in the bar under the grid: a key cap, then what it does.
 void Hint(const char* key, const char* does) {
     theme::KeyCap(key);
@@ -319,22 +330,22 @@ void DrawHintBar(ImVec2 min, float width) {
     ImGui::SetCursorScreenPos(min);
     ImGui::BeginChild("##hints", ImVec2(width, fh), ImGuiChildFlags_None,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    const char* keys_label = "? Keys";
-    const float keys_w = ImGui::CalcTextSize(keys_label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    const std::string keys_label = std::string(KeyName(Action::KeysList)) + " Keys";
+    const float keys_w = ImGui::CalcTextSize(keys_label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::PushClipRect(min, ImVec2(min.x + width - keys_w - ImGui::GetStyle().ItemSpacing.x, min.y + fh), true);
     ImGui::SetCursorPosY((fh - ImGui::GetTextLineHeight()) * 0.5f);
     if (g_map.shown) {
         Hint("LMB", "sector details");
         Hint("Drag", "pan");
         Hint("Wheel", "zoom");
-        Hint("M", "back to the ship");
+        Hint(KeyName(Action::StarMap), "back to the ship");
     } else if (bp.tool == Tool::Copy) {
         Hint("Drag", "box over what to copy");
         Hint("RMB", "stop");
-        Hint("Esc", "stop");
+        Hint(KeyName(Action::Pause), "stop");
     } else if (bp.tool == Tool::Paste) {
         Hint("LMB", "paste");
-        Hint("R", "turn");
+        Hint(KeyName(Action::Rotate), "turn");
         Hint("RMB", "stop");
         if (!bp.paste_status.empty())
             ImGui::TextColored(theme::kBad, "%s", bp.paste_status.c_str());
@@ -349,22 +360,22 @@ void DrawHintBar(ImVec2 min, float width) {
         Hint("RMB", "remove");
         if (is_rotatable(*g_build.selected)) {
             std::string facing = std::string("turn (now ") + DirectionName(g_build.facing) + ")";
-            Hint("R / Shift+R", facing.c_str());
+            Hint(TurnKeys().c_str(), facing.c_str());
         }
-        Hint("Q", "pick / build nothing");
+        Hint(KeyName(Action::Pick), "pick / build nothing");
         Hint("Shift", "settings");
     } else {
         Hint("LMB", "inspect");
         Hint("RMB", "remove");
-        Hint("Q", "pick the building under the mouse");
-        Hint("1-9", "build");
+        Hint(KeyName(Action::Pick), "pick the building under the mouse");
+        Hint(BuildKeys().c_str(), "build");
         Hint("Shift", "settings");
     }
     ImGui::PopClipRect();
     ImGui::SetCursorPos(ImVec2(width - keys_w, 0.0f));
-    if (theme::SegmentedButton(keys_label, g_build.show_keys, ImVec2(keys_w, fh)))
+    if (theme::SegmentedButton(keys_label.c_str(), g_build.show_keys, ImVec2(keys_w, fh)))
         g_build.show_keys = !g_build.show_keys;
-    ImGui::SetItemTooltip("Every key and mouse control (?)");
+    ImGui::SetItemTooltip("Every key and mouse control (%s)", KeyName(Action::KeysList));
     ImGui::EndChild();
 }
 
@@ -379,9 +390,10 @@ void DrawKeysWindow() {
         ImGui::End();
         return;
     }
-    const std::string copy = std::string(kCtrlName) + "+C";
-    const std::string paste = std::string(kCtrlName) + "+V";
-    const std::string undo = std::string(kCtrlName) + "+Z";
+    const std::string build = BuildKeys();
+    const std::string turn = TurnKeys();
+    const std::string pan = std::string("MMB drag, ") + KeyName(Action::Pan);
+    const std::string ships = std::string(KeyName(Action::PreviousShip)) + " / " + KeyName(Action::NextShip);
     const struct {
         const char* key;
         const char* does;
@@ -392,20 +404,20 @@ void DrawKeysWindow() {
         {"Shift+RMB", "Copy a building's settings"},
         {"Shift+LMB / drag", "Paste them onto buildings that can take them"},
         {"Wheel", "Zoom"},
-        {"MMB drag, Space", "Pan"},
-        {"1-9", "Pick the item to build (again: build nothing)"},
+        {pan.c_str(), "Pan"},
+        {build.c_str(), "Pick the item to build (again: build nothing)"},
         {"RMB a palette icon", "Hand-craft one (Shift: 5)"},
-        {"R / Shift+R", "Turn what you're building, or the blueprint"},
-        {"Q", "Pick the building under the mouse, or build nothing"},
-        {copy.c_str(), "Copy an area (drag a box)"},
-        {paste.c_str(), "Pick the last copy up to paste"},
-        {undo.c_str(), "Undo the last build: placing, removing, a paste or a settings change"},
-        {"B", "Blueprint library"},
-        {"E", "Encyclopedia (over a building: look it up)"},
-        {"M", "Star map"},
-        {"[ / ]", "Previous / next ship"},
-        {"?", "This list"},
-        {"Esc", "Put the tool away, close what's open, then pause"},
+        {turn.c_str(), "Turn what you're building, or the blueprint"},
+        {KeyName(Action::Pick), "Pick the building under the mouse, or build nothing"},
+        {KeyName(Action::Copy), "Copy an area (drag a box)"},
+        {KeyName(Action::Paste), "Pick the last copy up to paste"},
+        {KeyName(Action::Undo), "Undo the last build: placing, removing, a paste or a settings change"},
+        {KeyName(Action::Blueprints), "Blueprint library"},
+        {KeyName(Action::Encyclopedia), "Encyclopedia (over a building: look it up)"},
+        {KeyName(Action::StarMap), "Star map"},
+        {ships.c_str(), "Previous / next ship"},
+        {KeyName(Action::KeysList), "This list"},
+        {KeyName(Action::Pause), "Put the tool away, close what's open, then pause"},
     };
     if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
         for (const auto& row : rows) {
@@ -421,7 +433,8 @@ void DrawKeysWindow() {
     ImGui::PushTextWrapPos(fh * 20.0f);
     ImGui::TextColored(theme::kTextDim,
                        "New machines, collectors and sorters start with the settings last picked for their kind. "
-                       "Buildings go on the ship's hull, which its layout fixes, with its bridge and engines.");
+                       "Buildings go on the ship's hull, which its layout fixes, with its bridge and engines. "
+                       "The pause menu's Settings change the keys.");
     ImGui::PopTextWrapPos();
     ImGui::End();
 }
@@ -496,7 +509,8 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
         DrawFleetLost(screen);
         return;
     }
-    // Escape opens the pause menu, or closes it again; first, though, it puts
+    // The pause key (Escape, unless rebound) opens the pause menu, or closes
+    // it again (or, there, the settings); first, though, it puts
     // the copy / paste tool away, or the building picked to place, then
     // closes what's open, one at a time:
     // the Send cargo window, the Build a new ship window, the Shop, the
@@ -506,8 +520,15 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     // open last frame.
     static bool popup_was_open = false;
     BlueprintUiState& bp = g_blueprints;
-    if (ShortcutPressed(ImGuiKey_Escape) && (paused || !popup_was_open)) {
-        if (paused) {
+    static bool show_settings = false;  // the pause menu shows the settings
+    if (!paused)
+        show_settings = false;
+    if (ActionPressed(Action::Pause) && (paused || !popup_was_open)) {
+        if (paused && CapturingKey()) {
+            // The key list is waiting for a key: this is it.
+        } else if (paused && show_settings) {
+            show_settings = false;
+        } else if (paused) {
             paused = false;
             PlayUi(audio::Sound::UiPanelClose);
         } else if (bp.tool != Tool::Build)
@@ -541,17 +562,17 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     Ship& ship = current.ship;
     StartJumpTransition(events, current.id);
     if (!paused) {
-        if (ShortcutPressed(ImGuiKey_LeftBracket))
+        if (ActionPressed(Action::PreviousShip))
             CycleShip(world.get_fleet(), -1);
-        if (ShortcutPressed(ImGuiKey_RightBracket))
+        if (ActionPressed(Action::NextShip))
             CycleShip(world.get_fleet(), 1);
-        if (ShortcutPressed(ImGuiKey_M))
+        if (ActionPressed(Action::StarMap))
             ShowStarMap(!g_map.shown);
         const std::vector<ItemKind> list = BuildList(ship);
         for (std::size_t i = 0; i < std::min<std::size_t>(list.size(), 9); ++i)
-            if (ShortcutPressed(static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(i))))
+            if (ActionPressed(static_cast<Action>(static_cast<int>(Action::Build1) + static_cast<int>(i))))
                 ToggleSelected(list[i]);
-        if (ShortcutPressed(ImGuiKey_Q)) {
+        if (ActionPressed(Action::Pick)) {
             // Over a building: pick it, as it faces and with its settings for
             // new ones. Anywhere else: build nothing.
             LeaveBlueprintTool();
@@ -568,9 +589,9 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
                 g_build.selected.reset();
             }
         }
-        if (ShortcutPressed(ImGuiKey_Slash))
+        if (ActionPressed(Action::KeysList))
             g_build.show_keys = !g_build.show_keys;
-        if (ShortcutPressed(ImGuiKey_R)) {
+        if (ActionPressed(Action::Rotate)) {
             // Shift turns it back the other way: three quarter turns, for a
             // blueprint.
             const bool back = ImGui::GetIO().KeyShift;
@@ -582,21 +603,21 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
             }
             PlayUi(audio::Sound::BuildRotate);
         }
-        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
+        if (ActionPressed(Action::Copy)) {
             LeaveBlueprintTool();
             bp.tool = Tool::Copy;
         }
-        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
+        if (ActionPressed(Action::Paste)) {
             if (bp.clipboard)
                 HoldBlueprint(*bp.clipboard);
             else
-                SetMessage(std::string("Nothing copied yet: ") + kCtrlName + "+C copies an area");
+                SetMessage(std::string("Nothing copied yet: ") + KeyName(Action::Copy) + " copies an area");
         }
-        if (ShortcutPressed(ImGuiKey_B))
+        if (ActionPressed(Action::Blueprints))
             bp.show_library = !bp.show_library;
-        if (ShortcutPressed(ImGuiKey_E))
+        if (ActionPressed(Action::Encyclopedia))
             LookUpOrToggleEncyclopedia(ship);
-        if (ChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z) && !g_map.shown)
+        if (ActionPressed(Action::Undo) && !g_map.shown)
             UndoBuildAction(ship, current.id);
     }
 
@@ -690,17 +711,27 @@ void DrawPlaying(Screen& screen, World& world, bool& paused, const std::filesyst
     if (ImGui::BeginPopupModal(kPausePopup, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
-        if (theme::PrimaryButton("Resume", button_size)) {
-            paused = false;
-            PlayUi(audio::Sound::UiPanelClose);
+        if (show_settings) {
+            theme::SectionHeading("Keys");
+            DrawKeyBindings(std::min(fh * 16.0f, viewport->WorkSize.y * 0.6f));
+            ImGui::Spacing();
+            if (ImGui::Button("Back", button_size))
+                show_settings = false;
+        } else {
+            if (theme::PrimaryButton("Resume", button_size)) {
+                paused = false;
+                PlayUi(audio::Sound::UiPanelClose);
+            }
+            if (ImGui::Button("Settings", button_size))
+                show_settings = true;
+            if (ImGui::Button("Main menu", button_size)) {
+                paused = false;
+                LeaveGame(screen);
+            }
+            ImGui::Spacing();
+            ImGui::TextColored(theme::kTextDim, "Volume");
+            VolumeSliders(button_size.x - ImGui::CalcTextSize("Effects").x - ImGui::GetStyle().ItemInnerSpacing.x);
         }
-        if (ImGui::Button("Main menu", button_size)) {
-            paused = false;
-            LeaveGame(screen);
-        }
-        ImGui::Spacing();
-        ImGui::TextColored(theme::kTextDim, "Volume");
-        VolumeSliders(button_size.x - ImGui::CalcTextSize("Effects").x - ImGui::GetStyle().ItemInnerSpacing.x);
         if (!paused)
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();

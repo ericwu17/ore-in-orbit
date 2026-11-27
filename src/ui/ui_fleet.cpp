@@ -14,7 +14,7 @@ void DrawFleetStrip(World& world) {
     FleetUiState& f = g_fleet;
     if (theme::SegmentedButton("Map", g_map.shown))
         ShowStarMap(!g_map.shown);
-    ImGui::SetItemTooltip("The star map (M): sectors, and jumping between them");
+    ImGui::SetItemTooltip("The star map (%s): sectors, and jumping between them", KeyName(Action::StarMap));
     ImGui::SameLine();
     {
         const std::string shop = "Shop (" + std::to_string(fleet.get_progress().points()) + " " + kPointsShort + ")";
@@ -27,7 +27,8 @@ void DrawFleetStrip(World& world) {
     ImGui::SameLine();
     if (theme::SegmentedButton("Encyclopedia", g_encyclopedia.shown))
         ToggleEncyclopedia();
-    ImGui::SetItemTooltip("Look up any item, building, tech, ship or enemy, and its supply chain (E)");
+    ImGui::SetItemTooltip("Look up any item, building, tech, ship or enemy, and its supply chain (%s)",
+                          KeyName(Action::Encyclopedia));
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
     const float fh = ImGui::GetFrameHeight();
     std::optional<int> show;
@@ -76,7 +77,8 @@ void DrawFleetStrip(World& world) {
     }
     if (fleet.get_ships().size() > 1) {
         ImGui::SameLine();
-        ImGui::TextColored(theme::kTextDim, "[ ] switch ships");
+        ImGui::TextColored(theme::kTextDim, "%s %s switch ships", KeyName(Action::PreviousShip),
+                           KeyName(Action::NextShip));
     }
     // A ship's tab shows that ship's grid: off the star map, too.
     if (show) {

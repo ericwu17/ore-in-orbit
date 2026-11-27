@@ -1,5 +1,5 @@
-// ui_menus.cpp — the screens outside a game: the main menu, the save list
-// and the credits (see ui.h).
+// ui_menus.cpp — the screens outside a game: the main menu, the save list,
+// the settings and the credits (see ui.h).
 #include "ui/ui.h"
 #include "ui/ui_internal.h"
 
@@ -85,12 +85,12 @@ void DrawMainMenu(Screen& screen) {
     const ImVec2 button_size = {fh * 8.0f, fh * 1.6f};
     const float spacing = ImGui::GetStyle().ItemSpacing.y;
 
-    // Title plus two buttons, as one block centered vertically.
+    // Title plus three buttons, as one block centered vertically.
     theme::PushMono(theme::kFontHuge * 1.4f);
     const float title_h = ImGui::GetTextLineHeight();
     const float title_w = ImGui::CalcTextSize("ORE IN ORBIT").x;
     theme::PopMono();
-    const float block_h = title_h + fh * 1.5f + 2.0f * button_size.y + spacing;
+    const float block_h = title_h + fh * 1.5f + 3.0f * button_size.y + 2.0f * spacing;
     ImGui::SetCursorPosY((ImGui::GetWindowHeight() - block_h) * 0.5f);
 
     theme::PushMono(theme::kFontHuge * 1.4f);
@@ -108,6 +108,9 @@ void DrawMainMenu(Screen& screen) {
     ImGui::SetCursorPosX(button_x);
     if (theme::PrimaryButton("Play", button_size))
         screen = Screen::SaveSelect;
+    ImGui::SetCursorPosX(button_x);
+    if (ImGui::Button("Settings", button_size))
+        screen = Screen::Settings;
     ImGui::SetCursorPosX(button_x);
     if (ImGui::Button("Credits", button_size))
         screen = Screen::Credits;
@@ -275,6 +278,27 @@ SaveSelectResult DrawSaveSelect(Screen& screen, const fs::path& saves_dir, std::
     ImGui::EndChild();
     ImGui::End();
     return result;
+}
+
+void DrawSettings(Screen& screen) {
+    BeginFullscreenPage("##settings");
+    DrawPageStarfield();
+    const float fh = ImGui::GetFrameHeight();
+    const float width = std::min(ImGui::GetContentRegionAvail().x, fh * 32.0f);
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+    ImGui::BeginChild("##settings_page", ImVec2(width, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+
+    theme::SectionHeading("Settings");
+    // Escape is the key list's while it waits for a key.
+    if (ImGui::Button("Back") || (!CapturingKey() && ShortcutPressed(ImGuiKey_Escape)))
+        screen = Screen::MainMenu;
+    ImGui::Spacing();
+    theme::SectionHeading("Keys");
+    // The rest of the page, but for the lines under the list.
+    DrawKeyBindings(std::max(fh * 6.0f, ImGui::GetContentRegionAvail().y - fh * 4.0f));
+
+    ImGui::EndChild();
+    ImGui::End();
 }
 
 void DrawCredits(Screen& screen) {

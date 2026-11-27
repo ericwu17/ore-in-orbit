@@ -86,10 +86,11 @@ bool UpdateCamera(int n, ImVec2 canvas_min, ImVec2 canvas_size) {
         cam.cell = new_cell;
     }
 
-    // Pan: middle drag, or hold Space and move the mouse, with or without a
-    // button down (for trackpads). Once started over the canvas, a Space pan
-    // carries on over the panels until Space comes up.
-    const bool space = ImGui::IsKeyDown(ImGuiKey_Space) && !io.WantTextInput;
+    // Pan: middle drag, or hold Space (the pan key, unless rebound) and move
+    // the mouse, with or without a button down (for trackpads). Once started
+    // over the canvas, a Space pan carries on over the panels until Space
+    // comes up.
+    const bool space = ActionDown(Action::Pan);
     if (!space)
         cam.space_pans = false;
     else if (ImGui::IsItemHovered())

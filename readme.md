@@ -323,13 +323,17 @@ the recipe book.
 
 ## Controls
 
+These are the default keys. Settings (on the main menu, or in the pause
+menu) rebinds any of them except the mouse, Shift and the debug keys, and
+the hints in the game show the keys as bound.
+
 - **Escape**: back to the main menu (from the save list or the credits). In
   the game it first puts away the copy / paste tool, then closes what's
   open, one at a time (Send cargo, Build a new ship, the Shop, the
   encyclopedia, the inspector, the keys
   overlay, the star map, the Blueprints window), and then opens the pause
   menu, whose Main menu saves the game. The pause menu also sets the
-  effects and music volumes.
+  effects and music volumes, and has Settings.
 - **Left click / drag**: build the selected item on the grid. A quick drag
   leaves no gaps, and belts drawn by dragging face the way the drag goes,
   turning at corners. Belt tunnels go down one per click, showing what they
@@ -540,7 +544,8 @@ What plays when:
 
 A sound started again within 45 ms is dropped, so a flak volley or a belt
 dragged across the grid sounds once rather than as a roar. The effects and
-music volumes (in the pause menu) are kept in `settings.json`, next to
+music volumes (in the pause menu) are kept in `settings.json`, with any
+rebound keys, next to
 `saves/`. Without an audio device the game runs silent.
 
 To add a sound: add it to `tools/make_sounds.py`, run it, list it in
@@ -652,7 +657,9 @@ One directory per layer under `src/`; includes name their layer
   - `ui_fleet.cpp` — the fleet's tabs and its section of the right panel,
     the Send cargo and Build a new ship windows, and the star map.
   - `ui_blueprints.cpp` — the Blueprints window.
-  - `ui_menus.cpp` — the main menu, save list and credits.
+  - `ui_menus.cpp` — the main menu, save list, settings page and credits.
+  - `ui_keys.cpp` — the action keys, which the player can rebind, and the
+    Settings menu's list of them.
   - `ui_debug.cpp` — the debug menu (Accent Grave) and the ImPlot demo window (F2).
   - `ui_common.cpp`, `ui_draw.cpp` — the shared state and widgets, and
     drawing buildings, items and icons (from their sprites, or stand-ins).

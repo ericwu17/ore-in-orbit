@@ -110,7 +110,8 @@ void DrawBlueprintLibrary(const fs::path& dir) {
     ImGui::Spacing();
 
     if (ui.slots.empty())
-        ImGui::TextColored(theme::kTextDim, "No blueprints yet: copy an area (%s+C), then save it here.", kCtrlName);
+        ImGui::TextColored(theme::kTextDim, "No blueprints yet: copy an area (%s), then save it here.",
+                           KeyName(Action::Copy));
     const ImGuiTableFlags table_flags =
         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit;
     if (!ui.slots.empty() && ImGui::BeginTable("##blueprint_table", 3, table_flags)) {
