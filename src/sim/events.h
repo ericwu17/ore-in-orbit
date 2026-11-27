@@ -43,7 +43,7 @@ struct Event {
     int sector = -1;     // where it happened, -1 for nowhere in particular
     bool enemy = false;  // in a fight: on (or by) the enemy ship
     ItemKind item = ItemKind::BurstLaser;  // the weapon, for WeaponFired and shots; what ran out
-    int delivery = -1;   // DeliveryComplete: which (an index into all_deliveries())
+    int delivery = -1;   // DeliveryComplete: which (an index into the fleet's Progress::deliveries())
 };
 
 class EventLog {

@@ -33,6 +33,29 @@ const GridPos kGun = layout_to_grid(starter_layout(), starter_layout().weapon_po
 // The starting ship's first engine.
 const GridPos kEngine = layout_to_grid(starter_layout(), starter_layout().engines.front());
 
+// A finite delivery chain (the electronics works), and an endless one (the
+// shipyard).
+constexpr int kWorksChain = 1;
+constexpr int kEndlessChain = 0;
+
+// The deliveries every game had before they were made up per game, which
+// saves from then name.
+constexpr const char* kOldDeliveries[] = {
+    "Hull plating",   "Girders",           "Frame order",   "Armored keel",     "Wiring loom",
+    "Control boards", "Guidance cores",    "Mainframe",     "Fuel run",         "Tanker contract",
+    "Reactor feed",   "Picket resupply",   "Lens blanks",   "Telescope mounts", "Sensor array",
+    "Deep-field optics", "Outpost kit",    "Habitat ring",  "Iridium bulkheads", "Command spire",
+};
+
+// The index of `progress`'s delivery named `name` (which must be one).
+std::size_t named(const Progress& progress, std::string_view name) {
+    for (std::size_t d = 0; d < progress.delivery_count(); ++d)
+        if (progress.delivery(d).name == name)
+            return d;
+    assert(false && "no delivery by that name");
+    return progress.delivery_count();
+}
+
 void run(World& world, Tick ticks) {
     for (Tick t = 0; t < ticks; ++t)
         world.advance_tick();
@@ -76,13 +99,19 @@ World busy_world() {
                                       {ItemKind::CargoHold, 1},
                                       {ItemKind::BurstLaser, 1},
                                       {ItemKind::Refinery, 1}});
-    // Two techs bought (the refinery's recipes need them), a delivery made,
-    // some way into the next, and points to spend.
+    // Two techs granted (the refinery's recipes need them) and one bought, a
+    // delivery made,
+    // some way into the next, two standing orders made (so a third made up),
+    // and points to spend.
     Progress& progress = world.flagship().get_bridge().get_progress();
     assert(progress.grant(tech_index("Steelworks")) && progress.grant(tech_index("Refining")));
-    assert(progress.complete(delivery_index("Hull plating")));
+    const std::vector<std::size_t> works = progress.chain_deliveries(kWorksChain);
+    assert(progress.complete(works[0]));
     progress.add_points(7);
-    assert(!progress.deliver(delivery_index("Girders"), ItemKind::Gear, 3));
+    assert(!progress.deliver(works[1], progress.delivery(works[1]).wants.front().kind, 3));
+    for (int i = 0; i < 2; ++i)
+        assert(progress.complete(*progress.chain_current(kEndlessChain)));
+    assert(progress.buy(tech_index("Optics")));  // spent: less to spend than earned
     Ship& ship = world.flagship();
 
     assert(ship.place(ItemKind::AsteroidCollector, {x0, c - 6}) == BuildResult::Ok);
@@ -235,14 +264,27 @@ void test_round_trip() {
     assert(tender.name == "Tender");
     assert(&tender.ship.get_bridge().get_progress() == &fleet.get_progress());
     assert(&copy.get_bridge().get_progress() == &fleet.get_progress());
-    assert(fleet.get_progress().delivered(delivery_index("Girders"), ItemKind::Gear) == 3);
-    assert(fleet.get_progress().done(delivery_index("Hull plating")));
-    assert(fleet.get_progress().open(delivery_index("Girders")));
-    assert(fleet.get_progress().points() == delivery_points(delivery_index("Hull plating")) + 7);
-    assert(fleet.get_progress().bought(tech_index("Refining")) && !fleet.get_progress().bought(tech_index("Logistics")));
+    // The deliveries made up for this game, as they were.
+    const Progress& was = world.get_fleet().get_progress();
+    const Progress& now = fleet.get_progress();
+    assert(now.delivery_count() == was.delivery_count());
+    for (std::size_t d = 0; d < was.delivery_count(); ++d) {
+        const Delivery& a = was.delivery(d);
+        const Delivery& b = now.delivery(d);
+        assert(a.name == b.name && a.chain == b.chain && a.points == b.points && a.wants == b.wants);
+        assert(was.done(d) == now.done(d));
+        for (const ItemStack& s : a.wants)
+            assert(was.delivered(d, s.kind) == now.delivered(d, s.kind));
+    }
+    const std::vector<std::size_t> works = now.chain_deliveries(kWorksChain);
+    assert(now.delivered(works[1], now.delivery(works[1]).wants.front().kind) == 3);
+    assert(now.done(works[0]) && now.open(works[1]));
+    assert(now.chain_deliveries(kEndlessChain).size() == 3);
+    assert(now.points() == was.points() && now.earned() == was.earned() && now.earned() > now.points());
+    assert(now.bought(tech_index("Refining")) && !now.bought(tech_index("Logistics")));
     // Where the deliveries are taken.
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        assert(loaded->world.get_map().delivery_sector(d) == world.get_map().delivery_sector(d));
+    for (int chain = 0; chain < kDeliveryChains; ++chain)
+        assert(loaded->world.get_map().chain_sector(chain) == world.get_map().chain_sector(chain));
     assert(fleet.in_flight().size() == 1 && fleet.in_flight()[0].to == tender.id);
 }
 
@@ -328,9 +370,10 @@ Json minimal() {
                 ]}}],
             "transfers": []},
           "engagements": []}})");
-    // Every delivery taken next door.
-    for (const Delivery& d : all_deliveries())
-        save["world"]["star_map"]["deliveries"][d.name] = 1;
+    // Saved before deliveries were made up per game: the one table's, each
+    // taken next door.
+    for (const char* name : kOldDeliveries)
+        save["world"]["star_map"]["deliveries"][name] = 1;
     save["version"] = kSaveVersion;
     const ShipLayout& layout = starter_layout();
     const GridPos at = layout_to_grid(layout, layout.bridge);
@@ -413,8 +456,10 @@ void test_refused() {
     refused_after(save, "more delivered than wanted", [](Json& j) {
         progress(j)["deliveries"]["Hull plating"] = Json::parse(R"({"done": false, "delivered": {"IronPlate": 61}})");
     });
-    refused_after(save, "a delivery without a sector",
-                  [](Json& j) { j["world"]["star_map"]["deliveries"].erase("Hull plating"); });
+    refused_after(save, "a delivery chain without a sector", [](Json& j) {
+        for (const char* name : {"Hull plating", "Girders", "Frame order", "Armored keel"})
+            j["world"]["star_map"]["deliveries"].erase(name);
+    });
     refused_after(save, "a delivery in a sector that isn't there",
                   [](Json& j) { j["world"]["star_map"]["deliveries"]["Hull plating"] = 2; });
     refused_after(save, "a recipe the bridge can't make", [](Json& j) {
@@ -906,12 +951,91 @@ void test_delivery_progress() {
         std::fprintf(stderr, "refused: %s\n", error.c_str());
     assert(loaded && error.empty());
     const Progress& p = loaded->world.get_fleet().get_progress();
-    assert(p.done(delivery_index("Hull plating")) && p.done_count() == 1);
-    assert(p.delivered(delivery_index("Girders"), ItemKind::Gear) == 12);
-    assert(p.delivered(delivery_index("Frame order"), ItemKind::Steel) == 0);
+    assert(p.done(named(p, "Hull plating")) && p.done_count() == 1);
+    assert(p.delivered(named(p, "Girders"), ItemKind::Gear) == 12);
+    assert(p.delivered(named(p, "Frame order"), ItemKind::Steel) == 0);
     assert(p.points() == 5 && p.bought(tech_index("Steelworks")) && p.bought_count() == 1);
     assert(p.unlocked(ItemKind::Steel) && !p.unlocked(ItemKind::Refinery));
-    assert(loaded->world.get_map().delivery_sector(delivery_index("Command spire")) == 1);
+    assert(loaded->world.get_map().delivery_sector(p.delivery(named(p, "Command spire"))) == 1);
+    // Earned all game: at least what's to spend and what the techs cost.
+    assert(p.earned() == 5 + all_techs()[tech_index("Steelworks")].cost);
+    // The old table's deliveries, as they were: what they want and pay.
+    assert(p.delivery_count() == std::size(kOldDeliveries));
+    assert(p.delivery(named(p, "Hull plating")).wants ==
+           (std::vector<ItemStack>{{ItemKind::IronPlate, 60}, {ItemKind::Gear, 30}}));
+    assert(p.delivery(named(p, "Hull plating")).points == 5);
+}
+
+// An old save whose endless chain was all made (the old table had four
+// deliveries in each chain) carries on with a standing order made up for
+// it, sized by what was earned.
+void test_old_save_goes_on() {
+    Json save = minimal();
+    for (const char* name : {"Hull plating", "Girders", "Frame order", "Armored keel"})
+        progress(save)["deliveries"][name] = {{"done", true}};
+    progress(save)["points"] = 200;
+    progress(save)["techs"] = Json::array();
+    for (const char* tech : {"Steelworks", "Structures", "Sorting", "Unloading", "Refining", "Microelectronics",
+                             "Tractor beams", "Iridium refining"})
+        progress(save)["techs"].push_back(tech);
+    std::string error;
+    const std::optional<LoadedSave> loaded = load_text(save.dump(), error);
+    if (!loaded)
+        std::fprintf(stderr, "refused: %s\n", error.c_str());
+    assert(loaded && error.empty());
+    const Progress& p = loaded->world.get_fleet().get_progress();
+    assert(p.delivery_count() == std::size(kOldDeliveries) + 1);
+    const std::size_t next = *p.chain_current(kEndlessChain);
+    assert(next == std::size(kOldDeliveries) && p.open(next));
+    assert(p.delivery(next).name.ends_with(" #5"));
+    assert(std::abs(p.delivery(next).points - endless_target_points(p.earned())) <= endless_target_points(p.earned()) / 4);
+    assert(p.earned() >= 200);
+    // Saved again, it's in the new form, and loads back the same.
+    const std::string text = save_text(loaded->world);
+    const std::optional<LoadedSave> again = load_text(text, error);
+    assert(again && save_text(again->world) == text);
+}
+
+// Deliveries made up for the game: what a save says of them is checked.
+void test_made_up_refused() {
+    World world;
+    Progress& p = world.get_fleet().get_progress();
+    assert(p.complete(p.chain_deliveries(kWorksChain)[0]));
+    const Json save = Json::parse(save_text(world));
+    std::string error;
+    assert(load_text(save.dump(), error));
+    // The works' second (waiting on steel) and third: the finite chains'
+    // deliveries come first, chain by chain.
+    constexpr std::size_t kSecond = 1;
+    constexpr std::size_t kThird = 2;
+    assert(save["world"]["fleet"]["progress"]["deliveries"][kSecond]["chain"] == kWorksChain);
+    const std::string wanted = save["world"]["fleet"]["progress"]["deliveries"][kSecond]["wants"][0]["item"];
+    const auto delivery = [](Json& j, std::size_t d) -> Json& { return progress(j)["deliveries"][d]; };
+    refused_after(save, "a delivery in a chain that isn't there", [&](Json& j) { delivery(j, 0)["chain"] = 9; });
+    refused_after(save, "a delivery that pays nothing", [&](Json& j) { delivery(j, 0)["points"] = 0; });
+    refused_after(save, "a delivery wanting a building", [&](Json& j) {
+        delivery(j, 0)["wants"].push_back({{"item", "TransportBelt"}, {"count", 5}});
+    });
+    refused_after(save, "a delivery wanting one item twice",
+                  [&](Json& j) { delivery(j, 0)["wants"].push_back(delivery(j, 0)["wants"][0]); });
+    refused_after(save, "a delivery complete before the one it comes after",
+                  [&](Json& j) { delivery(j, kThird)["done"] = true; });
+    refused_after(save, "something delivered toward a delivery not open yet",
+                  [&](Json& j) { delivery(j, kSecond)["delivered"] = {{wanted, 1}}; });
+    refused_after(save, "a complete delivery with something delivered toward it",
+                  [&](Json& j) { delivery(j, 0)["delivered"] = {{delivery(j, 0)["wants"][0]["item"], 1}}; });
+    refused_after(save, "a negative earned", [](Json& j) { progress(j)["earned"] = -1; });
+    refused_after(save, "a delivery seed that isn't a number", [](Json& j) { progress(j)["delivery_seed"] = "x"; });
+    refused_after(save, "too few delivery chain sectors",
+                  [](Json& j) { j["world"]["star_map"]["delivery_chains"].erase(0); });
+    refused_after(save, "a delivery chain in a sector that isn't there",
+                  [](Json& j) { j["world"]["star_map"]["delivery_chains"][0] = 999; });
+    // A delivery wanting only an item no longer known is left out.
+    Json unknown = save;
+    delivery(unknown, kThird)["wants"] = Json::parse(R"([{"item": "Unobtainium", "count": 5}])");
+    delivery(unknown, kThird + 1)["wants"] = Json::parse(R"([{"item": "Unobtainium", "count": 5}])");
+    const std::optional<LoadedSave> loaded = load_text(unknown.dump(), error);
+    assert(loaded && loaded->world.get_fleet().get_progress().delivery_count() == p.delivery_count() - 2);
 }
 
 // What's left to gather in each sector loads back as it was.
@@ -1040,6 +1164,8 @@ int main() {
     test_request_round_trip();
     test_before_requests();
     test_delivery_progress();
+    test_old_save_goes_on();
+    test_made_up_refused();
     test_provider_round_trip();
     test_reserves_round_trip();
     test_determinism();

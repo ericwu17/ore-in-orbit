@@ -124,9 +124,21 @@ and a frontier outpost), each marked on the star map with a green diamond
 while it has a request open (a hollow one while its next request waits on a
 tech). Hover a sector on the map to see what it asks
 for, how much is in, and what it pays. Each sector asks for one delivery at
-a time, the next once that one is made, each asking for more, and for parts
-further up the production chain, than the one before; make them in any
-order, in whichever sectors suit. Fly a ship there, belt the goods into a
+a time, the next once that one is made; make them in any order, in
+whichever sectors suit. No delivery is written out by hand: each game makes
+its own, from its map's seed, out of each sector's line of goods.
+
+- The electronics works, the observatory and the frontier outpost each ask
+  for four, each asking for more, and for parts needing later techs, than
+  the one before (about 5, 11, 20 and 34 currency's worth); then they're
+  done.
+- The shipyard (next to home) and the fuel depot keep ordering for good:
+  standing orders, a new one made up as soon as the last is made, from the
+  goods in their line the player can make by then (the most advanced
+  first), so it's open at once. Each aims to pay 6 currency plus a tenth of
+  all the currency earned so far, so they grow with the factory.
+
+Fly a ship there, belt the goods into a
 provider on it, and the provider hands them straight over, 12 a second,
 and they're used up. A provider holds nothing: it only takes what the
 delivery still wants, and what requesters there are ready for, so a
@@ -168,7 +180,10 @@ is for and the deliveries waiting on it.
 - Tier 7, the capstones: Starforge (Fabricator Mk3), after Fabrication and
   Processors; Carrier hull, after Frigate hull and Processors.
 
-Every delivery pays 402 currency in all, and every tech costs 375.
+Every tech costs 375 currency in all. The finite deliveries pay about 210
+of it; the standing orders the rest (a player who makes every delivery
+they can has bought the whole tree after about a dozen of them, with about
+400 earned), and keep paying after.
 
 ### The fleet
 
@@ -591,11 +606,13 @@ One directory per layer under `src/`; includes name their layer
     action kept as what it changed at each building's top-left cell
     (before and after, as blueprint pieces), and undoing the last one, all
     or nothing.
-  - `deliveries.h/.cpp` — the deliveries (their chains, what each wants,
-    what each pays), the techs (price, what each comes after, what it
-    unlocks) and `Progress`, the fleet's way through them (deliveries made,
-    currency, techs bought; every bridge shares one), which gates
-    hand-crafting and machine recipes.
+  - `deliveries.h/.cpp` — the delivery chains (each sector's line of goods,
+    finite or endless) and how a game's deliveries are made up from them,
+    the techs (price, what each comes after, what it unlocks) and
+    `Progress`, the fleet's way through them (the deliveries made up so far
+    and how far along each is, currency to spend and earned all game, techs
+    bought; every bridge shares one), which gates hand-crafting and machine
+    recipes.
   - `fleet.h/.cpp` — `Fleet`: the player's ships (`FleetShip`: an id, a
     name, a `Ship` and the sector it's in), the `Progress` they share,
     building a new ship in a layout, cargo pods in flight between ships

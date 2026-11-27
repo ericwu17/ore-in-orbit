@@ -104,6 +104,44 @@ Inventory load_inventory(const Json& j) {
     return inv;
 }
 
+// The deliveries every game had before they were made up per game, chain
+// by chain, each chain in order: what saves from then name theirs by (their
+// progress, and the sector each was taken in).
+std::vector<Delivery> table_deliveries() {
+    using enum ItemKind;
+    struct Row {
+        const char* name;
+        int chain;
+        std::vector<ItemStack> wants;
+    };
+    static const std::vector<Row> rows = {
+        {"Hull plating", 0, {{IronPlate, 60}, {Gear, 30}}},
+        {"Girders", 0, {{Steel, 40}, {Gear, 40}}},
+        {"Frame order", 0, {{StructuralFrame, 30}, {Steel, 40}}},
+        {"Armored keel", 0, {{StructuralFrame, 60}, {IridiumPlate, 60}}},
+        {"Wiring loom", 1, {{CopperPlate, 40}, {Circuit, 40}}},
+        {"Control boards", 1, {{Circuit, 100}, {Glass, 30}}},
+        {"Guidance cores", 1, {{AdvancedCircuit, 50}, {Plastic, 30}}},
+        {"Mainframe", 1, {{Processor, 30}, {AdvancedCircuit, 40}}},
+        {"Fuel run", 2, {{FuelCell, 40}, {IronPlate, 40}}},
+        {"Tanker contract", 2, {{FuelCell, 80}, {Steel, 20}}},
+        {"Reactor feed", 2, {{FuelCell, 120}, {Silicon, 40}, {Steel, 20}}},
+        {"Picket resupply", 2, {{FuelCell, 150}, {FocusCrystal, 30}}},
+        {"Lens blanks", 3, {{Glass, 50}, {CopperPlate, 30}}},
+        {"Telescope mounts", 3, {{Glass, 80}, {Steel, 30}}},
+        {"Sensor array", 3, {{Silicon, 80}, {Glass, 100}, {AdvancedCircuit, 20}}},
+        {"Deep-field optics", 3, {{FocusCrystal, 40}, {Glass, 120}}},
+        {"Outpost kit", 4, {{Steel, 30}, {Circuit, 50}}},
+        {"Habitat ring", 4, {{StructuralFrame, 20}, {AdvancedCircuit, 20}}},
+        {"Iridium bulkheads", 4, {{IridiumPlate, 100}, {StructuralFrame, 40}}},
+        {"Command spire", 4, {{Processor, 40}, {IridiumPlate, 80}, {FocusCrystal, 20}}},
+    };
+    std::vector<Delivery> table;
+    for (const Row& row : rows)
+        table.push_back({row.name, row.chain, row.wants, delivery_points(row.wants)});
+    return table;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -201,36 +239,124 @@ struct SaveAccess {
         }
     }
 
-    // The fleet's progress: by delivery name, the complete ones
-    // ({"done": true}) and those with something delivered toward them
-    // ({"done": false, "delivered": {item counts}}), the rest left out; the
-    // points to spend; and the techs bought, by name.
+    // The fleet's progress: the seed its deliveries are made up from, and
+    // every delivery made up so far, in order (name, chain, what it wants,
+    // what it pays, complete, and what has been delivered toward it); the
+    // points to spend and earned all game; and the techs bought, by name.
     static Json save_progress(const Progress& progress) {
-        Json deliveries = Json::object();
-        const std::vector<Delivery>& table = all_deliveries();
-        for (std::size_t d = 0; d < table.size(); ++d) {
-            if (progress.complete_[d]) {
-                deliveries[table[d].name] = {{"done", true}};
-                continue;
-            }
+        Json deliveries = Json::array();
+        for (std::size_t d = 0; d < progress.deliveries_.size(); ++d) {
+            const Delivery& delivery = progress.deliveries_[d];
+            Json wants = Json::array();
             Json delivered = Json::object();
-            for (const ItemStack& want : table[d].wants)
-                if (const int n = progress.delivered(d, want.kind); n > 0)
+            for (const ItemStack& want : delivery.wants) {
+                wants.push_back({{"item", item_id(want.kind)}, {"count", want.count}});
+                if (const int n = progress.delivered(d, want.kind); n > 0 && !progress.complete_[d])
                     delivered[item_id(want.kind)] = n;
+            }
+            Json jd = {{"name", delivery.name},
+                       {"chain", delivery.chain},
+                       {"wants", std::move(wants)},
+                       {"points", delivery.points},
+                       {"done", static_cast<bool>(progress.complete_[d])}};
             if (!delivered.empty())
-                deliveries[table[d].name] = {{"done", false}, {"delivered", std::move(delivered)}};
+                jd["delivered"] = std::move(delivered);
+            deliveries.push_back(std::move(jd));
         }
         Json techs = Json::array();
         for (std::size_t t = 0; t < all_techs().size(); ++t)
             if (progress.bought_[t])
                 techs.push_back(all_techs()[t].name);
-        Json j = {{"deliveries", std::move(deliveries)}, {"points", progress.points_}, {"techs", std::move(techs)}};
+        Json j = {{"delivery_seed", progress.seed_},
+                  {"deliveries", std::move(deliveries)},
+                  {"points", progress.points_},
+                  {"earned", progress.earned_},
+                  {"techs", std::move(techs)}};
         // The kinds of weapon found.
         Json found = Json::array();
         for (const ItemKind w : progress.found)
             found.push_back(item_id(w));
         j["found_weapons"] = std::move(found);
         return j;
+    }
+
+    // The deliveries of a save from before they were made up per game (an
+    // object of them by name, from the one table every game had): that
+    // table's, as it was, with the complete ones ({"done": true}) and those
+    // with something delivered toward them ({"done": false, "delivered":
+    // {item counts}}) as saved. One no longer known is left out.
+    static void load_table_deliveries(const Json& deliveries, Progress& progress) {
+        const std::vector<Delivery> table = table_deliveries();
+        progress.deliveries_ = table;
+        progress.complete_.assign(table.size(), false);
+        progress.delivered_.assign(table.size(), std::array<int, kItemKindCount>{});
+        std::vector<std::pair<std::size_t, const Json*>> partial;
+        for (const auto& [name, jd] : deliveries.items()) {
+            const auto known = std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
+            if (known == table.end())
+                continue;
+            const auto d = static_cast<std::size_t>(known - table.begin());
+            if (jd.at("done").get<bool>())
+                progress.complete_[d] = true;
+            else
+                partial.emplace_back(d, &jd);
+        }
+        for (const auto& [d, jd] : partial)
+            if (const auto delivered = jd->find("delivered"); delivered != jd->end())
+                load_delivered(*delivered, d, progress);
+    }
+
+    // What was delivered toward delivery `d` (not complete), by item.
+    static void load_delivered(const Json& delivered, std::size_t d, Progress& progress) {
+        const Delivery& delivery = progress.deliveries_[d];
+        if (!delivered.is_object())
+            throw LoadError("expected an object of item counts, not " + delivered.dump());
+        for (const auto& [id, count] : delivered.items()) {
+            const std::optional<ItemKind> kind = load_item(Json(id));
+            if (!kind)
+                continue;
+            const std::vector<ItemStack>& wants = delivery.wants;
+            const auto want = std::find_if(wants.begin(), wants.end(), [&](const ItemStack& w) { return w.kind == *kind; });
+            if (want == wants.end())
+                throw LoadError(std::string(id) + " delivered toward " + delivery.name + ", which doesn't want it");
+            progress.delivered_[d][static_cast<std::size_t>(*kind)] = static_cast<int>(load_int(count, 0, want->count));
+        }
+    }
+
+    // The deliveries as saved, each made up for the game it was saved from.
+    // A delivery wanting only items no longer known is left out, as is
+    // what it wants of one.
+    static void load_made_up_deliveries(const Json& deliveries, Progress& progress) {
+        progress.deliveries_.clear();
+        progress.complete_.clear();
+        progress.delivered_.clear();
+        for (const Json& jd : load_array(deliveries, "deliveries")) {
+            Delivery delivery;
+            delivery.name = load_string(jd.at("name"), "a delivery name");
+            delivery.chain = static_cast<int>(load_int(jd.at("chain"), 0, kDeliveryChains - 1));
+            for (const Json& jw : load_array(jd.at("wants"), "a delivery's wants")) {
+                const std::optional<ItemKind> kind = load_item(jw.at("item"));
+                if (!kind)
+                    continue;
+                if (item_category(*kind) == ItemCategory::Placeable)
+                    throw LoadError(delivery.name + " wants a building");
+                if (std::any_of(delivery.wants.begin(), delivery.wants.end(),
+                                [&](const ItemStack& w) { return w.kind == *kind; }))
+                    throw LoadError(delivery.name + " wants " + item_id(*kind) + " twice");
+                delivery.wants.push_back({*kind, static_cast<int>(load_int(jw.at("count"), 1, 100'000'000))});
+            }
+            delivery.points = static_cast<int>(load_int(jd.at("points"), 1, 1'000'000'000));
+            if (delivery.wants.empty())
+                continue;
+            progress.deliveries_.push_back(std::move(delivery));
+            progress.complete_.push_back(jd.at("done").get<bool>());
+            progress.delivered_.push_back({});
+            if (const auto delivered = jd.find("delivered"); delivered != jd.end()) {
+                if (progress.complete_.back())
+                    throw LoadError(progress.deliveries_.back().name + " complete, with some delivered toward it");
+                load_delivered(*delivered, progress.deliveries_.size() - 1, progress);
+            }
+        }
     }
 
     // A delivery or tech no longer known is left out, and what was delivered
@@ -254,52 +380,8 @@ struct SaveAccess {
                 for (const std::size_t before : tech_prerequisites(t))
                     if (!progress.bought_[before])
                         throw LoadError(std::string(techs[t].name) + " bought before " + techs[before].name);
-        const Json& deliveries = j.at("deliveries");
-        if (!deliveries.is_object())
-            throw LoadError("expected an object of deliveries, not " + deliveries.dump());
-        const std::vector<Delivery>& table = all_deliveries();
-        // The complete ones first, so the rest can be checked against them.
-        std::vector<std::pair<std::size_t, const Json*>> partial;
-        for (const auto& [name, jd] : deliveries.items()) {
-            const auto known = std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
-            if (known == table.end())
-                continue;
-            const auto d = static_cast<std::size_t>(known - table.begin());
-            if (jd.at("done").get<bool>())
-                progress.complete_[d] = true;
-            else
-                partial.emplace_back(d, &jd);
-        }
-        for (std::size_t d = 0; d < table.size(); ++d)
-            if (progress.complete_[d]) {
-                if (const std::optional<std::size_t> before = delivery_before(d); before && !progress.complete_[*before])
-                    throw LoadError(std::string(table[d].name) + " complete before " + table[*before].name);
-                for (const ItemStack& want : table[d].wants)
-                    progress.delivered_[d][static_cast<std::size_t>(want.kind)] = want.count;
-            }
-        for (const auto& [d, jd] : partial) {
-            if (!progress.open(d))
-                throw LoadError(std::string("something delivered toward ") + table[d].name + ", which isn't open");
-            const Json& delivered = jd->at("delivered");
-            if (!delivered.is_object())
-                throw LoadError("expected an object of item counts, not " + delivered.dump());
-            for (const auto& [id, count] : delivered.items()) {
-                const std::optional<ItemKind> kind = load_item(Json(id));
-                if (!kind)
-                    continue;
-                const std::vector<ItemStack>& wants = table[d].wants;
-                const auto want = std::find_if(wants.begin(), wants.end(), [&](const ItemStack& w) { return w.kind == *kind; });
-                if (want == wants.end())
-                    throw LoadError(std::string(id) + " delivered toward " + table[d].name + ", which doesn't want it");
-                progress.delivered_[d][static_cast<std::size_t>(*kind)] = static_cast<int>(load_int(count, 0, want->count));
-            }
-            // A delivery completes as soon as everything it wants is in.
-            if (std::all_of(table[d].wants.begin(), table[d].wants.end(), [&](const ItemStack& w) {
-                    return progress.delivered(d, w.kind) >= w.count;
-                }))
-                throw LoadError(std::string("everything ") + table[d].name + " wants delivered, but not complete");
-        }
-        // The weapons found (none, without the list).
+        // The weapons found (none, without the list): before the
+        // deliveries, which check what is open.
         if (const auto found = j.find("found_weapons"); found != j.end())
             for (const Json& w : load_array(*found, "found weapons")) {
                 const std::optional<ItemKind> weapon = load_item(w);
@@ -310,6 +392,55 @@ struct SaveAccess {
                 if (!progress.add_found(*weapon))
                     throw LoadError(std::string(item_id(*weapon)) + " found twice");
             }
+        // Saved with the seed since deliveries were made up per game; before
+        // then, the one table every game had.
+        if (const auto seed = j.find("delivery_seed"); seed != j.end()) {
+            if (!seed->is_number_unsigned())
+                throw LoadError("expected the delivery seed, not " + seed->dump());
+            progress.seed_ = seed->get<std::uint64_t>();
+        }
+        const Json& deliveries = j.at("deliveries");
+        if (deliveries.is_object())
+            load_table_deliveries(deliveries, progress);
+        else
+            load_made_up_deliveries(deliveries, progress);
+        // Each chain's complete ones before the rest, something delivered
+        // only toward open ones, and none with everything in but not complete.
+        for (std::size_t d = 0; d < progress.deliveries_.size(); ++d) {
+            const Delivery& delivery = progress.deliveries_[d];
+            if (progress.complete_[d]) {
+                if (const std::optional<std::size_t> before = progress.delivery_before(d);
+                    before && !progress.complete_[*before])
+                    throw LoadError(delivery.name + " complete before " + progress.deliveries_[*before].name);
+                for (const ItemStack& want : delivery.wants)
+                    progress.delivered_[d][static_cast<std::size_t>(want.kind)] = want.count;
+                continue;
+            }
+            const bool any_in = std::any_of(delivery.wants.begin(), delivery.wants.end(),
+                                            [&](const ItemStack& w) { return progress.delivered(d, w.kind) > 0; });
+            if (any_in && !progress.open(d))
+                throw LoadError("something delivered toward " + delivery.name + ", which isn't open");
+            // A delivery completes as soon as everything it wants is in.
+            if (std::all_of(delivery.wants.begin(), delivery.wants.end(),
+                            [&](const ItemStack& w) { return progress.delivered(d, w.kind) >= w.count; }))
+                throw LoadError("everything " + delivery.name + " wants delivered, but not complete");
+        }
+        // Earned all game: saved since endless deliveries; before then, at
+        // least what's to spend and what the techs bought cost, and what the
+        // deliveries made paid.
+        long long spent = 0;
+        long long paid = 0;
+        for (std::size_t t = 0; t < techs.size(); ++t)
+            spent += progress.bought_[t] ? techs[t].cost : 0;
+        for (std::size_t d = 0; d < progress.deliveries_.size(); ++d)
+            paid += progress.complete_[d] ? progress.deliveries_[d].points : 0;
+        if (const auto earned = j.find("earned"); earned != j.end())
+            progress.earned_ = load_int(*earned, 0, 1'000'000'000'000'000);
+        else
+            progress.earned_ = std::max(static_cast<long long>(progress.points_) + spent, paid);
+        // An endless chain with nothing left to make (an older save's, its
+        // table done) gets its next.
+        progress.extend_endless();
         return progress;
     }
 
@@ -741,11 +872,8 @@ struct SaveAccess {
                 {"visited", s.visited},
             });
         }
-        // Where each delivery is taken, by name.
-        Json deliveries = Json::object();
-        for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-            deliveries[all_deliveries()[d].name] = map.delivery_sector(d);
-        return {{"sectors", std::move(sectors)}, {"deliveries", std::move(deliveries)}};
+        // Where each delivery chain is taken, chain by chain.
+        return {{"sectors", std::move(sectors)}, {"delivery_chains", map.chain_sectors}};
     }
 
     // Checks the links: both ways, none to itself or twice, and every
@@ -804,22 +932,34 @@ struct SaveAccess {
         }
         if (std::find(reached.begin(), reached.end(), false) != reached.end())
             throw LoadError("a sector out of reach of home");
-        // Every delivery known now is taken somewhere (one no longer known
-        // is left out).
-        const Json& deliveries = j.at("deliveries");
-        if (!deliveries.is_object())
-            throw LoadError("expected an object of delivery sectors, not " + deliveries.dump());
-        const std::vector<Delivery>& table = all_deliveries();
-        map.delivery_sectors.assign(table.size(), -1);
-        for (const auto& [name, sector] : deliveries.items()) {
-            const auto known = std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
-            if (known != table.end())
-                map.delivery_sectors[static_cast<std::size_t>(known - table.begin())] =
-                    static_cast<int>(load_int(sector, 0, n - 1));
+        // Where each delivery chain is taken: saved by chain since
+        // deliveries were made up per game; before then, by the name of
+        // each delivery of the one table (a chain's sector is its
+        // deliveries', and one no longer known is left out).
+        map.chain_sectors.assign(kDeliveryChains, -1);
+        if (const auto chains = j.find("delivery_chains"); chains != j.end()) {
+            const Json& list = load_array(*chains, "delivery chain sectors");
+            if (list.size() != static_cast<std::size_t>(kDeliveryChains))
+                throw LoadError("expected a sector for each of " + std::to_string(kDeliveryChains) +
+                                " delivery chains");
+            for (std::size_t c = 0; c < list.size(); ++c)
+                map.chain_sectors[c] = static_cast<int>(load_int(list[c], 0, n - 1));
+        } else {
+            const Json& deliveries = j.at("deliveries");
+            if (!deliveries.is_object())
+                throw LoadError("expected an object of delivery sectors, not " + deliveries.dump());
+            const std::vector<Delivery> table = table_deliveries();
+            for (const auto& [name, sector] : deliveries.items()) {
+                const auto known =
+                    std::find_if(table.begin(), table.end(), [&](const Delivery& d) { return name == d.name; });
+                if (known != table.end())
+                    map.chain_sectors[static_cast<std::size_t>(known->chain)] =
+                        static_cast<int>(load_int(sector, 0, n - 1));
+            }
         }
-        for (std::size_t d = 0; d < table.size(); ++d)
-            if (map.delivery_sectors[d] < 0)
-                throw LoadError(std::string("no sector for the delivery ") + table[d].name);
+        for (int c = 0; c < kDeliveryChains; ++c)
+            if (map.chain_sectors[static_cast<std::size_t>(c)] < 0)
+                throw LoadError(std::string("no sector for the ") + chain_role(c) + "'s deliveries");
         return map;
     }
 

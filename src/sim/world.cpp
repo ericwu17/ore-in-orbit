@@ -30,12 +30,15 @@ bool engines_ready(const Ship& ship) {
 
 }  // namespace
 
-World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {}
+World::World(std::uint64_t map_seed) : map(StarMap::generate(map_seed)), rng{map_seed ^ 0x5EC7012ull} {
+    // The deliveries, made up from the same seed (another stream of it).
+    fleet.get_progress().make_up_deliveries(map_seed ^ 0xDE11E7ull);
+}
 
 bool World::shown(int i) const {
     if (revealed || map.known(i))
         return true;
-    const std::vector<std::size_t> here = map.deliveries_at(i);
+    const std::vector<std::size_t> here = map.deliveries_at(i, fleet.get_progress());
     return std::any_of(here.begin(), here.end(), [&](std::size_t d) { return fleet.get_progress().open(d); });
 }
 

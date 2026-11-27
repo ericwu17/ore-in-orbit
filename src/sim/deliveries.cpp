@@ -2,44 +2,180 @@
 // (see deliveries.h).
 #include "sim/deliveries.h"
 
+#include "sim/rng.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
-const std::vector<Delivery>& all_deliveries() {
+namespace {
+
+// One step of a finite chain: what its main good is picked from (each of
+// the same tech tier, so a step never needs a lower tier than the one
+// before it), and what goes with it (no higher tier).
+struct ChainStep {
+    std::vector<ItemKind> main;
+    std::vector<ItemKind> side;
+};
+
+// A sector's line of goods. A finite chain's steps; an endless one picks
+// from `items`, whatever of them the player can make by then.
+struct ChainTheme {
+    const char* role;
+    bool endless;
+    std::vector<ItemKind> items;          // endless: everything it may ask for
+    std::vector<ChainStep> steps;         // finite: kFiniteChainLength of them
+    std::vector<const char*> nouns;       // to name its deliveries by
+};
+
+const std::vector<ChainTheme>& themes() {
     using enum ItemKind;
-    // Five chains, one per sector, nearest home first. Each starts with
-    // what a new ship can make (plates, gears, circuits, glass, fuel cells;
-    // the last chain with steel), and climbs from there; a delivery opens
-    // once the techs for everything it asks for are bought.
-    static const std::vector<Delivery> deliveries = {
-        // Chain 0: a shipyard.
-        {"Hull plating", 0, {{IronPlate, 60}, {Gear, 30}}},
-        {"Girders", 0, {{Steel, 40}, {Gear, 40}}},
-        {"Frame order", 0, {{StructuralFrame, 30}, {Steel, 40}}},
-        {"Armored keel", 0, {{StructuralFrame, 60}, {IridiumPlate, 60}}},
-        // Chain 1: an electronics works.
-        {"Wiring loom", 1, {{CopperPlate, 40}, {Circuit, 40}}},
-        {"Control boards", 1, {{Circuit, 100}, {Glass, 30}}},
-        {"Guidance cores", 1, {{AdvancedCircuit, 50}, {Plastic, 30}}},
-        {"Mainframe", 1, {{Processor, 30}, {AdvancedCircuit, 40}}},
-        // Chain 2: a fuel depot.
-        {"Fuel run", 2, {{FuelCell, 40}, {IronPlate, 40}}},
-        {"Tanker contract", 2, {{FuelCell, 80}, {Steel, 20}}},
-        {"Reactor feed", 2, {{FuelCell, 120}, {Silicon, 40}, {Steel, 20}}},
-        {"Picket resupply", 2, {{FuelCell, 150}, {FocusCrystal, 30}}},
-        // Chain 3: an observatory.
-        {"Lens blanks", 3, {{Glass, 50}, {CopperPlate, 30}}},
-        {"Telescope mounts", 3, {{Glass, 80}, {Steel, 30}}},
-        {"Sensor array", 3, {{Silicon, 80}, {Glass, 100}, {AdvancedCircuit, 20}}},
-        {"Deep-field optics", 3, {{FocusCrystal, 40}, {Glass, 120}}},
-        // Chain 4: a frontier outpost, the furthest out.
-        {"Outpost kit", 4, {{Steel, 30}, {Circuit, 50}}},
-        {"Habitat ring", 4, {{StructuralFrame, 20}, {AdvancedCircuit, 20}}},
-        {"Iridium bulkheads", 4, {{IridiumPlate, 100}, {StructuralFrame, 40}}},
-        {"Command spire", 4, {{Processor, 40}, {IridiumPlate, 80}, {FocusCrystal, 20}}},
+    // Five chains, one per sector, nearest home first. The nearest, a
+    // shipyard, and the fuel depot keep ordering for good; the rest have
+    // four orders each, the first of what a new ship can make (plates,
+    // gears, circuits, glass; the furthest, the frontier outpost's, steel,
+    // so it's out of sight till then), climbing from there.
+    static const std::vector<ChainTheme> table = {
+        {"Shipyard", true, {IronPlate, Gear, Steel, StructuralFrame, IridiumPlate}, {},
+         {"hull order", "keel contract", "dock requisition"}},
+        {"Electronics works", false, {},
+         {
+             {{Circuit}, {CopperPlate, IronPlate}},
+             {{Steel}, {Circuit, Glass}},
+             {{AdvancedCircuit}, {Circuit, Plastic, Silicon}},
+             {{Processor}, {AdvancedCircuit, Plastic}},
+         },
+         {"wiring order", "board contract", "component run"}},
+        {"Fuel depot", true, {FuelCell, IronPlate, Steel, Silicon, FocusCrystal}, {},
+         {"fuel run", "tanker contract", "reactor feed"}},
+        {"Observatory", false, {},
+         {
+             {{Glass}, {CopperPlate, IronPlate}},
+             {{Steel, FocusCrystal}, {Glass, CopperPlate}},
+             {{AdvancedCircuit}, {Glass, Silicon}},
+             {{IridiumPlate}, {Glass, FocusCrystal, AdvancedCircuit}},
+         },
+         {"lens order", "mirror contract", "instrument run"}},
+        {"Frontier outpost", false, {},
+         {
+             {{Steel}, {Circuit, Gear}},
+             {{StructuralFrame}, {Steel, Circuit}},
+             {{AdvancedCircuit}, {StructuralFrame, Plastic}},
+             {{Processor}, {IridiumPlate, StructuralFrame}},
+         },
+         {"supply drop", "habitat contract", "outpost kit"}},
     };
-    return deliveries;
+    return table;
+}
+
+// The tech tier `kind` needs: 0 when unlocked from the start.
+int item_tier(ItemKind kind) {
+    const std::optional<std::size_t> t = tech_unlocking(kind);
+    return t ? tech_tier(*t) : 0;
+}
+
+// A random number stream for step `step` of chain `chain`, from `seed`.
+Rng step_rng(std::uint64_t seed, int chain, int step) {
+    const std::uint64_t c = static_cast<unsigned>(chain);
+    const std::uint64_t n = static_cast<unsigned>(step);
+    Rng mix{seed ^ (c * 0x9E3779B97F4A7C15ull) ^ (n * 0xC2B2AE3D27D4EB4Full)};
+    return Rng{mix.next()};
+}
+
+template <typename T>
+const T& pick(Rng& rng, const std::vector<T>& from) {
+    return from[static_cast<std::size_t>(rng.range(0, static_cast<int>(from.size()) - 1))];
+}
+
+// Goods taking about `raw` raw resources: `main` the most of it (three
+// fifths to three quarters), `side` (if any) the rest, each rounded to a
+// whole five (at least five).
+std::vector<ItemStack> goods(Rng& rng, double raw, ItemKind main, std::optional<ItemKind> side) {
+    const double share = side ? 0.6 + 0.15 * static_cast<double>(rng.unit()) : 1.0;
+    const auto count = [](ItemKind kind, double part) {
+        const double per = std::max(1.0, raw_resources_in(kind, 1.0));
+        return std::max(5, static_cast<int>(std::lround(part / per / 5.0)) * 5);
+    };
+    std::vector<ItemStack> wants = {{main, count(main, raw * share)}};
+    if (side)
+        wants.push_back({*side, count(*side, raw * (1.0 - share))});
+    return wants;
+}
+
+Delivery make_delivery(const ChainTheme& theme, Rng& rng, int chain, int step, std::vector<ItemStack> wants) {
+    std::string name = item_name(wants.front().kind);
+    name += std::string(" ") + pick(rng, theme.nouns);
+    if (theme.endless)
+        name += " #" + std::to_string(step + 1);
+    const int points = delivery_points(wants);
+    return {std::move(name), chain, std::move(wants), points};
+}
+
+// Step `step` of finite chain `chain`.
+Delivery finite_delivery(std::uint64_t seed, int chain, int step) {
+    const ChainTheme& theme = themes()[static_cast<std::size_t>(chain)];
+    const ChainStep& at = theme.steps[static_cast<std::size_t>(step)];
+    Rng rng = step_rng(seed, chain, step);
+    const ItemKind main = pick(rng, at.main);
+    std::vector<ItemKind> sides;
+    for (const ItemKind k : at.side)
+        if (k != main)
+            sides.push_back(k);
+    const std::optional<ItemKind> side = sides.empty() ? std::nullopt : std::optional(pick(rng, sides));
+    const double raw = kFiniteStepPoints[static_cast<std::size_t>(step)] * kRawPerPoint;
+    return make_delivery(theme, rng, chain, step, goods(rng, raw, main, side));
+}
+
+// Step `step` of endless chain `chain`, from what `unlocked` says can be
+// made, sized for `earned` points earned so far. Its main good is one of
+// the two most advanced the player can make (highest tier, then most raw
+// resources a piece), and anything else unlocked goes with it.
+template <typename Unlocked>
+Delivery endless_delivery(std::uint64_t seed, int chain, int step, long long earned, Unlocked unlocked) {
+    const ChainTheme& theme = themes()[static_cast<std::size_t>(chain)];
+    Rng rng = step_rng(seed, chain, step);
+    std::vector<ItemKind> can;
+    for (const ItemKind k : theme.items)
+        if (unlocked(k))
+            can.push_back(k);
+    assert(!can.empty() && "an endless chain asks for something made from the start");
+    std::stable_sort(can.begin(), can.end(), [](ItemKind a, ItemKind b) {
+        if (item_tier(a) != item_tier(b))
+            return item_tier(a) > item_tier(b);
+        return raw_resources_in(a, 1.0) > raw_resources_in(b, 1.0);
+    });
+    const std::size_t top = std::min<std::size_t>(2, can.size());
+    const std::size_t m = static_cast<std::size_t>(rng.range(0, static_cast<int>(top) - 1));
+    const ItemKind main = can[m];
+    can.erase(can.begin() + static_cast<std::ptrdiff_t>(m));
+    const std::optional<ItemKind> side = can.empty() ? std::nullopt : std::optional(pick(rng, can));
+    const double raw = endless_target_points(earned) * kRawPerPoint;
+    return make_delivery(theme, rng, chain, step, goods(rng, raw, main, side));
+}
+
+}  // namespace
+
+bool chain_endless(int chain) {
+    return themes()[static_cast<std::size_t>(chain)].endless;
+}
+
+const char* chain_role(int chain) {
+    return themes()[static_cast<std::size_t>(chain)].role;
+}
+
+std::vector<ItemKind> chain_items(int chain) {
+    const ChainTheme& theme = themes()[static_cast<std::size_t>(chain)];
+    std::vector<ItemKind> items = theme.items;
+    for (const ChainStep& step : theme.steps)
+        for (const std::vector<ItemKind>* list : {&step.main, &step.side})
+            for (const ItemKind k : *list)
+                if (std::find(items.begin(), items.end(), k) == items.end())
+                    items.push_back(k);
+    return items;
+}
+
+int endless_target_points(long long earned) {
+    return kEndlessBasePoints + static_cast<int>(std::lround(kEndlessEarnedShare * static_cast<double>(std::max(0LL, earned))));
 }
 
 const std::vector<Tech>& all_techs() {
@@ -99,28 +235,8 @@ std::size_t index_by_name(const std::vector<T>& table, std::string_view name) {
 
 }  // namespace
 
-std::size_t delivery_index(std::string_view name) {
-    return index_by_name(all_deliveries(), name);
-}
-
 std::size_t tech_index(std::string_view name) {
     return index_by_name(all_techs(), name);
-}
-
-std::vector<std::size_t> chain_deliveries(int chain) {
-    std::vector<std::size_t> in_chain;
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        if (all_deliveries()[d].chain == chain)
-            in_chain.push_back(d);
-    return in_chain;
-}
-
-std::optional<std::size_t> delivery_before(std::size_t d) {
-    std::optional<std::size_t> before;
-    for (std::size_t e = 0; e < d; ++e)
-        if (all_deliveries()[e].chain == all_deliveries()[d].chain)
-            before = e;
-    return before;
 }
 
 double raw_resources_in(ItemKind kind, double count) {
@@ -136,9 +252,9 @@ double raw_resources_in(ItemKind kind, double count) {
     return total;
 }
 
-int delivery_points(std::size_t d) {
+int delivery_points(const std::vector<ItemStack>& wants) {
     double raw = 0.0;
-    for (const ItemStack& s : all_deliveries()[d].wants)
+    for (const ItemStack& s : wants)
         raw += raw_resources_in(s.kind, s.count);
     return std::max(1, static_cast<int>(std::lround(raw / kRawPerPoint)));
 }
@@ -168,17 +284,6 @@ int tech_tier(std::size_t t) {
     return tier;
 }
 
-std::vector<std::size_t> deliveries_opened_by(std::size_t t) {
-    std::vector<std::size_t> opened;
-    for (std::size_t d = 0; d < all_deliveries().size(); ++d)
-        for (const ItemStack& want : all_deliveries()[d].wants)
-            if (tech_unlocking(want.kind) == t) {
-                opened.push_back(d);
-                break;
-            }
-    return opened;
-}
-
 std::optional<std::size_t> tech_unlocking(ItemKind kind) {
     const std::vector<Tech>& techs = all_techs();
     for (std::size_t i = 0; i < techs.size(); ++i) {
@@ -189,17 +294,66 @@ std::optional<std::size_t> tech_unlocking(ItemKind kind) {
     return std::nullopt;
 }
 
-Progress::Progress()
-    : complete_(all_deliveries().size(), false),
-      delivered_(all_deliveries().size(), std::array<int, kItemKindCount>{}),
-      bought_(all_techs().size(), false) {}
+Progress::Progress(std::uint64_t seed) : bought_(all_techs().size(), false) {
+    make_up_deliveries(seed);
+}
+
+void Progress::make_up_deliveries(std::uint64_t seed) {
+    seed_ = seed;
+    deliveries_.clear();
+    complete_.clear();
+    delivered_.clear();
+    for (int chain = 0; chain < kDeliveryChains; ++chain)
+        if (!chain_endless(chain))
+            for (int step = 0; step < kFiniteChainLength; ++step) {
+                deliveries_.push_back(finite_delivery(seed_, chain, step));
+                complete_.push_back(false);
+                delivered_.push_back({});
+            }
+    extend_endless();
+}
+
+void Progress::extend_endless() {
+    for (int chain = 0; chain < kDeliveryChains; ++chain) {
+        if (!chain_endless(chain) || chain_current(chain))
+            continue;
+        const int step = static_cast<int>(chain_deliveries(chain).size());
+        deliveries_.push_back(
+            endless_delivery(seed_, chain, step, earned_, [this](ItemKind k) { return unlocked(k); }));
+        complete_.push_back(false);
+        delivered_.push_back({});
+    }
+}
+
+void Progress::finish(std::size_t d) {
+    complete_[d] = true;
+    points_ += deliveries_[d].points;
+    earned_ += deliveries_[d].points;
+    extend_endless();
+}
+
+std::vector<std::size_t> Progress::chain_deliveries(int chain) const {
+    std::vector<std::size_t> in_chain;
+    for (std::size_t d = 0; d < deliveries_.size(); ++d)
+        if (deliveries_[d].chain == chain)
+            in_chain.push_back(d);
+    return in_chain;
+}
+
+std::optional<std::size_t> Progress::delivery_before(std::size_t d) const {
+    std::optional<std::size_t> before;
+    for (std::size_t e = 0; e < d; ++e)
+        if (deliveries_[e].chain == deliveries_[d].chain)
+            before = e;
+    return before;
+}
 
 bool Progress::open(std::size_t d) const {
     if (d >= complete_.size() || complete_[d])
         return false;
     if (const std::optional<std::size_t> before = delivery_before(d); before && !complete_[*before])
         return false;
-    const std::vector<ItemStack>& wants = all_deliveries()[d].wants;
+    const std::vector<ItemStack>& wants = deliveries_[d].wants;
     return std::all_of(wants.begin(), wants.end(), [&](const ItemStack& s) { return unlocked(s.kind); });
 }
 
@@ -212,8 +366,8 @@ std::vector<std::size_t> Progress::open_deliveries() const {
 }
 
 std::optional<std::size_t> Progress::chain_current(int chain) const {
-    for (const std::size_t d : chain_deliveries(chain))
-        if (!complete_[d])
+    for (std::size_t d = 0; d < deliveries_.size(); ++d)
+        if (deliveries_[d].chain == chain && !complete_[d])
             return d;
     return std::nullopt;
 }
@@ -229,7 +383,7 @@ int Progress::delivered(std::size_t d, ItemKind kind) const {
 int Progress::wanted(std::size_t d, ItemKind kind) const {
     if (!open(d))
         return 0;
-    for (const ItemStack& s : all_deliveries()[d].wants)
+    for (const ItemStack& s : deliveries_[d].wants)
         if (s.kind == kind)
             return std::max(0, s.count - delivered(d, kind));
     return 0;
@@ -240,25 +394,37 @@ bool Progress::deliver(std::size_t d, ItemKind kind, int count) {
     if (take <= 0)
         return false;
     delivered_[d][static_cast<std::size_t>(kind)] += take;
-    const std::vector<ItemStack>& wants = all_deliveries()[d].wants;
+    const std::vector<ItemStack>& wants = deliveries_[d].wants;
     const bool all_in = std::all_of(wants.begin(), wants.end(), [&](const ItemStack& s) {
         return delivered(d, s.kind) >= s.count;
     });
     if (!all_in)
         return false;
-    complete_[d] = true;
-    points_ += delivery_points(d);
+    finish(d);
     return true;
 }
 
 bool Progress::complete(std::size_t d) {
     if (!open(d))
         return false;
-    for (const ItemStack& s : all_deliveries()[d].wants)
+    for (const ItemStack& s : deliveries_[d].wants)
         delivered_[d][static_cast<std::size_t>(s.kind)] = s.count;
-    complete_[d] = true;
-    points_ += delivery_points(d);
+    finish(d);
     return true;
+}
+
+std::vector<std::size_t> Progress::deliveries_opened_by(std::size_t t) const {
+    std::vector<std::size_t> opened;
+    for (std::size_t d = 0; d < deliveries_.size(); ++d) {
+        if (complete_[d])
+            continue;
+        for (const ItemStack& want : deliveries_[d].wants)
+            if (tech_unlocking(want.kind) == t) {
+                opened.push_back(d);
+                break;
+            }
+    }
+    return opened;
 }
 
 bool Progress::for_sale(std::size_t t) const {

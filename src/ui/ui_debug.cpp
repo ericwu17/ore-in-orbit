@@ -160,13 +160,13 @@ void DrawDebugWindow(World& world, DebugControls& debug, bool* open) {
 
         ImGui::SeparatorText("Deliveries");
         Progress& progress = world.get_fleet().get_progress();
-        ImGui::Text("Done: %zu / %zu", progress.done_count(), all_deliveries().size());
+        ImGui::Text("Done: %zu, %lld %s earned all game", progress.done_count(), progress.earned(), kPointsName);
         for (const std::size_t d : progress.open_deliveries()) {
             ImGui::PushID(static_cast<int>(d));
             if (ImGui::Button("Complete"))
                 progress.complete(d);
             ImGui::SameLine();
-            ImGui::Text("D%zu: %s", d + 1, all_deliveries()[d].name);
+            ImGui::Text("D%zu: %s", d + 1, progress.delivery(d).name.c_str());
             ImGui::PopID();
         }
 

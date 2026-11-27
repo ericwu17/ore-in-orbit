@@ -66,7 +66,7 @@ float DrawBanner(const char* title, const char* subtitle, ImVec4 color, ImVec4 b
 // the grid (`grid_min`, `grid_size`). Returns its height (0 when there's
 // none).
 float DrawDeliveryBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_size) {
-    const std::size_t count = all_deliveries().size();
+    const std::size_t count = progress.delivery_count();
     std::vector<bool> done(count);
     for (std::size_t d = 0; d < count; ++d)
         done[d] = progress.done(d);
@@ -74,17 +74,18 @@ float DrawDeliveryBanner(const Progress& progress, ImVec2 grid_min, ImVec2 grid_
     if (banner.progress != &progress)
         banner = {&progress, done, 0, 0.0};  // a new or loaded game: nothing to announce
     for (std::size_t d = 0; d < count; ++d)
-        if (done[d] && !banner.seen[d]) {
+        if (done[d] && !(d < banner.seen.size() && banner.seen[d])) {
             banner.shown = d;
             banner.until = ImGui::GetTime() + 5.0;
         }
     banner.seen = done;
-    if (ImGui::GetTime() >= banner.until)
+    if (ImGui::GetTime() >= banner.until || banner.shown >= count)
         return 0.0f;
 
-    const std::string title = std::string("DELIVERY COMPLETE: ") + all_deliveries()[banner.shown].name;
-    const std::string subtitle = "+" + std::to_string(delivery_points(banner.shown)) + " " + kPointsName +
-                                 (progress.all_complete() ? ": every delivery made!" : ", to spend in the Shop");
+    const Delivery& made = progress.delivery(banner.shown);
+    const std::string title = "DELIVERY COMPLETE: " + made.name;
+    const std::string subtitle = "+" + std::to_string(made.points) + " " + kPointsName + ", to spend in the Shop" +
+                                 (chain_endless(made.chain) ? ". Another order is in" : "");
     return DrawBanner(title.c_str(), subtitle.c_str(), theme::kGood, theme::kAccent, false, grid_min, grid_size, false);
 }
 

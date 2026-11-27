@@ -419,7 +419,7 @@ void Fleet::link(Tick now, EventLog& events, const StarMap* map) {
             }
             const auto delivery = [&]() -> std::optional<std::size_t> {
                 if (map)
-                    for (const std::size_t d : map->deliveries_at(s->sector))
+                    for (const std::size_t d : map->deliveries_at(s->sector, *progress))
                         if (progress->open(d) && progress->wanted(d, *kind) > 0)
                             return d;
                 return std::nullopt;
@@ -459,9 +459,9 @@ void Fleet::limit_providers(const StarMap* map) {
                 ++room[static_cast<std::size_t>(*requester->get_filter())];
         // What open deliveries here still want.
         if (map)
-            for (const std::size_t d : map->deliveries_at(sector))
+            for (const std::size_t d : map->deliveries_at(sector, *progress))
                 if (progress->open(d))
-                    for (const ItemStack& want : all_deliveries()[d].wants)
+                    for (const ItemStack& want : progress->delivery(d).wants)
                         room[static_cast<std::size_t>(want.kind)] += progress->wanted(d, want.kind);
         // Less what the providers here took already, still to pass on.
         for (const Provider* provider : providers)

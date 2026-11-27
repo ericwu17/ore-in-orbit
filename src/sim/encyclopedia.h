@@ -7,6 +7,7 @@
 // Pure simulation layer: no imgui/SDL/OpenGL headers (see game_types.h).
 #pragma once
 
+#include "sim/deliveries.h"
 #include "sim/enemies.h"
 #include "sim/game_types.h"
 #include "sim/recipes.h"
@@ -30,8 +31,8 @@ std::vector<ItemKind> collectors_gathering(ItemKind kind);
 std::vector<ItemKind> weapons_firing(ItemKind kind);
 // The enemy classes that carry weapon `kind`, mounted or in their hold.
 std::vector<EnemyClass> enemies_carrying(ItemKind kind);
-// The deliveries asking for `kind`, in table order.
-std::vector<std::size_t> deliveries_wanting(ItemKind kind);
+// The deliveries of `progress` not yet made asking for `kind`, in order.
+std::vector<std::size_t> deliveries_wanting(const Progress& progress, ItemKind kind);
 // The ship layouts (indices into all_layouts()) whose cost takes `kind`;
 // every one, for ship starter packs.
 std::vector<std::size_t> layouts_costing(ItemKind kind);
